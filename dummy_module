@@ -1,0 +1,174 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, Dataset
+#from kradar_dataset import KRadarDataset
+
+class DummyDataset(Dataset):
+    def __init__(
+            self,
+            length=100,
+            rad_size=(256, 107, 64),
+            rae_size=(256, 107, 37), 
+            det_gt_size=(256, 107, 37)
+            ):
+         super().__init__()
+         self.length=length
+         self.rad_size=rad_size
+         self.rae_size=rae_size
+         self.det_gt_size=det_gt_size
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, index):
+        return {
+             'rad':torch.randn(*self.rad_size),
+             'rae':torch.randn(*self.rae_size),
+             'det_gt':torch.randn(*self.det_gt_size),
+        }
+
+
+
+class RadarConvBlock(nn.Module):
+    def __init__(self,in_channels,out_channels):
+        super().__init__()
+        self.model=nn.Sequential(
+            nn.Conv2d(in_channels, 128, kernel_size=3, padding=1, dilation=1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv2d(128, out_channels, kernel_size=3, padding=1, dilation=1),
+            nn.BatchNorm2d(out_channels),
+            nn.LeakyReLU(inplace=True)
+        )
+
+    def forward(self,x: torch.Tensor) -> torch.Tensor:
+        x = self.model(x)
+        return x
+    
+class Radar3DTensorEncoder(nn.Module):
+    def __init__(self,input_size,output_size):
+        super().__init__()
+        d_in, r_in, a_in = input_size
+        fd, fr, fa = output_size
+        self.fr = fr
+        self.fa = fa
+        self.conv_block_d = RadarConvBlock(in_channels=d_in, out_channels=fd)
+        self.conv_block_r = RadarConvBlock(in_channels=r_in, out_channels=fr)
+        self.conv_block_a = RadarConvBlock(in_channels=a_in, out_channels=fa)
+ 
+    def forward(self, x: torch.Tensor) : 
+        f_d: torch.Tensor = self.conv_block_d(x) 
+        x_r: torch.Tensor = f_d.permute(0, 2, 1, 3).contiguous()
+        f_r: torch.Tensor = self.conv_block_r(x_r)    
+        x_a: torch.Tensor = f_r.permute(0, 3, 2, 1).contiguous()    
+        f_a: torch.Tensor = self.conv_block_a(x_a)
+        x:   torch.Tensor = f_a.permute(0, 2, 3, 1).contiguous()                                           
+        return x
+
+class Radar3DTensorDecoder(nn.Module):
+    def __init__(self,input_size,output_size):
+        super().__init__()
+        fea_c, fea_h, fea_w = input_size
+        num_boxes, bbx_parameter = output_size
+
+        self.backbone = RadarConvBlock(
+            in_channels=fea_c,
+            out_channels=num_boxes
+        )
+        self.output_head = nn.Linear(fea_h * fea_w, bbx_parameter)  #h*w -> bbx_parameter
+
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.backbone(x) # (B, num_boxes, H, W)
+        x = x.view(x.shape[0], x.shape[1], -1)  # (B, num_boxes, H*W)
+        x = self.output_head(x)              # (B, num_boxes, pred_dim)
+        return x
+    
+
+
+class MVRSS3DModel(nn.Module):
+    def __init__(
+            self,rad_input_size,
+            rae_input_size,
+            feature_size,
+            det_gt_size
+            ):
+
+        super().__init__()
+
+        self.rad_encoder = Radar3DTensorEncoder(input_size=rad_input_size, output_size=feature_size)
+        self.rae_encoder = Radar3DTensorEncoder(input_size=rae_input_size, output_size=feature_size)
+
+        self.decoder = Radar3DTensorDecoder(input_size=feature_size, output_size=det_gt_size)
+
+        self.det_output_size = det_gt_size
+
+        num_feature_channels, H, W = feature_size
+        self.fusion = nn.Sequential(
+            nn.Conv2d(num_feature_channels*2, num_feature_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(num_feature_channels),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv2d(num_feature_channels, num_feature_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(num_feature_channels),
+            nn.LeakyReLU(inplace=True)
+        )
+
+        
+    def forward(self,batch):
+
+        rad= batch['rad']
+        rae= batch['rae']
+
+        # enoder
+        f_rad = self.rad_encoder(rad)
+        f_rae = self.rae_encoder(rae)
+
+        # latent feature fusion
+        f_fusion = torch.cat([f_rad, f_rae], dim=1)
+        fused_features = self.fusion(f_fusion)
+
+        output = self.decoder(fused_features)
+        
+        return output
+
+    
+
+if __name__ == "__main__":
+    numClasses = 10
+
+    BatchSize = 4
+    rad_input_size = (256, 107, 64)
+    rae_input_size = (256, 107, 37)
+    feature_size = (128, 24, 64)
+
+    num_boxes = 64
+    det_gt_size = (num_boxes, 7+numClasses)
+    
+    #dataset = KRadarDataset("/home/local/xinyu/KRadar/1/radar_tesseract")
+    dataset = DummyDataset(length=100,rad_size=rad_input_size, rae_size=rae_input_size,
+                           det_gt_size=det_gt_size)
+    
+    dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+
+    model = MVRSS3DModel(
+        rad_input_size=rad_input_size, 
+        rae_input_size=rae_input_size,
+        feature_size=feature_size,
+        det_gt_size=det_gt_size
+        ).to('cuda')
+    
+    # criterion_ra = nn.CrossEntropyLoss()
+    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+    
+    for i,batch in enumerate(dataloader):
+        batch = {k: v.to('cuda') for k, v in batch.items()}
+        print(batch['rad'].shape)
+        print(batch['rae'].shape)
+        print(batch['det_gt'].shape)
+        outputs = model(batch)
+        assert outputs.shape == batch['det_gt'].shape, f"Output shape {outputs.shape} does not match target shape {batch['det_gt'].shape}"
+        if outputs.shape != batch['det_gt'].shape:
+            raise ValueError(f"Output shape {outputs.shape} does not match target shape {batch['det_gt'].shape}")
+        break
