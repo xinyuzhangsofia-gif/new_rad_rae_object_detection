@@ -7,7 +7,6 @@ os.environ["MPLBACKEND"] = "TkAgg"
 import matplotlib
 matplotlib.use("TkAgg")
 from lidar2radar_transformation import read_info_label,boxes_to_corners_3d
-from lidar_visualization import get_lidar_path_os1
 from scipy.spatial.transform import Rotation
 import open3d as o3d
 import torch
@@ -21,6 +20,12 @@ def get_lidar_path_os2(pcd_dir,os2_64_idx):
         if fname.startswith(f"os2-64_{os2_64_idx}"):
             return os.path.join(pcd_dir,fname)
     raise FileNotFoundError(f"os2-64-lidar file not found for idx{os2_64_idx} in {pcd_dir}")
+
+def get_lidar_path_os1(pcd_dir,os1_128_idx):
+    for fname in sorted(os.listdir(pcd_dir)):
+        if fname.startswith(f"os1-128_{os1_128_idx}"):
+            return os.path.join(pcd_dir,fname)
+    raise FileNotFoundError(f"os1-128-lidar file not found for idx{os1_128_idx} in {pcd_dir}")
 
 
 def get_camera_path(camera_dir,cam_front_idx):
@@ -380,6 +385,7 @@ if __name__ == "__main__":
             # image_with_bbx=visualize_bbx_on_camera(camera_2d_points,camera_img,valid_mask)
             #image_with_pcd=draw_pcd_on_camera(camera_points,intensity_crop,image_with_bbx, K, point_size=1)
             image_with_pcd=draw_pcd_on_camera(camera_points,image_with_bbx, K, point_size=1)
+            #image_with_pcd=draw_pcd_on_camera(camera_points,img_undistort, K, point_size=1)
     
         cv2.imshow("camera",image_with_pcd)
         cv2.waitKey(0)

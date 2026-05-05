@@ -8,7 +8,6 @@ import matplotlib
 matplotlib.use("TkAgg")
 
 from lidar2radar_transformation_video import read_info_label,boxes_to_corners_3d
-from lidar_visualization import get_lidar_path_os1
 from scipy.spatial.transform import Rotation
 import open3d as o3d
 import torch
@@ -16,12 +15,6 @@ import os
 import cv2
 import numpy as np
 import yaml
-
-def get_lidar_path_os2(pcd_dir,os2_64_idx):
-    for fname in sorted(os.listdir(pcd_dir)):
-        if fname.startswith(f"os2-64_{os2_64_idx}"):
-            return os.path.join(pcd_dir,fname)
-    raise FileNotFoundError(f"os2-64-lidar file not found for idx{os2_64_idx} in {pcd_dir}")
 
 
 def get_camera_path(camera_dir,cam_front_idx):
@@ -234,7 +227,6 @@ def visualize_bbx_on_camera(camera_2d_points, image,valid_mask,texts=None):
 
     return image_with_bbx
 
-
 def play_camera_video(
         frame_idx=0,
         sequence=1,
@@ -317,14 +309,56 @@ if __name__ == "__main__":
     choose_camera='cam_1'      # cam_1, cam_2
     choose_lidar='os2-64'       #0:os1-128 ,1:os2-64
     calib_seq = 'calib_seq_v2'     #calib_seq , calib_seq_v2
+    display_mode = 1              #0:visualize with bbx
+                                  #1:video with bbx
+    label_dir = f'/home/local/xinyu/KRadar/{sequence}/{choose_info_label}'
+    label_files = sorted([f for f in os.listdir(label_dir) if f.endswith('.txt')])
+    camera_dir = f'/home/local/xinyu/KRadar/{sequence}/{choose_camera}_front'
+    if sequence < 10:
+        path_calib = f'/home/local/xinyu/KRadar/{calib_seq}/seq_0{sequence}/{choose_camera}.yml'
+    else:
+        path_calib = f'/home/local/xinyu/KRadar/{calib_seq}/seq_{sequence}/{choose_camera}.yml'
+    if display_mode ==0:
+        for frame_idx in range(frame_idx, len(label_files), 20):
+            print(f"frame_idx={frame_idx}")
+        
+            label_path = os.path.join(label_dir, label_files[frame_idx])
+            info_label = read_info_label(label_path)
 
+            objects = info_label['objects']
+            cam_front_idx = info_label['cam_front_idx']
+            texts = [f"{obj['detec_sensor']} | {obj['label']}"for obj in objects]
+            
+            K, distortion, R, T = load_full_camera_calib(path_calib)
+            
+            camera_path = get_camera_path(camera_dir, cam_front_idx)
+            camera_img = cv2.imread(camera_path, cv2.IMREAD_COLOR)
+            
+            boxes = torch.stack([d['box'] for d in objects], dim=0)
+            
+            lidar_corners = boxes_to_corners_3d(boxes)
+            camera_corners = transform_lidar_to_camera(lidar_corners,T,R)
 
-    play_camera_video(
-        frame_idx,
-        sequence,
-        choose_info_label,
-        choose_camera,
-        calib_seq,
-        step=1,
-        fps=10
-    )
+            img_undistort = undistort_image(
+                camera_img,
+                K=K,
+                distortion=distortion,
+                )
+            
+            camera_2d_points,valid_mask=camera_corners_to_2d_undistort(camera_corners,K)
+            image_with_bbx=visualize_bbx_on_camera(camera_2d_points,img_undistort,valid_mask,texts)
+
+            cv2.imshow("camera",image_with_bbx)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+    
+    elif display_mode==1:
+        play_camera_video(
+                        frame_idx,
+                        sequence,
+                        choose_info_label,
+                        choose_camera,
+                        calib_seq,
+                        step=1,
+                        fps=10
+                    )

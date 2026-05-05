@@ -30,6 +30,8 @@ def read_info_label(label_path):
         for line in lines[1:]:  # Skip the first line (header)
             parts = [p.strip() for p in line.split(',')]
             
+            detec_sensor=parts[1]
+            label=parts[2]
             cls=parts[3]
             x=float(parts[4])
             y=float(parts[5])
@@ -42,6 +44,8 @@ def read_info_label(label_path):
             box=torch.tensor([x, y, z, l, w, h, yaw],dtype=torch.float32)
 
             objects.append({
+                'detec_sensor':detec_sensor,
+                'label':label,
                 'cls': cls,
                 'box': box
             })        
@@ -229,11 +233,12 @@ def centers_to_edges(arr):
 
 def visualize_bbx_on_ra_cartesian(
         ax,
-        ra_map: np.ndarray,
+        ra_map,
         radar_corners,
-        arr_range: np.ndarray,
-        arr_azimuth_deg: np.ndarray,
-        frame_idx: int = None
+        arr_range,
+        arr_azimuth_deg,
+        frame_idx,
+        texts
     ):
     ax.clear()
 
@@ -260,7 +265,7 @@ def visualize_bbx_on_ra_cartesian(
     )
 
  
-    for corners in radar_corners:
+    for box_idx, corners in enumerate(radar_corners):
 
         
         x3d = corners[:, 0]
@@ -314,6 +319,24 @@ def visualize_bbx_on_ra_cartesian(
             linewidth=2
         )
 
+        if texts is not None and box_idx < len(texts):
+            text = texts[box_idx]
+        else:
+            text = f"obj {box_idx}"
+
+        text_x = bbx_2d[:-1, 0].mean()
+        text_y = bbx_2d[:-1, 1].max()
+
+        ax.text(
+            text_x,
+            text_y + 0.8,
+            text,
+            color="red",
+            fontsize=9,
+            ha="center",
+            va="bottom",
+            )
+
 
     title = "RA map in Cartesian with bounding boxes"
     if frame_idx is not None:
@@ -326,17 +349,28 @@ def visualize_bbx_on_ra_cartesian(
     ax.set_aspect("equal")
     ax.grid(True)
 
+    ax.set_ylim(0, arr_range.max())
 
-def play_ra_frames_cartesian(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r):
-    fig, ax = plt.subplots(figsize=(8, 6))      #for the normal situation
-    frame_idx=0
-    for frame_idx in range(frame_idx,len(label_files),30):
+    #no grid,no scale
+    # ax.grid(False)
+    # ax.axis("off")
+
+
+
+def play_ra_frames_cartesian(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r,start_frame_idx):
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    #black background  
+    # fig.patch.set_facecolor("black")
+    # ax.set_facecolor("black") 
+    for frame_idx in range(start_frame_idx,len(label_files),30):
         print(f"frame_idx = {frame_idx}")
         label_path=os.path.join(label_dir, label_files[frame_idx])
 
         info_label = read_info_label(label_path)
         objects = info_label['objects']
         tesseract_idx = info_label['tesseract_idx']
+        texts = [f"{obj['detec_sensor']} | {obj['label']}"for obj in objects]
         ax.clear()
         if len(objects) == 0:
             ax.set_title(f"frame {frame_idx} | No objects")
@@ -354,11 +388,12 @@ def play_ra_frames_cartesian(label_dir,label_files,radar_dataset,arr_range,arr_a
 
         visualize_bbx_on_ra_cartesian(
                                         ax,
-                                        ra_map=ra_map,
-                                        radar_corners=radar_corners,
-                                        arr_range=arr_range,
-                                        arr_azimuth_deg=arr_azimuth_deg,
-                                        frame_idx=frame_idx
+                                        ra_map,
+                                        radar_corners,
+                                        arr_range,
+                                        arr_azimuth_deg,
+                                        frame_idx,
+                                        texts
                                 )
         plt.pause(0.5)
 
@@ -382,13 +417,14 @@ def load_lidar2radar_calib(yml_path):
 
     return R, T
 
-# use the real data to draw
+
 def visualize_bbx_on_ra_polar(ax,
-                        ra_map: np.ndarray, 
-                        rae_corners: np.ndarray,
-                        arr_range: np.ndarray, 
-                        arr_azimuth_deg: np.ndarray,
-                        frame_idx: int = None):
+                        ra_map, 
+                        rae_corners,
+                        arr_range, 
+                        arr_azimuth_deg,
+                        frame_idx,
+                        texts):
     ax.clear()
     
     ra_map = np.log10(ra_map + 1e-6)  # Add small epsilon to avoid log(0)
@@ -401,13 +437,31 @@ def visualize_bbx_on_ra_polar(ax,
 
 
     bbxes_2d = draw_ra_bbx_2d(rae_corners)
-    for bbx_2d in bbxes_2d:
+    for box_idx,bbx_2d in enumerate(bbxes_2d):
         ax.plot(
             bbx_2d[:, 0],
             bbx_2d[:, 1],
             color="r",
             linewidth=2
         )
+        if texts is not None and box_idx < len(texts):
+            text = texts[box_idx]
+        else:
+            text = f"obj {box_idx}"
+
+        text_x = bbx_2d[:-1, 0].mean()
+        text_y = bbx_2d[:-1, 1].max()
+
+        ax.text(
+            text_x,
+            text_y + 0.8,
+            text,
+            color="red",
+            fontsize=9,
+            ha="center",
+            va="bottom",
+            )
+
 
     title = "RA map with bounding boxes"
     if frame_idx is not None:
@@ -421,7 +475,7 @@ def visualize_bbx_on_ra_polar(ax,
         
 
 
-def visualize_bbx_on_ra_polar_fake(
+def visualize_bbx_on_ra_cartesian_out_version(
         ax,
         ra_map: np.ndarray,
         rae_corners: np.ndarray,
@@ -452,7 +506,6 @@ def visualize_bbx_on_ra_polar_fake(
     ax.set_rgrids(range_ticks,angle = arr_azimuth_deg[0])
 
     bbxes_2d = draw_ra_bbx_2d_with_yaw(rae_corners)
-    #bbxes_2d = draw_ra_bbx_2d(rae_corners)
 
     for bbx_2d in bbxes_2d:
         a_deg = bbx_2d[:, 0]
@@ -468,10 +521,10 @@ def visualize_bbx_on_ra_polar_fake(
     ax.grid(True,linestyle = '--',alpha = 0.4)
 
 
-def play_ra_frames_polar_fake(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r):
+def play_ra_frames_cartesian_out_version(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r,start_frame_idx):
     fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={'projection': 'polar'}) # for sector
-    
-    for frame_idx in range(len(label_files)):
+
+    for frame_idx in range(start_frame_idx,len(label_files)):
         print(f"frame_idx = {frame_idx}")
         label_path=os.path.join(label_dir, label_files[frame_idx])
         
@@ -494,7 +547,7 @@ def play_ra_frames_polar_fake(label_dir,label_files,radar_dataset,arr_range,arr_
         radar_data=radar_dataset.get_by_tesseract_idx(tesseract_idx)
         ra_map=radar_data['ra_map']
 
-        visualize_bbx_on_ra_polar_fake(
+        visualize_bbx_on_ra_cartesian_out_version(
                                 ax,
                                 ra_map,
                                 rae_corners,
@@ -505,16 +558,16 @@ def play_ra_frames_polar_fake(label_dir,label_files,radar_dataset,arr_range,arr_
         plt.pause(0.5)
 
 
-def play_ra_frames_polar(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r):
+def play_ra_frames_polar(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r,start_frame_idx):
     fig, ax = plt.subplots(figsize=(8, 6))      #for the normal situation
-
-    for frame_idx in range(len(label_files)):
+    for frame_idx in range(start_frame_idx,len(label_files)):
         print(f"frame_idx = {frame_idx}")
         label_path=os.path.join(label_dir, label_files[frame_idx])
 
         info_label = read_info_label(label_path)
         objects = info_label['objects']
         tesseract_idx = info_label['tesseract_idx']
+        texts = [f"{obj['detec_sensor']} | {obj['label']}"for obj in objects]
         ax.clear()
         if len(objects) == 0:
             ax.set_title(f"frame {frame_idx} | No objects")
@@ -527,13 +580,11 @@ def play_ra_frames_polar(label_dir,label_files,radar_dataset,arr_range,arr_azimu
         lidar_corners=boxes_to_corners_3d(boxes)
         radar_corners=transform_lidar_to_radar(lidar_corners,R_l2r,T_l2r)
         rae_corners=cartesian_to_rae(radar_corners)
-
-        #radar_data=radar_dataset[frame_idx+33]
+        
         radar_data=radar_dataset.get_by_tesseract_idx(tesseract_idx)
         ra_map=radar_data['ra_map']
-        re_map=radar_data['re_map']
 
-        visualize_bbx_on_ra_polar(ax,ra_map, rae_corners, arr_range, arr_azimuth_deg,frame_idx)
+        visualize_bbx_on_ra_polar(ax,ra_map, rae_corners, arr_range, arr_azimuth_deg,frame_idx,texts)
         plt.pause(0.5)
 
 
@@ -550,12 +601,12 @@ if __name__ == "__main__":
     sequence = 1
     frame_idx = 20
     choose_info_label = 'info_label_rev2' # or choose info_label_rev2
-    choose_display_way = 5 # 0:one frame in cartesian
-                           # 1:one frame in polar
-                           # many frames in cartesian
+    choose_display_way = 4 # 0:one frame in polar
+                           # 1:one frame in cartesian
+                           # many frames in cartesian out version
                            # many frames in polar
     
-    label_dir=f'/home/local/xinyu/KRadar/1/{choose_info_label}'
+    label_dir=f'/home/local/xinyu/KRadar/{sequence}/{choose_info_label}'
     label_files=sorted([f for f in os.listdir(label_dir) if f.endswith('.txt')])
     info_array_path = '/home/local/xinyu/KRadar/info_arr.mat'
     # time from share:2.7s time from xinyu:1.7s
@@ -567,13 +618,16 @@ if __name__ == "__main__":
     lidar2radar_calib_path = "/home/local/xinyu/MVRSS/mvrss/lidar2radar_calib.yml"
     R_l2r,T_l2r = load_lidar2radar_calib(lidar2radar_calib_path)
 
+
+
     # only show one frame
     label_path = os.path.join(label_dir, label_files[frame_idx])
     info_label = read_info_label(label_path)
 
     objects = info_label["objects"]
     tesseract_idx = info_label["tesseract_idx"]
-
+    texts = [f"{obj['detec_sensor']} | {obj['label']}"for obj in objects]
+    
     radar_data = radar_dataset.get_by_tesseract_idx(tesseract_idx)
     ra_map = radar_data["ra_map"]
     
@@ -588,18 +642,33 @@ if __name__ == "__main__":
     )
 
     rae_corners = cartesian_to_rae(radar_corners)
+    
 
     #new choice
-    all_unique_xyz=get_4_bev_corners(radar_corners)
-    rae_corners = cartesian_to_rae_advanced(all_unique_xyz)
+    # all_unique_xyz=get_4_bev_corners(radar_corners)
+    # rae_corners = cartesian_to_rae_advanced(all_unique_xyz)
 
-    
+    start_frame_idx=300
 
     if choose_display_way == 0:
 
         fig, ax = plt.subplots(figsize=(8, 6))
 
-        visualize_bbx_on_ra_cartesian(
+        visualize_bbx_on_ra_polar(
+            ax=ax,
+            ra_map=ra_map,
+            rae_corners=rae_corners,
+            arr_range=arr_range,
+            arr_azimuth_deg=arr_azimuth_deg,
+            frame_idx=frame_idx,
+            texts=texts
+        )
+        plt.show()
+
+    elif choose_display_way==2:
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        visualize_bbx_on_ra_cartesian_out_version(
             ax=ax,
             ra_map=ra_map,
             rae_corners=rae_corners,
@@ -608,37 +677,27 @@ if __name__ == "__main__":
             frame_idx=frame_idx
         )
         plt.show()
-
     elif choose_display_way==1:
         fig, ax = plt.subplots(figsize=(8, 6))
-
         visualize_bbx_on_ra_cartesian(
-            ax=ax,
-            ra_map=ra_map,
-            rae_corners=rae_corners,
-            arr_range=arr_range,
-            arr_azimuth_deg=arr_azimuth_deg,
-            frame_idx=frame_idx
-        )
+                                                ax,
+                                                ra_map=ra_map,
+                                                radar_corners=radar_corners,
+                                                arr_range=arr_range,
+                                                arr_azimuth_deg=arr_azimuth_deg,
+                                                frame_idx=frame_idx,
+                                                texts=texts
+                                            )
         plt.show()
-    
-    elif choose_display_way==2:
-        play_ra_frames_polar(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r)
     elif choose_display_way==3:
-        play_ra_frames_polar_fake(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r)
+        play_ra_frames_polar(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r,start_frame_idx)
     elif choose_display_way==4:
-        fig, ax = plt.subplots(figsize=(8, 6))
-        visualize_bbx_on_ra_cartesian(
-                                                    ax,
-                                                    ra_map=ra_map,
-                                                    radar_corners=radar_corners,
-                                                    arr_range=arr_range,
-                                                    arr_azimuth_deg=arr_azimuth_deg,
-                                                    frame_idx=frame_idx
-                                                )
-        plt.show()
+        play_ra_frames_cartesian(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r,start_frame_idx)
     elif choose_display_way==5:
-        play_ra_frames_cartesian(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r)
+        play_ra_frames_cartesian_out_version(label_dir,label_files,radar_dataset,arr_range,arr_azimuth_deg,R_l2r,T_l2r,start_frame_idx)
+
+
+ 
 
 
     

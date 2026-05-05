@@ -5,9 +5,9 @@ import time
 import open3d as o3d
 from matplotlib import pyplot as plt
 from lidar2radar_transformation import read_info_label,boxes_to_corners_3d
+from PIL import Image, ImageDraw, ImageFont
 
 def draw_bbx_lines(lidar_corners):
-    lidar_corners=lidar_corners.cpu().numpy()
     edges = [
         [0,1],[1,2],[2,3],[3,0],
         [4,5],[5,6],[6,7],[7,4],
@@ -28,8 +28,154 @@ def draw_bbx_lines(lidar_corners):
 
     return line_sets
 
+def create_text_mesh(
+        text,
+        position,
+        scale=0.015,
+        color=(1.0, 1.0, 1.0),
+        font_size=18,
+        bold_offset=0,
+        sample_step=1,
+        rotate_deg=-90
+    ):
 
-def visualize_bbx_on_lidar_pcd(lidar_corners,pcd):
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+    font = ImageFont.truetype(
+        font_path,
+        size=font_size
+    )
+
+    tmp_img = Image.new("L", (1, 1), 0)
+    tmp_draw = ImageDraw.Draw(tmp_img)
+
+    bbox = tmp_draw.textbbox((0, 0), text, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+
+    img_w = text_w + 20
+    img_h = text_h + 20
+
+    img = Image.new("L", (img_w, img_h), 0)
+    draw = ImageDraw.Draw(img)
+
+    for dx in range(-bold_offset, bold_offset + 1):
+        for dy in range(-bold_offset, bold_offset + 1):
+            draw.text(
+                (10 + dx, 10 + dy),
+                text,
+                fill=255,
+                font=font
+            )
+
+    img_np = np.asarray(img)
+
+    vertices = []
+    triangles = []
+
+    theta = np.deg2rad(rotate_deg)
+    cos_t = np.cos(theta)
+    sin_t = np.sin(theta)
+
+    ys, xs = np.where(img_np > 0)
+
+    for x, y in zip(xs[::sample_step], ys[::sample_step]):
+        local_x = (x - img_w / 2) * scale
+        local_y = -(y - img_h / 2) * scale
+
+        half = scale * 0.55
+
+        local_corners = [
+            [local_x - half, local_y - half],
+            [local_x + half, local_y - half],
+            [local_x + half, local_y + half],
+            [local_x - half, local_y + half]
+        ]
+
+        rotated_vertices = []
+
+        for lx, ly in local_corners:
+            rx = lx * cos_t - ly * sin_t
+            ry = lx * sin_t + ly * cos_t
+
+            rotated_vertices.append([
+                position[0] + rx,
+                position[1] + ry,
+                position[2]
+            ])
+
+        base_idx = len(vertices)
+
+        vertices.extend(rotated_vertices)
+
+        triangles.append([base_idx, base_idx + 1, base_idx + 2])
+        triangles.append([base_idx, base_idx + 2, base_idx + 3])
+
+    mesh = o3d.geometry.TriangleMesh()
+
+    if len(vertices) == 0:
+        return mesh
+
+    mesh.vertices = o3d.utility.Vector3dVector(
+        np.asarray(vertices, dtype=np.float64)
+    )
+
+    mesh.triangles = o3d.utility.Vector3iVector(
+        np.asarray(triangles, dtype=np.int32)
+    )
+
+    mesh.paint_uniform_color(color)
+    mesh.compute_vertex_normals()
+
+    return mesh
+
+def create_bbx_text_geometries(
+        lidar_corners,
+        texts=None,
+        z_offset=0.3,
+        outside_offset=0.5,
+        text_scale=0.015,
+        text_color=(1.0, 1.0, 1.0),
+        rotate_deg=-90
+    ):
+
+    lidar_corners = lidar_corners.cpu().numpy()
+
+    num_boxes = lidar_corners.shape[0]
+
+    if texts is None:
+        texts = [f"obj_{i}" for i in range(num_boxes)]
+
+    text_geometries = []
+
+    for i, corners in enumerate(lidar_corners):
+        x_max = corners[:, 0].max()
+        y_center = corners[:, 1].mean()
+        z_max = corners[:, 2].max()
+
+        text_position = np.array([
+            x_max + outside_offset,
+            y_center,
+            z_max + z_offset
+        ])
+
+        text_mesh = create_text_mesh(
+            text=texts[i],
+            position=text_position,
+            scale=text_scale,
+            color=text_color,
+            font_size=18,
+            bold_offset=0,
+            sample_step=1,
+            rotate_deg=rotate_deg
+        )
+
+        text_geometries.append(text_mesh)
+
+    return text_geometries
+
+
+def visualize_bbx_on_lidar_pcd(lidar_corners,pcd,texts,show_texts):
     geometries = []
     
     axis=o3d.geometry.TriangleMesh.create_coordinate_frame(size=5.0)
@@ -38,6 +184,20 @@ def visualize_bbx_on_lidar_pcd(lidar_corners,pcd):
 
     bbox_lines = draw_bbx_lines(lidar_corners)
     geometries.extend(bbox_lines)
+    
+
+    if show_texts:
+        text_geometries = create_bbx_text_geometries(
+            lidar_corners,
+            texts=texts,
+            z_offset=0.3,
+            outside_offset=1.0,
+            text_scale=0.1,
+            text_color=(1.0, 0.0, 0.0),
+            rotate_deg=-90
+        )
+        geometries.extend(text_geometries)
+
 
     all_points = (lidar_corners.cpu().numpy()).reshape(-1,3)
     center = all_points.mean(axis=0)
@@ -96,11 +256,8 @@ def visualize_bbx_on_lidar_pcd(lidar_corners,pcd):
                                                          window_name = "Press 1:XY 2:XZ 3:YZ 4:suitable view 5:bev" )
 
 
-def add_label_on_lidar_bev_bbx():
-    
-    return 
 
-def play_bev_lidar_video(label_dir, pcd_dir, start_frame_idx=0, fps=10):
+def play_bev_lidar_video(label_dir, pcd_dir, frame_idx=0, fps=10,show_texts=True):
     label_files = sorted([f for f in os.listdir(label_dir) if f.endswith(".txt")])
 
     vis = o3d.visualization.Visualizer()
@@ -118,22 +275,24 @@ def play_bev_lidar_video(label_dir, pcd_dir, start_frame_idx=0, fps=10):
     # fixed BEV center
     fixed_center = np.array([20.0, 0.0, 0.0])
 
-    for frame_idx in range(start_frame_idx, len(label_files)):
+    for frame_idx in range(frame_idx, len(label_files)):
         print(f"Playing frame_idx = {frame_idx}")
 
         label_path = os.path.join(label_dir, label_files[frame_idx])
         info_label = read_info_label(label_path)
         objects = info_label["objects"]
+        texts = [
+                f"{obj['detec_sensor']} | {obj['label']}"
+                for obj in objects
+            ]
+        os1_128_idx = info_label['os1_128_idx']
+        os2_64_idx = info_label['os2_64_idx']
+        if lidar_type == 'os1-128':
+            lidar_idx = os1_128_idx
+        elif lidar_type == 'os2-64':
+            lidar_idx = os2_64_idx
+        pcd_path = get_lidar_path(pcd_dir, lidar_type,lidar_idx)
 
-        if len(objects) == 0:
-            print("No objects, skip.")
-            continue
-        if choose_lidar == 1:
-            os1_128_idx = info_label["os1_128_idx"]
-            pcd_path = get_lidar_path_os1(pcd_dir, os1_128_idx)
-        elif choose_lidar == 2:
-            os2_64_idx = info_label["os2_64_idx"]
-            pcd_path = get_lidar_path_os2(pcd_dir, os2_64_idx)
 
         pcd = o3d.io.read_point_cloud(pcd_path)
 
@@ -145,14 +304,26 @@ def play_bev_lidar_video(label_dir, pcd_dir, start_frame_idx=0, fps=10):
 
         bbox_lines = draw_bbx_lines(lidar_corners)
 
-        # remove old frame geometries
+        if show_texts:
+            text_geometries = create_bbx_text_geometries(
+                lidar_corners,
+                texts=texts,
+                z_offset=0.3,
+                outside_offset=1.0,
+                text_scale=0.1,
+                text_color=(1.0, 0.0, 0.0),
+                rotate_deg=-90
+            )
+        else:
+            text_geometries = []
+
         for geo in old_geometries:
             vis.remove_geometry(geo, reset_bounding_box=False)
 
-        current_geometries = [axis, pcd] + bbox_lines
+        current_geometries = [axis, pcd] + bbox_lines + text_geometries
 
         # first frame should reset bounding box
-        reset_flag = (frame_idx == start_frame_idx)
+        reset_flag = (frame_idx == frame_idx)
 
         for geo in current_geometries:
             vis.add_geometry(geo, reset_bounding_box=reset_flag)
@@ -177,63 +348,57 @@ def play_bev_lidar_video(label_dir, pcd_dir, start_frame_idx=0, fps=10):
 
     vis.destroy_window()
 
-def get_lidar_path_os1(pcd_dir,os1_128_idx):
+def get_lidar_path(pcd_dir,lidar_type,lidar_idx):
     for fname in sorted(os.listdir(pcd_dir)):
-        if fname.startswith(f"os1-128_{os1_128_idx}"):
+        if fname.startswith(f"{lidar_type}_{lidar_idx}"):
             return os.path.join(pcd_dir,fname)
-    raise FileNotFoundError(f"os1-128-lidar file not found for idx{os1_128_idx} in {pcd_dir}")
-
-def get_lidar_path_os2(pcd_dir, os2_64_idx):
-    for fname in sorted(os.listdir(pcd_dir)):
-        if fname.startswith(f"os2-64_{os2_64_idx}"):
-            return os.path.join(pcd_dir, fname)
-
-    raise FileNotFoundError(
-        f"os2-64 lidar file not found for idx {os2_64_idx} in {pcd_dir}"
-    )
-
+    raise FileNotFoundError(f"{lidar_type}-lidar file not found for idx{lidar_idx} in {pcd_dir}")
 
 
 if __name__ == "__main__": 
     frame_idx = 0
+    choose_info_label='info_label_rev2'
     mode = "bev_video"
     #mode = "single"
-    choose_lidar = 2  # 1:os1, 2:os2
-    sequence=11
+    lidar_type = 'os2-64' 
+    sequence=1
+    show_texts = False
+    fps=10
 
-    label_dir= f'/home/local/xinyu/KRadar/{sequence}/info_label'
+    label_dir= f'/home/local/xinyu/KRadar/{sequence}/{choose_info_label}'
     label_files=sorted([f for f in os.listdir(label_dir) if f.endswith('.txt')])
-    if choose_lidar==1:
 
-        pcd_dir = f'/home/local/xinyu/KRadar/{sequence}/os1-128'
-        pcd_files = sorted([f for f in os.listdir(pcd_dir) if f.endswith('.pcd')])
-    elif choose_lidar == 2:
-        pcd_dir = f'/home/local/xinyu/KRadar/{sequence}/os2-64'
-        pcd_files = sorted([f for f in os.listdir(pcd_dir) if f.endswith('.pcd')])
+    pcd_dir = f'/home/local/xinyu/KRadar/{sequence}/{lidar_type}'
+    pcd_files = sorted([f for f in os.listdir(pcd_dir) if f.endswith('.pcd')])
 
     if mode == "single":
 
         for frame_idx in range(frame_idx,len(label_files)):
-            print(f"frame_idx = {frame_idx}")
+            if frame_idx%20==0:
+                print(f"frame_idx = {frame_idx}")
             
             label_path=os.path.join(label_dir,label_files[frame_idx])
             
             info_label = read_info_label(label_path)
             objects = info_label['objects']
 
-            if choose_lidar == 1:
-                os1_128_idx = info_label['os1_128_idx']
-                pcd_path = get_lidar_path_os1(pcd_dir, os1_128_idx)
-            elif choose_lidar == 2:
-                os2_64_idx = info_label['os2_64_idx']
-                pcd_path = get_lidar_path_os2(pcd_dir, os2_64_idx)
+            os1_128_idx = info_label['os1_128_idx']
+            os2_64_idx = info_label['os2_64_idx']
+            if lidar_type == 'os1-128':
+                lidar_idx=os1_128_idx
+            elif lidar_type == 'os2-64':
+                lidar_idx = os2_64_idx
+            pcd_path = get_lidar_path(pcd_dir, lidar_type,lidar_idx)
 
             pcd = o3d.io.read_point_cloud(pcd_path)
 
             boxes=torch.stack([d['box'] for d in objects],dim=0)
             lidar_corners=boxes_to_corners_3d(boxes)
-
-            visualize_bbx_on_lidar_pcd(lidar_corners,pcd)
+            texts = [
+                    f"{obj['detec_sensor']} | {obj['label']}"
+                    for obj in objects
+                ]
+            visualize_bbx_on_lidar_pcd(lidar_corners,pcd,texts,show_texts)
     
     elif mode == "bev_video":
         label_path=os.path.join(label_dir,label_files[frame_idx])
@@ -244,6 +409,6 @@ if __name__ == "__main__":
         play_bev_lidar_video(
             label_dir=label_dir,
             pcd_dir=pcd_dir,
-            start_frame_idx=frame_idx,
-            fps=10
+            frame_idx=frame_idx,
+            fps=fps
         )
