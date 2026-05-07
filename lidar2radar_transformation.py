@@ -470,6 +470,8 @@ def visualize_bbx_on_ra_polar(ax,
     ax.set_title(title)
     ax.set_ylabel("Range")
     ax.set_xlabel("Azimuth")
+    ax.set_xlim(arr_azimuth_deg[0], arr_azimuth_deg[-1])
+    ax.set_ylim(arr_range[0], arr_range[-1])
     ax.grid(True)
 
         
@@ -599,9 +601,9 @@ def get_radar_path(radar_dataset,tesseract_idx):
 if __name__ == "__main__":
     #get and read info_label filesT
     sequence = 1
-    frame_idx = 20
+    frame_idx = 242
     choose_info_label = 'info_label_rev2' # or choose info_label_rev2
-    choose_display_way = 4 # 0:one frame in polar
+    choose_display_way = 3 # 0:one frame in polar
                            # 1:one frame in cartesian
                            # many frames in cartesian out version
                            # many frames in polar
@@ -648,7 +650,7 @@ if __name__ == "__main__":
     # all_unique_xyz=get_4_bev_corners(radar_corners)
     # rae_corners = cartesian_to_rae_advanced(all_unique_xyz)
 
-    start_frame_idx=300
+    start_frame_idx=0
 
     if choose_display_way == 0:
 

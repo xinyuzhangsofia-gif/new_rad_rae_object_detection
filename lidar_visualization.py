@@ -257,7 +257,7 @@ def visualize_bbx_on_lidar_pcd(lidar_corners,pcd,texts,show_texts):
 
 
 
-def play_bev_lidar_video(label_dir, pcd_dir, frame_idx=0, fps=10,show_texts=True):
+def play_bev_lidar_video(label_dir, lidar_dir,lidar_type, frame_idx=0, fps=10,show_texts=True):
     label_files = sorted([f for f in os.listdir(label_dir) if f.endswith(".txt")])
 
     vis = o3d.visualization.Visualizer()
@@ -291,10 +291,10 @@ def play_bev_lidar_video(label_dir, pcd_dir, frame_idx=0, fps=10,show_texts=True
             lidar_idx = os1_128_idx
         elif lidar_type == 'os2-64':
             lidar_idx = os2_64_idx
-        pcd_path = get_lidar_path(pcd_dir, lidar_type,lidar_idx)
+        lidar_path = get_lidar_path(lidar_dir, lidar_type,lidar_idx)
 
 
-        pcd = o3d.io.read_point_cloud(pcd_path)
+        pcd = o3d.io.read_point_cloud(lidar_path)
 
         # important: make points visible
         pcd.paint_uniform_color([0, 0, 1])
@@ -348,18 +348,20 @@ def play_bev_lidar_video(label_dir, pcd_dir, frame_idx=0, fps=10,show_texts=True
 
     vis.destroy_window()
 
-def get_lidar_path(pcd_dir,lidar_type,lidar_idx):
-    for fname in sorted(os.listdir(pcd_dir)):
+
+
+def get_lidar_path(lidar_dir,lidar_type,lidar_idx):
+    for fname in sorted(os.listdir(lidar_dir)):
         if fname.startswith(f"{lidar_type}_{lidar_idx}"):
-            return os.path.join(pcd_dir,fname)
-    raise FileNotFoundError(f"{lidar_type}-lidar file not found for idx{lidar_idx} in {pcd_dir}")
+            return os.path.join(lidar_dir,fname)
+    raise FileNotFoundError(f"{lidar_type}-lidar file not found for idx{lidar_idx} in {lidar_dir}")
 
 
 if __name__ == "__main__": 
     frame_idx = 0
     choose_info_label='info_label_rev2'
-    mode = "bev_video"
-    #mode = "single"
+    lidar_mode = "bev_video"
+    #lidar_mode = "single"
     lidar_type = 'os2-64' 
     sequence=1
     show_texts = False
@@ -368,15 +370,11 @@ if __name__ == "__main__":
     label_dir= f'/home/local/xinyu/KRadar/{sequence}/{choose_info_label}'
     label_files=sorted([f for f in os.listdir(label_dir) if f.endswith('.txt')])
 
-    pcd_dir = f'/home/local/xinyu/KRadar/{sequence}/{lidar_type}'
-    pcd_files = sorted([f for f in os.listdir(pcd_dir) if f.endswith('.pcd')])
-
-    if mode == "single":
+    lidar_dir = f'/home/local/xinyu/KRadar/{sequence}/{lidar_type}'
+    if lidar_mode == "single":
 
         for frame_idx in range(frame_idx,len(label_files)):
-            if frame_idx%20==0:
-                print(f"frame_idx = {frame_idx}")
-            
+            print(f"frame_idx = {frame_idx}")
             label_path=os.path.join(label_dir,label_files[frame_idx])
             
             info_label = read_info_label(label_path)
@@ -388,9 +386,9 @@ if __name__ == "__main__":
                 lidar_idx=os1_128_idx
             elif lidar_type == 'os2-64':
                 lidar_idx = os2_64_idx
-            pcd_path = get_lidar_path(pcd_dir, lidar_type,lidar_idx)
+            lidar_path = get_lidar_path(lidar_dir, lidar_type,lidar_idx)
 
-            pcd = o3d.io.read_point_cloud(pcd_path)
+            pcd = o3d.io.read_point_cloud(lidar_path)
 
             boxes=torch.stack([d['box'] for d in objects],dim=0)
             lidar_corners=boxes_to_corners_3d(boxes)
@@ -400,15 +398,11 @@ if __name__ == "__main__":
                 ]
             visualize_bbx_on_lidar_pcd(lidar_corners,pcd,texts,show_texts)
     
-    elif mode == "bev_video":
-        label_path=os.path.join(label_dir,label_files[frame_idx])
-        info_label = read_info_label(label_path)
-        objects = info_label['objects']
-        boxes=torch.stack([d['box'] for d in objects],dim=0)
-        lidar_corners=boxes_to_corners_3d(boxes)
+    elif lidar_mode == "bev_video":
         play_bev_lidar_video(
-            label_dir=label_dir,
-            pcd_dir=pcd_dir,
-            frame_idx=frame_idx,
-            fps=fps
+            label_dir,
+            lidar_dir,
+            lidar_type,
+            frame_idx,
+            fps
         )

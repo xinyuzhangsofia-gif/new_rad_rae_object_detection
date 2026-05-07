@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from scipy.io import loadmat
+from collections import defaultdict
 
 def read_info_label(label_path):
     with open(label_path, 'r') as f:
@@ -48,52 +48,106 @@ def read_info_label(label_path):
         'os1_128_idx': os1_128_idx
     }
 
-def load_axis_from_mat(info_array_path):
-    mat_data = loadmat(info_array_path)
 
-    arr_range= mat_data['arrRange'][0]
-    arr_azimuth_deg = mat_data['arrAzimuth'][0]
-    arr_elevation_deg = mat_data['arrElevation'][0]
+def load_gt_txt(gt_txt_path):
+    frame_dict = defaultdict(list)
 
-    # arr_azimuth=torch.deg2rad(arr_azimuth_deg)
-    # arr_elevation=torch.deg2rad(arr_elevation_deg)
+    with open(gt_txt_path, "r") as f:
+        lines = [line.strip() for line in f.readlines() if line.strip()]
 
-    return arr_range, arr_azimuth_deg, arr_elevation_deg
+    for line in lines:
+        if line.startswith("#"):
+            continue
+
+        parts = [p.strip() for p in line.split(",")]
+
+        if len(parts) != 10:
+            raise ValueError(f"Expected 10 values in gt line, got {len(parts)}: {line}")
+
+        gt_frame_idx = int(parts[0])
+        frame_idx = gt_frame_idx - 1
+        object_label = int(parts[1])
+        a_idx = float(parts[2])
+        r_idx = float(parts[3])
+        a_width = float(parts[4])
+        r_width = float(parts[5])
+        e_idx = float(parts[6])
+        e_width = float(parts[7])
+        yaw = float(parts[8])
+        cls = parts[9]
+
+        box_rae = torch.tensor(
+            [
+                r_idx,
+                a_idx,
+                e_idx,
+                r_width,
+                a_width,
+                e_width,
+                yaw
+            ],
+            dtype=torch.float32
+        )
+
+        box_aer = torch.tensor(
+            [
+                a_idx,
+                e_idx,
+                r_idx,
+                a_width,
+                e_width,
+                r_width,
+                yaw
+            ],
+            dtype=torch.float32
+        )
+
+        obj = {
+            "gt_frame_idx": gt_frame_idx,
+            "frame_idx": frame_idx,
+            "object_label": object_label,
+            "a_idx": a_idx,
+            "r_idx": r_idx,
+            "a_width": a_width,
+            "r_width": r_width,
+            "e_idx": e_idx,
+            "e_width": e_width,
+            "yaw": yaw,
+            "cls": cls,
+            "class_id": object_label,
+            "object": [
+                a_idx,
+                e_idx,
+                r_idx,
+                a_width,
+                e_width,
+                r_width,
+                yaw,
+                object_label
+            ],
+            "box_aer": box_aer,
+            "box_rae": box_rae
+        }
+
+        frame_dict[frame_idx].append(obj)
+
+    gt_infos = []
+
+    for frame_idx in sorted(frame_dict.keys()):
+        gt_infos.append({
+            "frame_idx": frame_idx,
+            "gt_frame_idx": frame_idx + 1,
+            "objects": frame_dict[frame_idx]
+        })
+
+    return gt_infos
 
 
-def boxes_to_corners_3d(boxes):#from kradar,box_utils.py
-    """
-        7 -------- 4
-       /|         /|
-      6 -------- 5 .
-      | |        | |
-      . 3 -------- 0
-      |/         |/
-      2 -------- 1
-    Args:
-        boxes:  (N, 7) [x, y, z, dx, dy, dz, heading], (x, y, z) is the box center
+def read_gt_txt(gt_txt_path):
+    gt_infos = load_gt_txt(gt_txt_path)
 
-    Returns:
-    """
-    template = torch.tensor([
-        [1, 1, -1], [1, -1, -1], [-1, -1, -1], [-1, 1, -1],
-        [1, 1, 1], [1, -1, 1], [-1, -1, 1], [-1, 1, 1],
-    ],dtype=torch.float32,device=boxes.device) / 2
+    gt_by_os2_idx = {}
+    for info in gt_infos:
+        gt_by_os2_idx[info["gt_frame_idx"]] = info["objects"]
 
-    lidar_corners=boxes[:, None, 3:6] * template[None, :, :]  # lwh*template (N,1,3)*(1,8,3) = (N,8,3)
-
-    yaw=boxes[:, 6] 
-    c=torch.cos(yaw)
-    s=torch.sin(yaw)
-
-    R=torch.zeros((boxes.shape[0], 3, 3), device=boxes.device) #(N,3,3),get the rotation matrix for each box
-    R[:, 0, 0]=c
-    R[:, 0, 1]=-s
-    R[:, 1, 0]=s
-    R[:, 1, 1]=c
-    R[:, 2, 2]=1    
-
-    lidar_corners=torch.matmul(lidar_corners, R.transpose(1, 2))  # (N, 8, 3)
-
-    lidar_corners+=boxes[:, None, 0:3]  # (N, 8, 3)
-    return lidar_corners
+    return gt_by_os2_idx

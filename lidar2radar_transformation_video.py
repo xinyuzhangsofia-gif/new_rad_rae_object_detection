@@ -225,6 +225,8 @@ def visualize_bbx_on_ra_polar(ax,
     ax.set_title(title)
     ax.set_ylabel("Range")
     ax.set_xlabel("Azimuth")
+    ax.set_xlim(arr_azimuth_deg[0], arr_azimuth_deg[-1])
+    ax.set_ylim(arr_range[0], arr_range[-1])
     ax.grid(True)
 
 

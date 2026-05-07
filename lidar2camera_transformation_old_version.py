@@ -312,7 +312,6 @@ if __name__ == "__main__":
         pcd_dir = f'/home/local/xinyu/KRadar/{sequence}/os1-128'
     elif choose_lidar==1:
         pcd_dir = f'/home/local/xinyu/KRadar/{sequence}/os2-64'
-    pcd_files = sorted([f for f in os.listdir(pcd_dir) if f.endswith('.pcd')])
 
     if choose_camera==1:
         camera_dir = f'/home/local/xinyu/KRadar/{sequence}/cam_1_front'
