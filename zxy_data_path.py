@@ -76,6 +76,53 @@ def get_radar_path(radar_dir,tesseract_idx):
     raise FileNotFoundError(f"tesseract file not found for idx{tesseract_idx} in {radar_dir}")
 
 
-def get_gt_txt_path(cfg):
-    gt_txt_path = f"/run/user/1000/gvfs/smb-share:server=192.168.189.30,share=elab-share/Datasets/K-Radar-GT-Polar-v2/{cfg.sequence}/gt/gt.txt"
+def get_rad_rae_npy_root_dir():
+    return "/home/local/xinyu/K-Radar-RAD"
+    # return "/run/user/1000/gvfs/smb-share:server=192.168.189.30,share=elab-share/Datasets/K-Radar-RAD"
+
+
+
+def get_rad_npy_dir(cfg):
+    return os.path.join(get_rad_rae_npy_root_dir(), str(cfg.sequence), "rad")
+
+
+def get_rae_npy_dir(cfg):
+    return os.path.join(get_rad_rae_npy_root_dir(), str(cfg.sequence), "rae")
+
+
+def get_rad_npy_files(cfg):
+    return sorted([
+        os.path.join(get_rad_npy_dir(cfg), f)
+        for f in os.listdir(get_rad_npy_dir(cfg))
+        if f.endswith(".npy")
+    ])
+
+
+def get_rae_npy_files(cfg):
+    return sorted([
+        os.path.join(get_rae_npy_dir(cfg), f)
+        for f in os.listdir(get_rae_npy_dir(cfg))
+        if f.endswith(".npy")
+    ])
+
+
+def get_rad_npy_path(cfg, file_idx):
+    rad_files = get_rad_npy_files(cfg)
+    if file_idx < 0 or file_idx >= len(rad_files):
+        raise IndexError(f"file_idx {file_idx} out of range for {len(rad_files)} rad npy files")
+    return rad_files[file_idx]
+
+
+def get_rae_npy_path(cfg, file_idx):
+    rae_files = get_rae_npy_files(cfg)
+    if file_idx < 0 or file_idx >= len(rae_files):
+        raise IndexError(f"file_idx {file_idx} out of range for {len(rae_files)} rae npy files")
+    return rae_files[file_idx]
+
+
+def get_gt_txt_path(cfg, sequence=None):
+    if sequence is None:
+        sequence = cfg.sequence
+    # gt_txt_path = f"/run/user/1000/gvfs/smb-share:server=192.168.189.30,share=elab-share/Datasets/K-Radar-GT-Polar-v2/{cfg.sequence}/gt/gt.txt"
+    gt_txt_path = f"/home/local/xinyu/K-Radar-GT-Polar-v2/{sequence}/gt/gt.txt"
     return gt_txt_path

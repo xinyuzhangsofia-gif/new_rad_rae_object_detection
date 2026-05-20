@@ -3,13 +3,30 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader,random_split
 from zxy_config import DataConfig
-from zxy_data_path import get_gt_txt_path, get_label_dir, get_label_files
+from zxy_data_path import (
+    get_gt_txt_path,
+    get_label_dir,
+    get_rad_rae_npy_root_dir,
+)
 from kradar_dataset import (
     KRadarGTDetectionDataset,
     KRadarRADRAEDataset,
     detection_collate,
 )
 from tqdm import tqdm
+from torch.utils.data import Subset
+import random
+
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def print_training_history(history):
@@ -24,6 +41,7 @@ def print_training_history(history):
         f"{'cls':>9} "
         f"{'val_precision':>14} "
         f"{'val_recall':>11} "
+        f"{'F1':>8} "
         f"{'TP':>6} "
         f"{'FP':>6} "
         f"{'FN':>6}"
@@ -42,6 +60,65 @@ def print_training_history(history):
             f"{row['fp']:6d} "
             f"{row['fn']:6d}"
         )
+
+
+def create_tensorboard_run_dir(base_dir, experiment_name, sequence):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    run_name = f"seq{sequence}_{timestamp}"
+    log_dir = os.path.join(base_dir, experiment_name, run_name)
+
+    suffix = 1
+    unique_log_dir = log_dir
+    while os.path.exists(unique_log_dir):
+        unique_log_dir = f"{log_dir}_{suffix}"
+        suffix += 1
+
+    os.makedirs(unique_log_dir, exist_ok=False)
+    return unique_log_dir
+
+
+def write_tensorboard_run_config(
+        writer,
+        cfg,
+        num_epochs,
+        batch_size,
+        train_size,
+        val_size,
+        learning_rate,
+        num_boxes,
+        background_weight,
+        match_iou_thresh
+    ):
+    config_text = "\n".join([
+        f"sequence: {cfg.sequence}",
+        f"num_epochs: {num_epochs}",
+        f"batch_size: {batch_size}",
+        f"train_size: {train_size}",
+        f"val_size: {val_size}",
+        f"learning_rate: {learning_rate}",
+        f"num_boxes: {num_boxes}",
+        f"background_weight: {background_weight}",
+        f"match_iou_thresh: {match_iou_thresh}",
+    ])
+    writer.add_text("run/config", config_text, 0)
+    writer.flush()
+
+
+def write_tensorboard_metrics(writer, epoch, train_metrics, val_metrics, f1, learning_rate):
+    writer.add_scalar("epoch/loss/train_total", train_metrics["train_loss"], epoch)
+    writer.add_scalar("epoch/loss/train_box", train_metrics["train_box_loss"], epoch)
+    writer.add_scalar("epoch/loss/train_cls", train_metrics["train_cls_loss"], epoch)
+
+    writer.add_scalar("epoch/metrics/precision", val_metrics["precision"], epoch)
+    writer.add_scalar("epoch/metrics/recall", val_metrics["recall"], epoch)
+    writer.add_scalar("epoch/metrics/f1", f1, epoch)
+
+    writer.add_scalar("epoch/counts/TP", val_metrics["tp"], epoch)
+    writer.add_scalar("epoch/counts/FP", val_metrics["fp"], epoch)
+    writer.add_scalar("epoch/counts/FN", val_metrics["fn"], epoch)
+
+    writer.add_scalar("parameters/learning_rate", learning_rate, epoch)
+    writer.flush()
 
 
 class RadarConvBlock(nn.Module):

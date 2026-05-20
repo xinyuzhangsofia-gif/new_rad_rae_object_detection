@@ -3,7 +3,7 @@ from zxy_label_utils import *
 from zxy_data_path import *
 from sensor_transformation import *
 from visualization import *
-from kradar_dataset import KRadarDataset
+from dummy_dataset import KRadarDataset
 
 def get_radar_common_data(cfg):
     label_dir = get_label_dir(cfg)

@@ -50,7 +50,7 @@ def read_info_label(label_path):
 
 
 def read_gt_txt(gt_txt_path):
-    gt_by_os2_idx= defaultdict(list)
+    gt_by_file_idx = defaultdict(list)
 
     with open(gt_txt_path, "r") as f:
         lines = [line.strip() for line in f.readlines() if line.strip()]
@@ -65,7 +65,7 @@ def read_gt_txt(gt_txt_path):
             raise ValueError(f"Expected 10 values in gt line, got {len(parts)}: {line}")
 
         gt_frame_idx = int(parts[0])
-        os2_64_idx = gt_frame_idx
+        file_idx = gt_frame_idx - 1
 
         object_label = int(parts[1])
 
@@ -94,7 +94,7 @@ def read_gt_txt(gt_txt_path):
 
         obj = {
             "gt_frame_idx": gt_frame_idx, 
-            "os2_64_idx":os2_64_idx,
+            "file_idx": file_idx,
             "object_label":object_label,
             "cls": cls,
             "class_id": object_label,
@@ -110,5 +110,5 @@ def read_gt_txt(gt_txt_path):
                 "yaw_rad": yaw_rad,
             }
         }
-        gt_by_os2_idx[os2_64_idx].append(obj)
-    return gt_by_os2_idx
+        gt_by_file_idx[file_idx].append(obj)
+    return gt_by_file_idx
