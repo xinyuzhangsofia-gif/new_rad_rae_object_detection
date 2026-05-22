@@ -25,7 +25,12 @@ def get_config_sequences(cfg):
     return sequences
 
 
-def build_detection_dataset_for_sequence(cfg, sequence):
+def build_detection_dataset_for_sequence(
+        cfg,
+        sequence,
+        class_to_idx=None,
+        ignore_unmapped_classes=False
+    ):
     radar_dataset = KRadarRADRAEDataset(
         get_rad_rae_npy_root_dir(),
         sequence,
@@ -34,7 +39,9 @@ def build_detection_dataset_for_sequence(cfg, sequence):
     return KRadarGTDetectionDataset(
         radar_dataset=radar_dataset,
         gt_txt_path=get_gt_txt_path(cfg, sequence=sequence),
+        class_to_idx=class_to_idx,
         sequence=sequence,
+        ignore_unmapped_classes=ignore_unmapped_classes,
     )
 
 
@@ -45,9 +52,16 @@ def build_train_val_dataloaders(
     seed,
     num_workers,
     limit_samples,
+    class_to_idx=None,
+    ignore_unmapped_classes=False,
 ):
     sequence_datasets = [
-        build_detection_dataset_for_sequence(cfg, sequence)
+        build_detection_dataset_for_sequence(
+            cfg=cfg,
+            sequence=sequence,
+            class_to_idx=class_to_idx,
+            ignore_unmapped_classes=ignore_unmapped_classes,
+        )
         for sequence in get_config_sequences(cfg)
     ]
     full_dataset = KRadarMultiSequenceGTDetectionDataset(

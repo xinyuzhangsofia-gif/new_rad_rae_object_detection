@@ -3,14 +3,22 @@ import os
 import re
 import torch
 from dummy_dataloader import build_train_val_dataloaders, prepare_model_inputs
+from dummy_dataset import (
+    class_to_idx_from_class_names,
+    fallback_class_names_for_num_classes,
+    normalize_class_names,
+    normalize_class_to_idx,
+)
 from dummy_visualize import build_model, load_checkpoint, select_device
-from tqdm import tqdm
+from utils_dummy.checkpoints import get_num_classes_from_checkpoint
 from zxy_config import DataConfig
+import tqdm
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate dummy MVRSS checkpoints.")
-    parser.add_argument("--checkpoint-root", default="")
+    parser.add_argument("--checkpoint-root", default=
+                        "/home/local/xinyu/MVRSS/mvrss/checkpoints/mvrss_detection/seq11_20260520_105936_148715")
     parser.add_argument("--epoch-step", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--train-ratio", type=float, default=0.7)
@@ -20,8 +28,25 @@ def parse_args():
     parser.add_argument("--score-thresh", type=float, default=0.2)
     parser.add_argument("--eval-iou-thresh", type=float, default=0.1)
     parser.add_argument("--num-boxes", type=int, default=64)
-    parser.add_argument("--num-classes", type=int, default=6)
     return parser.parse_args()
+
+
+def get_checkpoint_class_info(checkpoint, num_boxes):
+    num_classes = get_num_classes_from_checkpoint(
+        checkpoint=checkpoint,
+        num_boxes=num_boxes
+    )
+    config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+
+    class_names = normalize_class_names(config.get("class_names"))
+    if class_names is None:
+        class_names = fallback_class_names_for_num_classes(num_classes)
+
+    class_to_idx = normalize_class_to_idx(config.get("class_to_idx"))
+    if class_to_idx is None:
+        class_to_idx = class_to_idx_from_class_names(class_names)
+
+    return num_classes, class_names, class_to_idx
 
 
 def boxes_3d_to_ra_xyxy(boxes):
@@ -175,7 +200,7 @@ def evaluate_precision_recall(
     gt_by_class = {class_id: {} for class_id in range(num_classes)}
     image_counter = 0
 
-    for batch in tqdm(dataloader, desc="Evaluation", ncols=120, leave=False):
+    for batch in tqdm.tqdm(dataloader, desc="Evaluation", ncols=120, leave=False):
         rad, rae = prepare_model_inputs(batch, device)
         outputs = model(rad, rae)
 
@@ -205,7 +230,7 @@ def evaluate_precision_recall(
             background_scores_b = background_probs[b]
 
             keep = (scores_b > score_thresh) & (scores_b > background_scores_b)
-
+            #keep = (scores_b > score_thresh)
             pred_boxes_keep = boxes_b[keep]
             pred_labels_keep = labels_b[keep]
             pred_scores_keep = scores_b[keep]
@@ -217,8 +242,11 @@ def evaluate_precision_recall(
                 pred_labels_keep = pred_labels_keep[topk_indices]
                 pred_scores_keep = topk_scores
 
-            gt_boxes = batch["gt_boxes"][b].to(device)
-            gt_labels = batch["gt_labels"][b].to(device)
+            gt_boxes_all = batch["gt_boxes"][b].to(device)
+            gt_labels_all = batch["gt_labels"][b].to(device)
+            valid_gt = gt_labels_all < num_classes
+            gt_boxes = gt_boxes_all[valid_gt]
+            gt_labels = gt_labels_all[valid_gt]
 
             for class_id in range(num_classes):
                 class_gt_boxes = gt_boxes[gt_labels == class_id].detach().cpu()
@@ -359,6 +387,13 @@ def find_epoch_checkpoints(checkpoint_root, epoch_step):
     if epoch_step <= 0:
         raise ValueError(f"--epoch-step must be greater than 0, got {epoch_step}")
 
+    if os.path.isfile(checkpoint_root):
+        epoch = checkpoint_epoch(checkpoint_root)
+        if epoch is None:
+            checkpoint = torch.load(checkpoint_root, map_location="cpu")
+            epoch = checkpoint.get("epoch", 0) if isinstance(checkpoint, dict) else 0
+        return [(epoch, checkpoint_root)]
+
     checkpoint_paths = []
     for filename in os.listdir(checkpoint_root):
         if not filename.endswith(".pth"):
@@ -379,20 +414,30 @@ def find_epoch_checkpoints(checkpoint_root, epoch_step):
 
 
 
-def metrics_for_graph(metrics):
+def class_ap_from_name(ap_per_class, class_names, target_name):
+    for class_id, class_name in class_names.items():
+        if class_name == target_name:
+            return ap_per_class.get(class_id, 0.0)
+    return 0.0
+
+
+def metrics_for_graph(metrics, class_names):
     precision = metrics["precision"]
     recall = metrics["recall"]
     f1 = 2 * precision * recall / (precision + recall + 1e-6)
     ap_per_class = metrics["ap_per_class"]
-    return {
+    graph_metrics = {
         "mAP": metrics["mAP"],
-        "bus_or_truck_ap": ap_per_class.get(1, 0.0),
-        "sedan_ap": ap_per_class.get(0, 0.0),
+        "bus_or_truck_ap": class_ap_from_name(ap_per_class, class_names, "Bus or Truck"),
+        "sedan_ap": class_ap_from_name(ap_per_class, class_names, "Sedan"),
+        "two_wheeler_ap": class_ap_from_name(ap_per_class, class_names, "Two-wheeler"),
+        "pedestrian_ap": class_ap_from_name(ap_per_class, class_names, "Pedestrian"),
         "iou": metrics["mean_iou"],
         "TP": metrics["tp"],
         "FP": metrics["fp"],
         "f1": f1,
     }
+    return graph_metrics
 
 
 def print_evaluation_result(epoch, graph_metrics):
@@ -401,6 +446,8 @@ def print_evaluation_result(epoch, graph_metrics):
         f"mAP={graph_metrics['mAP']:.4f}",
         f"bus_or_truck_ap={graph_metrics['bus_or_truck_ap']:.4f}",
         f"sedan_ap={graph_metrics['sedan_ap']:.4f}",
+        f"two_wheeler_ap={graph_metrics['two_wheeler_ap']:.4f}",
+        f"pedestrian_ap={graph_metrics['pedestrian_ap']:.4f}",
         f"iou={graph_metrics['iou']:.4f}",
         f"TP={graph_metrics['TP']}",
         f"FP={graph_metrics['FP']}",
@@ -415,15 +462,21 @@ def print_results_table(results):
         return
     
     print("\n" + "="*110)
-    print(f"{'Epoch':<8} {'mAP':<10} {'bus_or_truck_ap':<10} {'sedan_ap':<10} {'iou':<10} {'f1':<10} {'TP':<8} {'FP':<8}")
+    print(
+        f"{'Epoch':<8} {'mAP':<10} {'bus_or_truck_ap':<16} {'sedan_ap':<10} "
+        f"{'two_wheeler_ap':<16} {'pedestrian_ap':<16} {'iou':<10} "
+        f"{'f1':<10} {'TP':<8} {'FP':<8}"
+    )
     print("="*110)
     
     for result in results:
         print(
             f"{result['epoch']:<8} "
             f"{result['mAP']:<10.4f} "
-            f"{result['bus_or_truck_ap']:<10.4f} "
+            f"{result['bus_or_truck_ap']:<16.4f} "
             f"{result['sedan_ap']:<10.4f} "
+            f"{result['two_wheeler_ap']:<16.4f} "
+            f"{result['pedestrian_ap']:<16.4f} "
             f"{result['iou']:<10.4f} "
             f"{result['f1']:<10.4f} "
             f"{result['TP']:<8} "
@@ -437,12 +490,19 @@ def main():
 
 
     args = parse_args()
-    checkpoint_root = "/home/local/xinyu/MVRSS/mvrss/checkpoints/mvrss_detection/seq11_20260520_105936_148715"
-    if args.checkpoint_root:
-        checkpoint_root = args.checkpoint_root
-
     device = select_device()
     cfg = DataConfig()
+    checkpoint_paths = find_epoch_checkpoints(args.checkpoint_root, args.epoch_step)
+    if len(checkpoint_paths) == 0:
+        raise ValueError(f"No epoch checkpoints found in {args.checkpoint_root}")
+
+    first_checkpoint = torch.load(checkpoint_paths[0][1], map_location=device)
+    num_classes, class_names, class_to_idx = get_checkpoint_class_info(
+        checkpoint=first_checkpoint,
+        num_boxes=args.num_boxes
+    )
+    print(f"Evaluation classes: {class_names}")
+
     _, validation_dataset, _, validation_loader = build_train_val_dataloaders(
         cfg=cfg,
         batch_size=args.batch_size,
@@ -450,12 +510,14 @@ def main():
         seed=args.seed,
         num_workers=args.num_workers,
         limit_samples=args.limit_samples,
+        class_to_idx=class_to_idx,
+        ignore_unmapped_classes=True,
     )
 
     if len(validation_dataset) == 0:
         raise ValueError("Validation split is empty. Adjust --train-ratio or --limit-samples.")
 
-    model = build_model(device=device,num_boxes=args.num_boxes,num_classes=args.num_classes)
+    model = build_model(device=device,num_boxes=args.num_boxes,num_classes=num_classes)
 
     def evaluate_checkpoint(checkpoint_path):
         load_checkpoint(
@@ -463,27 +525,23 @@ def main():
             checkpoint_path=checkpoint_path,
             device=device
         )
-
-        return evaluate_precision_recall(
+        metrics=evaluate_precision_recall(
             model=model,
             dataloader=validation_loader,
             device=device,
-            num_classes=args.num_classes,
+            num_classes=num_classes,
             prepare_model_inputs=prepare_model_inputs,
             score_thresh=args.score_thresh,
             iou_thresh=args.eval_iou_thresh,
             max_detections=min(args.num_boxes, 20)
         )
-
-    checkpoint_paths = find_epoch_checkpoints(checkpoint_root, args.epoch_step)
-    if len(checkpoint_paths) == 0:
-        raise ValueError(f"No epoch checkpoints found in {checkpoint_root}")
+        return metrics
 
     results = []
-    print(f"Evaluating {len(checkpoint_paths)} checkpoints from {checkpoint_root}")
-    for epoch, checkpoint_path in tqdm(checkpoint_paths, desc="Checkpoints", ncols=120):
+    print(f"Evaluating {len(checkpoint_paths)} checkpoints from {args.checkpoint_root}")
+    for epoch, checkpoint_path in tqdm.tqdm(checkpoint_paths, desc="Checkpoints", ncols=120):
         metrics = evaluate_checkpoint(checkpoint_path)
-        graph_metrics = metrics_for_graph(metrics)
+        graph_metrics = metrics_for_graph(metrics, class_names)
         graph_metrics["epoch"] = epoch
         results.append(graph_metrics)
         print_evaluation_result(epoch, graph_metrics)

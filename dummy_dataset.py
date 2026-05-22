@@ -7,6 +7,120 @@ import glob
 import os
 from zxy_label_utils import read_gt_txt
 
+
+CANONICAL_CLASS_ORDER = (
+    "Sedan",
+    "Bus or Truck",
+    "Two-wheeler",
+    "Pedestrian",
+)
+
+GT_CLASS_TO_CANONICAL = {
+    "Sedan": "Sedan",
+    "Bus or Truck": "Bus or Truck",
+    "Bicycle": "Two-wheeler",
+    "Bicycle Group": "Two-wheeler",
+    "Motorcycle": "Two-wheeler",
+    "Pedestrian": "Pedestrian",
+    "Pedestrian Group": "Pedestrian",
+}
+
+
+#for the old box classes
+LEGACY_CLASS_NAMES_BY_NUM_CLASSES = {
+    2: {
+        0: "Sedan",
+        1: "Bus or Truck",
+    },
+    6: {
+        0: "Sedan",
+        1: "Bus or Truck",
+        2: "Bicycle",
+        3: "Motorcycle",
+        4: "Pedestrian",
+        5: "Pedestrian Group",
+    },
+}
+
+
+def canonical_class_name(gt_class_name):
+    if gt_class_name not in GT_CLASS_TO_CANONICAL:
+        raise KeyError(f"Unknown GT class {gt_class_name!r}")
+    return GT_CLASS_TO_CANONICAL[gt_class_name]
+
+
+def build_class_mapping_from_gt_paths(gt_paths):
+    present_classes = set()
+
+    for gt_path in gt_paths:
+        gt_by_file_idx = read_gt_txt(gt_path)
+        for objects in gt_by_file_idx.values():
+            for obj in objects:
+                present_classes.add(canonical_class_name(obj["cls"]))
+
+    selected_classes = [
+        class_name
+        for class_name in CANONICAL_CLASS_ORDER
+        if class_name in present_classes
+    ]
+    if len(selected_classes) == 0:
+        raise ValueError("No known GT classes found in the selected training data.")
+
+    class_names = {
+        class_id: class_name
+        for class_id, class_name in enumerate(selected_classes)
+    }
+    class_to_idx = class_to_idx_from_class_names(class_names)
+
+    return class_names, class_to_idx
+
+
+def normalize_class_names(class_names):
+    if class_names is None:
+        return None
+    return {
+        int(class_id): class_name
+        for class_id, class_name in class_names.items()
+    }
+
+
+def normalize_class_to_idx(class_to_idx):
+    if class_to_idx is None:
+        return None
+    return {
+        class_name: int(class_id)
+        for class_name, class_id in class_to_idx.items()
+    }
+
+
+def fallback_class_names_for_num_classes(num_classes):
+    if num_classes in LEGACY_CLASS_NAMES_BY_NUM_CLASSES:
+        return LEGACY_CLASS_NAMES_BY_NUM_CLASSES[num_classes].copy()
+
+    selected_classes = list(CANONICAL_CLASS_ORDER[:num_classes])
+    return {
+        class_id: class_name
+        for class_id, class_name in enumerate(selected_classes)
+    }
+
+
+def class_to_idx_from_class_names(class_names):
+    canonical_to_idx = {
+        class_name: class_id
+        for class_id, class_name in class_names.items()
+    }
+
+    class_to_idx = {}
+    for gt_class_name, canonical_name in GT_CLASS_TO_CANONICAL.items():
+        if canonical_name in canonical_to_idx:
+            class_to_idx[gt_class_name] = canonical_to_idx[canonical_name]
+
+    for class_id, class_name in class_names.items():
+        class_to_idx.setdefault(class_name, class_id)
+
+    return class_to_idx
+
+
 class KRadarDataset(Dataset):
     def __init__(self, radar_folder):
         self.files = sorted(glob.glob(os.path.join(radar_folder, "*.mat")))
@@ -65,24 +179,21 @@ class KRadarGTDetectionDataset(Dataset):
             radar_dataset,
             gt_txt_path,
             class_to_idx=None,
-            sequence=None
+            sequence=None,
+            ignore_unmapped_classes=False
             ):
         super().__init__()
         self.radar_dataset = radar_dataset
         self.gt_by_file_idx = read_gt_txt(gt_txt_path)
-        self.class_to_idx = class_to_idx
+        self.class_to_idx = normalize_class_to_idx(class_to_idx)
         self.sequence = sequence
+        self.ignore_unmapped_classes = ignore_unmapped_classes
         if self.sequence is None:
             self.sequence = getattr(radar_dataset, "sequence", None)
         if self.class_to_idx is None:
-            self.class_to_idx = {
-                "Sedan": 0,
-                "Bus or Truck": 1,
-                "Bicycle": 2,
-                "Motorcycle": 3,
-                "Pedestrian": 4,
-                "Pedestrian Group": 5,
-            }
+            self.class_to_idx = class_to_idx_from_class_names(
+                fallback_class_names_for_num_classes(len(CANONICAL_CLASS_ORDER))
+            )
 
     def __len__(self):
         return len(self.radar_dataset)
@@ -99,6 +210,11 @@ class KRadarGTDetectionDataset(Dataset):
             obj for obj in objects
             if self._object_center_in_rae_fov(obj, rae.shape)
         ]
+        if self.ignore_unmapped_classes:
+            objects_in_fov = [
+                obj for obj in objects_in_fov
+                if obj["cls"] in self.class_to_idx
+            ]
 
         if len(objects_in_fov) > 0:
             gt_boxes_raw = torch.stack([obj["box_rae"] for obj in objects_in_fov], dim=0)
@@ -283,5 +399,3 @@ class KRadarRADRAEDataset(Dataset):
         if file_idx < 0 or file_idx >= len(self):
             raise KeyError(f"file_idx {file_idx} not found in sequence {self.sequence}")
         return self._load_one_dataset_idx(file_idx)
-
-

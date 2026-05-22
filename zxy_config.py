@@ -7,6 +7,7 @@ class DataConfig:
 
     start_frame_idx: int = 0
     sequence: int = 11
+    #sequences: tuple[int, ...] | None =(2,3,4,9,10,11)
     sequences: tuple[int, ...] | None =(1,2,3,4,5,6,7,8,9,10,11)
     step: int = 1
     fps: int = 10

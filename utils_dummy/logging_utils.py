@@ -76,6 +76,8 @@ def write_tensorboard_run_config(
         val_size,
         learning_rate,
         num_boxes,
+        num_classes,
+        class_names,
         background_weight,
         eval_iou_thresh
     ):
@@ -88,6 +90,8 @@ def write_tensorboard_run_config(
         f"val_size: {val_size}",
         f"learning_rate: {learning_rate}",
         f"num_boxes: {num_boxes}",
+        f"num_classes: {num_classes}",
+        f"class_names: {class_names}",
         f"background_weight: {background_weight}",
         f"eval_iou_thresh: {eval_iou_thresh}",
     ])

@@ -96,7 +96,10 @@ def build_checkpoint_payload(
             "lr": args.lr,
             "num_boxes": args.num_boxes,
             "num_classes": args.num_classes,
+            "class_names": getattr(args, "class_names", None),
+            "class_to_idx": getattr(args, "class_to_idx", None),
             "background_weight": args.background_weight,
+            "match_iou_thresh": args.match_iou_thresh,
             "score_thresh": args.score_thresh,
             "eval_iou_thresh": args.eval_iou_thresh,
             "train_ratio": args.train_ratio,
@@ -104,6 +107,36 @@ def build_checkpoint_payload(
             "limit_samples": args.limit_samples,
         },
     }
+
+
+def get_model_state_dict_from_checkpoint(checkpoint):
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        return checkpoint["model_state_dict"]
+    return checkpoint
+
+
+def infer_num_classes_from_state_dict(state_dict, num_boxes):
+    cls_weight = state_dict["decoder.cls_head.weight"]
+    total_output_dim = cls_weight.shape[0]
+    if total_output_dim % num_boxes != 0:
+        raise ValueError(
+            f"Cannot infer num_classes: cls_head output dim {total_output_dim} "
+            f"is not divisible by num_boxes {num_boxes}"
+        )
+
+    return total_output_dim // num_boxes - 1
+
+
+def get_num_classes_from_checkpoint(checkpoint, num_boxes):
+    if isinstance(checkpoint, dict):
+        config = checkpoint.get("config", {})
+        if config.get("num_classes") is not None:
+            return int(config["num_classes"])
+        if checkpoint.get("num_classes") is not None:
+            return int(checkpoint["num_classes"])
+
+    state_dict = get_model_state_dict_from_checkpoint(checkpoint)
+    return infer_num_classes_from_state_dict(state_dict, num_boxes)
 
 
 def save_epoch_checkpoint(

@@ -7,8 +7,16 @@ import torch
 from matplotlib.patches import Rectangle
 
 from dummy_dataloader import *
-from dummy_dataset import KRadarMultiSequenceGTDetectionDataset, detection_collate
+from dummy_dataset import (
+    KRadarMultiSequenceGTDetectionDataset,
+    class_to_idx_from_class_names,
+    detection_collate,
+    fallback_class_names_for_num_classes,
+    normalize_class_names,
+    normalize_class_to_idx,
+)
 from dummy_module import MVRSS3DModel
+from utils_dummy.checkpoints import get_num_classes_from_checkpoint
 from zxy_config import DataConfig
 
 
@@ -24,15 +32,34 @@ NUM_CLASSES = len(CLASS_NAMES)
 MAX_DETECTIONS = 20
 
 
+def get_checkpoint_class_info(checkpoint, num_boxes):
+    num_classes = get_num_classes_from_checkpoint(
+        checkpoint=checkpoint,
+        num_boxes=num_boxes
+    )
+    config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+
+    class_names = normalize_class_names(config.get("class_names"))
+    if class_names is None:
+        class_names = fallback_class_names_for_num_classes(num_classes)
+
+    class_to_idx = normalize_class_to_idx(config.get("class_to_idx"))
+    if class_to_idx is None:
+        class_to_idx = class_to_idx_from_class_names(class_names)
+
+    return num_classes, class_names, class_to_idx
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Visualize ground-truth and predicted boxes on RA maps."
     )
-    parser.add_argument("--checkpoint-path", default="/home/local/xinyu/MVRSS/mvrss/checkpoints/mvrss_detection/"
-    "seq11_20260520_001311_361632/best_epoch_010_20260520_015504_mAP_0p0008.pth")
-    parser.add_argument("--sequence", type=int, default=11)
+    parser.add_argument("--checkpoint-path", 
+                        default="/home/local/xinyu/MVRSS/mvrss/checkpoints/mvrss_detection/\
+                            seq1-11_20260522_101532_180331/best_epoch_011_20260522_121726_mAP_0p0000.pth")
+    parser.add_argument("--sequence", type=int, default=None)
     parser.add_argument("--start-file-idx", type=int, default=0)
-    parser.add_argument("--frame-step", type=int, default=10)
+    parser.add_argument("--frame-step", type=int, default=100)
     parser.add_argument("--max-frames",type=int,default=0)
     parser.add_argument("--score-thresh", type=float, default=0.2)
     parser.add_argument("--save-images", action="store_true")
@@ -99,13 +126,13 @@ def normalized_boxes_to_raw_rae(boxes, rae_shape):
     return raw
 
 
-def filter_predictions(outputs, rae_shape, score_thresh, max_detections):
+def filter_predictions(outputs, rae_shape, score_thresh, max_detections, num_classes):
     pred_boxes_norm = outputs["box_pred"].squeeze(0).sigmoid()
     pred_logits = outputs["cls_pred"].squeeze(0)
     pred_probs = pred_logits.softmax(dim=-1)
 
-    foreground_probs = pred_probs[:, :NUM_CLASSES]
-    background_probs = pred_probs[:, NUM_CLASSES]
+    foreground_probs = pred_probs[:, :num_classes]
+    background_probs = pred_probs[:, num_classes]
     pred_scores, pred_labels = foreground_probs.max(dim=-1)
 
     keep = (pred_scores > score_thresh) & (pred_scores > background_probs)
@@ -122,7 +149,7 @@ def filter_predictions(outputs, rae_shape, score_thresh, max_detections):
     return pred_boxes_raw.cpu(), pred_labels.cpu(), pred_scores.cpu()
 
 
-def draw_boxes(ax, boxes, labels=None, scores=None, color="lime", prefix="GT"):
+def draw_boxes(ax, boxes, labels=None, scores=None, color="lime", prefix="GT", class_names=None):
     for i, box in enumerate(boxes):
         r_idx = float(box[0])
         a_idx = float(box[1])
@@ -145,7 +172,9 @@ def draw_boxes(ax, boxes, labels=None, scores=None, color="lime", prefix="GT"):
         text = prefix
         if labels is not None:
             label_id = int(labels[i])
-            text += f" {CLASS_NAMES.get(label_id, label_id)}"
+            if class_names is None:
+                class_names = CLASS_NAMES
+            text += f" {class_names.get(label_id, label_id)}"
         if scores is not None:
             text += f" {float(scores[i]):.2f}"
 
@@ -160,7 +189,16 @@ def draw_boxes(ax, boxes, labels=None, scores=None, color="lime", prefix="GT"):
 
 
 @torch.no_grad()
-def get_frame_prediction(model, prepare_model_inputs, dataset, file_idx, device, score_thresh, max_detections):
+def get_frame_prediction(
+        model,
+        prepare_model_inputs,
+        dataset,
+        file_idx,
+        device,
+        score_thresh,
+        max_detections,
+        num_classes
+    ):
     item = dataset[file_idx]
     batch = detection_collate([item])
 
@@ -173,6 +211,7 @@ def get_frame_prediction(model, prepare_model_inputs, dataset, file_idx, device,
         rae_shape=rae_shape,
         score_thresh=score_thresh,
         max_detections=max_detections,
+        num_classes=num_classes,
     )
 
     return {
@@ -187,7 +226,7 @@ def get_frame_prediction(model, prepare_model_inputs, dataset, file_idx, device,
     }
 
 
-def show_frame(ax, frame_data):
+def show_frame(ax, frame_data, class_names):
     item = frame_data["item"]
     r_size, a_size, _ = frame_data["rae_shape"]
 
@@ -200,6 +239,7 @@ def show_frame(ax, frame_data):
         labels=frame_data["gt_labels"],
         color="lime",
         prefix="GT",
+        class_names=class_names,
     )
     draw_boxes(
         ax,
@@ -208,6 +248,7 @@ def show_frame(ax, frame_data):
         scores=frame_data["pred_scores"],
         color="red",
         prefix="Pred",
+        class_names=class_names,
     )
 
     ax.set_title(
@@ -231,22 +272,44 @@ def main():
     checkpoint_path = args.checkpoint_path
 
     cfg = DataConfig()
-    cfg.sequence = args.sequence
-    cfg.sequences = (args.sequence,)
+    if args.sequence is not None:
+        cfg.sequence = args.sequence
+        cfg.sequences = (args.sequence,)
 
     device = select_device()
 
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    dataset = build_dataset(cfg)
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    num_classes, class_names, class_to_idx = get_checkpoint_class_info(
+        checkpoint=checkpoint,
+        num_boxes=64
+    )
+    checkpoint_config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+    train_ratio = checkpoint_config.get("train_ratio", 0.7)
+    seed = checkpoint_config.get("seed", 42)
+    print(f"Visualization classes: {class_names}")
+
+    #dataset = build_dataset(cfg)
+    train_dataset, val_dataset, train_loader, val_loader = build_train_val_dataloaders(
+                                        cfg=cfg,
+                                        batch_size=1,
+                                        train_ratio=train_ratio,
+                                        seed=seed,
+                                        num_workers=0,
+                                        limit_samples=None,
+                                        class_to_idx=class_to_idx,
+                                        ignore_unmapped_classes=True,
+                                    )
+    dataset = val_dataset
     num_frames = len(dataset)
     print(
-        f"dataset_frames={num_frames} sequences={get_config_sequences(cfg)} "
+        f"validation_dataset_frames={num_frames} sequences={get_config_sequences(cfg)} "
         f"device={device}"
     )
 
-    model = build_model(device, num_classes=NUM_CLASSES)
+    model = build_model(device, num_classes=num_classes)
     model = load_checkpoint(model, checkpoint_path, device)
 
     if args.save_images:
@@ -263,23 +326,25 @@ def main():
         raise ValueError(f"--max-frames must be >= 0, got {args.max_frames}")
 
     rendered_count = 0
-    for file_idx in range(start_file_idx, num_frames, args.frame_step):
+    for val_idx in range(start_file_idx, num_frames, args.frame_step):
         frame_data = get_frame_prediction(
             model=model,
             prepare_model_inputs=prepare_model_inputs,
             dataset=dataset,
-            file_idx=file_idx,
+            file_idx=val_idx,
             device=device,
             score_thresh=args.score_thresh,
             max_detections=MAX_DETECTIONS,
+            num_classes=num_classes,
         )
 
         fig, ax = plt.subplots(figsize=(10, 8))
-        show_frame(ax, frame_data)
+        show_frame(ax, frame_data, class_names)
         fig.tight_layout()
 
         item = frame_data["item"]
         print(
+            f"val_idx={val_idx} "
             f"sequence={item['sequence']} "
             f"file_idx={item['file_idx']} "
             f"gt_frame_idx={item['gt_frame_idx']} "
@@ -288,7 +353,10 @@ def main():
         )
 
         if args.save_images:
-            output_path = os.path.join(args.save_dir, f"ra_map_gt_pred_file_{file_idx:05d}.png")
+            output_path = os.path.join(
+                args.save_dir,
+                f"ra_map_val_{val_idx:05d}_seq_{item['sequence']}_file_{item['file_idx']:05d}.png"
+            )
             fig.savefig(output_path, dpi=160)
             print(f"saved={output_path}")
 

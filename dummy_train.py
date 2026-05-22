@@ -4,12 +4,91 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 from dummy_dataloader import (build_train_val_dataloaders,get_config_sequences,prepare_model_inputs)
-from dummy_evaluation import *
+from dummy_dataset import build_class_mapping_from_gt_paths
+from dummy_evaluation import boxes_3d_to_ra_xyxy, box_iou_2d, evaluate_train_val_iou
 from dummy_module import MVRSS3DModel
 from utils_dummy.checkpoints import *
 from utils_dummy.logging_utils import *
 from utils_dummy.other_helping_dunctions import *
 from zxy_config import DataConfig
+from zxy_data_path import get_gt_txt_path
+
+
+@torch.no_grad()
+def greedy_cost_match(
+        pred_boxes,
+        gt_boxes,
+        cost_bbox=1.0,
+        cost_iou=1.0
+    ):
+    device = pred_boxes.device
+
+    if pred_boxes.shape[0] == 0 or gt_boxes.shape[0] == 0:
+        return (
+            torch.empty(0, dtype=torch.long, device=device),
+            torch.empty(0, dtype=torch.long, device=device)
+        )
+
+    bbox_cost = torch.cdist(
+        pred_boxes[:, :6],
+        gt_boxes[:, :6],
+        p=1
+    )
+
+    pred_ra_boxes = boxes_3d_to_ra_xyxy(pred_boxes)
+    gt_ra_boxes = boxes_3d_to_ra_xyxy(gt_boxes)
+
+    ious = box_iou_2d(pred_ra_boxes, gt_ra_boxes)
+    iou_cost = 1.0 - ious
+
+    total_cost = cost_bbox * bbox_cost + cost_iou * iou_cost
+
+    flat_cost = total_cost.reshape(-1)
+    order = flat_cost.argsort(descending=False)
+
+    matched_pred = []
+    matched_gt = []
+
+    used_pred = set()
+    used_gt = set()
+
+    num_gt = gt_boxes.shape[0]
+
+    for flat_idx in order:
+        flat_idx = flat_idx.item()
+
+        pred_idx = flat_idx // num_gt
+        gt_idx = flat_idx % num_gt
+
+        if pred_idx in used_pred:
+            continue
+
+        if gt_idx in used_gt:
+            continue
+
+        matched_pred.append(pred_idx)
+        matched_gt.append(gt_idx)
+
+        used_pred.add(pred_idx)
+        used_gt.add(gt_idx)
+
+        if len(used_gt) == num_gt:
+            break
+
+    matched_pred_indices = torch.tensor(
+        matched_pred,
+        dtype=torch.long,
+        device=device
+    )
+
+    matched_gt_indices = torch.tensor(
+        matched_gt,
+        dtype=torch.long,
+        device=device
+    )
+
+    return matched_pred_indices, matched_gt_indices
+
 
 @torch.no_grad()
 def hungarian_cost_match(
@@ -65,7 +144,8 @@ def detection_loss(
         num_classes,
         box_loss_weight=1.0,
         cls_loss_weight=1.0,
-        background_weight=0.1
+        background_weight=0.1,
+        match_iou_thresh=0.05
     ):
     if isinstance(outputs, dict):
         pred_boxes = outputs["box_pred"].sigmoid()
@@ -104,18 +184,34 @@ def detection_loss(
             continue
 
         pred_boxes_b = pred_boxes[b]
+        matched_pred_indices, matched_gt_indices = greedy_cost_match(
+                pred_boxes=pred_boxes_b,
+                gt_boxes=gt_boxes,
+                cost_bbox=1.0,
+                cost_iou=1.0
+                )
 
-        matched_pred_indices, matched_gt_indices = hungarian_cost_match(
-            pred_boxes=pred_boxes_b,
-            gt_boxes=gt_boxes,
-            cost_bbox=1.0,
-            cost_iou=1.0
-        )
+        # matched_pred_indices, matched_gt_indices = hungarian_cost_match(
+        #     pred_boxes=pred_boxes_b,
+        #     gt_boxes=gt_boxes,
+        #     cost_bbox=1.0,
+        #     cost_iou=1.0
+        # )
 
         if matched_pred_indices.numel() == 0:
             continue
 
-        
+        matched_ious = box_iou_2d(
+            boxes_3d_to_ra_xyxy(pred_boxes_b[matched_pred_indices]),
+            boxes_3d_to_ra_xyxy(gt_boxes[matched_gt_indices])
+        ).diag()
+        keep_matches = matched_ious >= match_iou_thresh
+        matched_pred_indices = matched_pred_indices[keep_matches]
+        matched_gt_indices = matched_gt_indices[keep_matches]
+
+        if matched_pred_indices.numel() == 0:
+            continue
+
         target_classes[b, matched_pred_indices] = gt_labels[matched_gt_indices]
 
         
@@ -169,7 +265,8 @@ def train_one_epoch(
         num_epochs=None,
         box_loss_weight=1.0,
         cls_loss_weight=1.0,
-        background_weight=0.1
+        background_weight=0.1,
+        match_iou_thresh=0.05
     ):
     model.train()
 
@@ -196,7 +293,8 @@ def train_one_epoch(
             num_classes=num_classes,
             box_loss_weight=box_loss_weight,
             cls_loss_weight=cls_loss_weight,
-            background_weight=background_weight
+            background_weight=background_weight,
+            match_iou_thresh=match_iou_thresh
         )
 
         optimizer.zero_grad()
@@ -237,7 +335,8 @@ def validate_loss(
         num_classes,
         box_loss_weight=1.0,
         cls_loss_weight=1.0,
-        background_weight=0.1
+        background_weight=0.1,
+        match_iou_thresh=0.05
     ):
     model.eval()
 
@@ -257,7 +356,8 @@ def validate_loss(
             num_classes=num_classes,
             box_loss_weight=box_loss_weight,
             cls_loss_weight=cls_loss_weight,
-            background_weight=background_weight
+            background_weight=background_weight,
+            match_iou_thresh=match_iou_thresh
         )
 
         total_loss_sum += loss_dict["total_loss"]
@@ -273,12 +373,12 @@ def validate_loss(
 
 def argparse_args():
     parser = argparse.ArgumentParser(description="Train the dummy MVRSS detection module.")
-    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--epochs", type=int, default=25)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--num-boxes", type=int, default=64)
-    parser.add_argument("--num-classes", type=int, default=6)
     parser.add_argument("--background-weight", type=float, default=0.6)
+    parser.add_argument("--match-iou-thresh", type=float, default=0)  #ddddd
     parser.add_argument("--score-thresh", type=float, default=0.2)
     parser.add_argument("--eval-iou-thresh", type=float, default=0.1)
     parser.add_argument("--train-ratio", type=float, default=0.7)
@@ -300,6 +400,19 @@ def main():
 
     set_seed(args.seed)
     cfg = DataConfig()
+    configured_sequences = get_config_sequences(cfg)
+    gt_paths = [
+        get_gt_txt_path(cfg, sequence=sequence)
+        for sequence in configured_sequences
+    ]
+    class_names, class_to_idx = build_class_mapping_from_gt_paths(gt_paths)
+    num_classes = len(class_names)
+    args.num_classes = num_classes
+    args.class_names = class_names
+    args.class_to_idx = class_to_idx
+
+    print(f"Training classes: {class_names}")
+
     device = torch.device("cuda")
     (train_dataset,val_dataset,train_loader,val_loader) = build_train_val_dataloaders(
         cfg=cfg,
@@ -307,7 +420,8 @@ def main():
         train_ratio=args.train_ratio,
         seed=args.seed,
         num_workers=args.num_workers,
-        limit_samples=args.limit_samples
+        limit_samples=args.limit_samples,
+        class_to_idx=class_to_idx
         )
     if len(val_dataset) == 0:
         raise ValueError("Validation split is empty. Adjust --train-ratio or --limit-samples.")
@@ -317,7 +431,7 @@ def main():
         e_in=37,
         num_boxes=args.num_boxes,
         box_dim=7,
-        num_classes=args.num_classes,
+        num_classes=num_classes,
         feature_channels=64,
         fusion_hidden_channels=64,
         decoder_hidden_channels=128,
@@ -329,7 +443,6 @@ def main():
     best_state = BestCheckpointState()
     window_best_state = BestCheckpointState()
 
-    configured_sequences = get_config_sequences(cfg)
     checkpoint_dirs = create_checkpoint_run_dirs(
         base_dir=args.checkpoint_base_dir,
         experiment_name="mvrss_detection",
@@ -352,6 +465,8 @@ def main():
         val_size=len(val_dataset),
         learning_rate=args.lr,
         num_boxes=args.num_boxes,
+        num_classes=num_classes,
+        class_names=class_names,
         background_weight=args.background_weight,
         eval_iou_thresh=args.eval_iou_thresh
     )
@@ -361,28 +476,30 @@ def main():
             dataloader=train_loader,
             optimizer=optimizer,
             device=device,
-            num_classes=args.num_classes,
+            num_classes=num_classes,
             epoch=epoch,
             num_epochs=args.epochs,
             box_loss_weight=1.0,
             cls_loss_weight=1.0,
-            background_weight=args.background_weight
+            background_weight=args.background_weight,
+            match_iou_thresh=args.match_iou_thresh
         )
         val_loss_metrics = validate_loss(
             model=model,
             dataloader=val_loader,
             device=device,
-            num_classes=args.num_classes,
+            num_classes=num_classes,
             box_loss_weight=1.0,
             cls_loss_weight=1.0,
-            background_weight=args.background_weight
+            background_weight=args.background_weight,
+            match_iou_thresh=args.match_iou_thresh
         )
         eval_metrics = evaluate_train_val_iou(
             model=model,
             train_dataloader=train_loader,
             val_dataloader=val_loader,
             device=device,
-            num_classes=args.num_classes,
+            num_classes=num_classes,
             prepare_model_inputs=prepare_model_inputs,
             score_thresh=args.score_thresh,
             iou_thresh=args.eval_iou_thresh,
@@ -439,7 +556,7 @@ def main():
         )
     writer.close()
 
-    print_training_history(history)
+    # print_training_history(history)
     save_global_best_checkpoint(
         best_state=best_state,
         checkpoint_dirs=checkpoint_dirs,
