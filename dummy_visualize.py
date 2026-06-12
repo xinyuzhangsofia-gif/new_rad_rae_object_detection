@@ -4,6 +4,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torch.nn.functional as F
 from matplotlib.patches import Rectangle
 
 from dummy_dataloader import (
@@ -16,12 +17,10 @@ from dummy_dataset import (
     CLASS_TO_IDX,
     detection_collate,
 )
-from dummy_module import (
-    MVRSS3DModel,
-    MVRSS3DModelDeform,
-    MVRSS3DModelDeformDepthwiseSeparable,
-)
-from dummy_module_multiscale import MVRSS3DModel2
+from model_bifpn_heatmap import RADRAEBiFPNCenterPointModel
+from model_con2d_heatmap import RADRAEStageCenterPointModel
+from model_deform_heatmap import RADRAEStageDeformCenterPointModel
+from model_fpn_heatmap import RADRAEFPNDeformCenterPointModel
 from zxy_config import DataConfig
 
 
@@ -33,14 +32,16 @@ def parse_args():
         description="Visualize ground-truth and predicted boxes on RA maps."
     )
     parser.add_argument("--checkpoint-path", 
-                        default="checkpoints/mvrss_detection/seq1-11_20260531_233835_389707/global_best_epoch_047_20260601_041256_mAP_0p0643.pth")
-    parser.add_argument("--sequence", type=int, default=None)
+                        default="checkpoints/mvrss_detection_resume/seq1-11_20260612_100006_228073/global_best_epoch_114_20260612_122807_mAP_0p3579.pth")
+    parser.add_argument("--sequence", type=int, default=11)
     parser.add_argument("--start-file-idx", type=int, default=0)
     parser.add_argument("--frame-step", type=int, default=5)
     parser.add_argument("--max-frames", type=int, default=0)
-    parser.add_argument("--score-thresh", type=float, default=0.0) #0.2
+    parser.add_argument("--score-thresh", type=float, default=0.2)
     parser.add_argument("--num-boxes", type=int, default=64)
-    parser.add_argument("--model-type", default="model3", choices=["model1", "model2", "model3", "model4", "model5"])
+    parser.add_argument("--pred-mode", default="final", choices=["raw", "final"])
+    parser.add_argument("--heatmap-nms-kernel", type=int, default=3)
+    parser.add_argument("--model-type", default="auto", choices=["auto", "model1", "model2", "model4", "model5"])
     parser.add_argument("--save-images", action="store_true", help="Save visualizations to disk.")
     parser.add_argument("--no-display", action="store_true", help="Do not display images to the screen (useful for background saving).")
     parser.add_argument("--save-dir", default="./ra_vis")
@@ -48,42 +49,38 @@ def parse_args():
 
 
 def build_model(device, num_boxes, num_classes=NUM_CLASSES, model_type="model1"):
-    model_kwargs = dict(
-        d_in=64,
-        e_in=37,
-        num_boxes=num_boxes,
-        box_dim=7,
-        num_classes=num_classes,
-        feature_channels=64,
-        fusion_hidden_channels=64,
-        decoder_hidden_channels=128,
-    )
-
     if model_type == "model1":
-        model = MVRSS3DModel(
-            **model_kwargs,
-            pooled_size=(16, 16),
+        model = RADRAEStageCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=num_classes,
+            decoder_hidden_channels=128,
+            num_boxes=num_boxes,
         )
     elif model_type == "model2":
-        model = MVRSS3DModel2(
-            **model_kwargs,
-            pooled_size=(8, 8),
+        model = RADRAEBiFPNCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=num_classes,
+            decoder_hidden_channels=128,
+            num_boxes=num_boxes,
         )
-    elif model_type == "model3":
-        model = MVRSS3DModelDeform(
-            **model_kwargs,
-            pooled_size=(16, 16),
+    elif model_type == "model4":
+        model = RADRAEStageDeformCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=num_classes,
+            decoder_hidden_channels=128,
+            num_boxes=num_boxes,
         )
-    # elif model_type == "model4":
-    #     model = MVRSS3DModelDeform(
-    #         **model_kwargs,
-    #         pooled_size=(4, 4),
-    #     )
-    # elif model_type == "model5":
-    #     model = MVRSS3DModelDeformDepthwiseSeparable(
-    #         **model_kwargs,
-    #         pooled_size=(8, 8),
-    #     )
+    elif model_type == "model5":
+        model = RADRAEFPNDeformCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=num_classes,
+            decoder_hidden_channels=128,
+            num_boxes=num_boxes,
+        )
     else:
         raise ValueError(f"Unknown model_type: {model_type}")
 
@@ -97,6 +94,40 @@ def load_checkpoint(model, checkpoint_path, device):
         model.load_state_dict(checkpoint)
     model.eval()
     return model
+
+
+def get_checkpoint_state_dict(checkpoint):
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        return checkpoint["model_state_dict"]
+    return checkpoint
+
+
+def infer_model_type_from_checkpoint(checkpoint):
+    if isinstance(checkpoint, dict):
+        model_type = checkpoint.get("config", {}).get("model_type")
+        if model_type:
+            return model_type
+
+    state_dict = get_checkpoint_state_dict(checkpoint)
+    if any(".bifpn_blocks." in key for key in state_dict.keys()):
+        return "model2"
+    if any(key.startswith("backbone.encoder.rad_encoder.lateral") for key in state_dict.keys()):
+        return "model5"
+    if any(".offset_conv." in key or ".deform_conv." in key for key in state_dict.keys()):
+        return "model4"
+    if any(key.startswith("backbone.encoder.") for key in state_dict.keys()):
+        return "model1"
+
+    raise ValueError("Unsupported old model checkpoint: expected model1, model4, or model5.")
+
+
+def resolve_model_type(args, checkpoint):
+    if args.model_type != "auto":
+        return args.model_type
+
+    model_type = infer_model_type_from_checkpoint(checkpoint)
+    print(f"Auto-detected model type: {model_type}")
+    return model_type
 
 
 def make_ra_map(rae):
@@ -132,24 +163,124 @@ def normalized_boxes_to_raw_rae(boxes, rae_shape):
     return raw
 
 
-def filter_predictions(outputs, rae_shape, score_thresh, max_detections):
-    pred_boxes_norm = outputs["box_pred"].squeeze(0).sigmoid()
-    pred_logits = outputs["cls_pred"].squeeze(0)
-    pred_probs = pred_logits.softmax(dim=-1)
+def centerpoint_heatmap_nms(heatmap, kernel_size=3):
+    if kernel_size <= 1:
+        return heatmap
+    if kernel_size % 2 == 0:
+        raise ValueError(f"Heatmap NMS kernel must be odd, got {kernel_size}")
 
-    foreground_probs = pred_probs[:, :NUM_CLASSES]
-    background_probs = pred_probs[:, NUM_CLASSES]
-    pred_scores, pred_labels = foreground_probs.max(dim=-1)
+    pad = (kernel_size - 1) // 2
+    pooled = F.max_pool2d(
+        heatmap,
+        kernel_size=kernel_size,
+        stride=1,
+        padding=pad,
+    )
+    keep = pooled == heatmap
+    return heatmap * keep.to(heatmap.dtype)
 
-    keep = (pred_scores > score_thresh) & (pred_scores > background_probs)
+
+def gather_dense_feature(feature_map, indices):
+    flat = feature_map.flatten(start_dim=2).transpose(1, 2)
+    gather_index = indices.unsqueeze(-1).expand(-1, -1, flat.shape[-1])
+    return flat.gather(dim=1, index=gather_index)
+
+
+def dense_centerpoint_outputs_to_detections(
+        outputs,
+        num_classes,
+        max_detections,
+        pred_mode,
+        heatmap_nms_kernel
+    ):
+    dense_keys = {"cls_logits", "center_offset", "center_height", "size", "yaw"}
+    missing_keys = sorted(dense_keys - set(outputs.keys()))
+    if len(missing_keys) > 0:
+        raise KeyError(
+            "Dense CenterPoint visualization requires output keys "
+            f"{sorted(dense_keys)}, missing {missing_keys}."
+        )
+
+    cls_logits = outputs["cls_logits"][:, :num_classes]
+    B, _, H, W = cls_logits.shape
+    if B != 1:
+        raise ValueError(f"Visualization expects batch size 1, got {B}")
+
+    heatmap_scores = cls_logits.sigmoid()
+    if pred_mode == "final":
+        heatmap_scores = centerpoint_heatmap_nms(
+            heatmap=heatmap_scores,
+            kernel_size=heatmap_nms_kernel,
+        )
+    elif pred_mode != "raw":
+        raise ValueError(f"Unknown prediction mode: {pred_mode}")
+
+    flat_scores = heatmap_scores.flatten(start_dim=1)
+    topk_count = min(max_detections, flat_scores.shape[1])
+    pred_scores, flat_indices = flat_scores.topk(topk_count, dim=1)
+
+    spatial_size = H * W
+    pred_labels = flat_indices // spatial_size
+    spatial_indices = flat_indices % spatial_size
+    y_idx = (spatial_indices // W).to(cls_logits.dtype)
+    x_idx = (spatial_indices % W).to(cls_logits.dtype)
+
+    center_offset = gather_dense_feature(
+        outputs["center_offset"],
+        spatial_indices
+    ).sigmoid()
+    center_height = gather_dense_feature(
+        outputs["center_height"],
+        spatial_indices
+    ).sigmoid()
+    size = gather_dense_feature(
+        outputs["size"],
+        spatial_indices
+    ).sigmoid()
+    yaw = gather_dense_feature(outputs["yaw"], spatial_indices)
+
+    r_center = (y_idx + center_offset[..., 0]) / max(H, 1)
+    a_center = (x_idx + center_offset[..., 1]) / max(W, 1)
+    e_center = center_height[..., 0]
+    yaw_angle = torch.atan2(yaw[..., 0], yaw[..., 1])
+    yaw_norm = (yaw_angle + torch.pi) / (2.0 * torch.pi)
+
+    pred_boxes_norm = torch.stack(
+        [
+            r_center,
+            a_center,
+            e_center,
+            size[..., 0],
+            size[..., 1],
+            size[..., 2],
+            yaw_norm,
+        ],
+        dim=-1,
+    ).clamp(min=1e-4, max=1.0 - 1e-4)
+
+    return pred_boxes_norm.squeeze(0), pred_labels.squeeze(0), pred_scores.squeeze(0)
+
+
+def filter_predictions(
+        outputs,
+        rae_shape,
+        score_thresh,
+        max_detections,
+        pred_mode,
+        heatmap_nms_kernel
+    ):
+    pred_boxes_norm, pred_labels, pred_scores = dense_centerpoint_outputs_to_detections(
+        outputs=outputs,
+        num_classes=NUM_CLASSES,
+        max_detections=max_detections,
+        pred_mode=pred_mode,
+        heatmap_nms_kernel=heatmap_nms_kernel,
+    )
+
+    keep = pred_scores > score_thresh
     pred_boxes_norm = pred_boxes_norm[keep]
     pred_labels = pred_labels[keep]
     pred_scores = pred_scores[keep]
-
-    if pred_scores.shape[0] > max_detections:
-        pred_scores, topk_indices = pred_scores.topk(max_detections)
-        pred_boxes_norm = pred_boxes_norm[topk_indices]
-        pred_labels = pred_labels[topk_indices]
 
     pred_boxes_raw = normalized_boxes_to_raw_rae(pred_boxes_norm, rae_shape)
     return pred_boxes_raw.cpu(), pred_labels.cpu(), pred_scores.cpu()
@@ -202,7 +333,9 @@ def get_frame_prediction(
         file_idx,
         device,
         score_thresh,
-        max_detections
+        max_detections,
+        pred_mode,
+        heatmap_nms_kernel
     ):
     item = dataset[file_idx]
     batch = detection_collate([item])
@@ -216,6 +349,8 @@ def get_frame_prediction(
         rae_shape=rae_shape,
         score_thresh=score_thresh,
         max_detections=max_detections,
+        pred_mode=pred_mode,
+        heatmap_nms_kernel=heatmap_nms_kernel,
     )
 
     return {
@@ -227,6 +362,7 @@ def get_frame_prediction(
         "pred_boxes": pred_boxes,
         "pred_labels": pred_labels,
         "pred_scores": pred_scores,
+        "pred_mode": pred_mode,
     }
 
 
@@ -258,6 +394,7 @@ def show_frame(ax, frame_data, class_names):
     ax.set_title(
         f"RA map | sequence={item['sequence']} | file_idx={item['file_idx']} | "
         f"gt_frame_idx={item['gt_frame_idx']} | "
+        f"mode={frame_data['pred_mode']} | "
         f"GT={len(frame_data['gt_boxes'])} | Pred={len(frame_data['pred_boxes'])}"
     )
     ax.set_xlabel("Azimuth bin")
@@ -289,6 +426,10 @@ def main():
     checkpoint_config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
     train_ratio = checkpoint_config.get("train_ratio", 0.7)
     seed = checkpoint_config.get("seed", 42)
+    split_mode = checkpoint_config.get("split_mode", "file")
+    split_dir = checkpoint_config.get("split_dir", "split")
+    num_boxes = int(checkpoint_config.get("num_boxes", args.num_boxes))
+    model_type = resolve_model_type(args, checkpoint)
     print(f"Visualization classes: {CLASS_NAMES}")
 
     _, val_dataset, _, _ = build_train_val_dataloaders(
@@ -300,6 +441,8 @@ def main():
                                         limit_samples=None,
                                         class_to_idx=CLASS_TO_IDX,
                                         ignore_unmapped_classes=True,
+                                        split_mode=split_mode,
+                                        split_dir=split_dir,
                                     )
     dataset = val_dataset
     num_frames = len(dataset)
@@ -310,8 +453,8 @@ def main():
 
     model = build_model(
         device=device,
-        num_boxes=args.num_boxes,
-        model_type=args.model_type
+        num_boxes=num_boxes,
+        model_type=model_type
     )
     model = load_checkpoint(model, checkpoint_path, device)
 
@@ -337,7 +480,9 @@ def main():
             file_idx=val_idx,
             device=device,
             score_thresh=args.score_thresh,
-            max_detections=args.num_boxes,
+            max_detections=num_boxes,
+            pred_mode=args.pred_mode,
+            heatmap_nms_kernel=args.heatmap_nms_kernel,
         )
 
         fig, ax = plt.subplots(figsize=(10, 8))
@@ -350,6 +495,7 @@ def main():
             f"sequence={item['sequence']} "
             f"file_idx={item['file_idx']} "
             f"gt_frame_idx={item['gt_frame_idx']} "
+            f"mode={args.pred_mode} "
             f"GT={len(frame_data['gt_boxes'])} "
             f"Pred={len(frame_data['pred_boxes'])}"
         )
@@ -357,7 +503,7 @@ def main():
         if args.save_images:
             output_path = os.path.join(
                 args.save_dir,
-                f"ra_map_val_{val_idx:05d}_seq_{item['sequence']}_file_{item['file_idx']:05d}.png"
+                f"ra_map_{args.pred_mode}_val_{val_idx:05d}_seq_{item['sequence']}_file_{item['file_idx']:05d}.png"
             )
             fig.savefig(output_path, dpi=160)
             print(f"saved={output_path}")

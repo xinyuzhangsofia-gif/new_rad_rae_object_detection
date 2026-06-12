@@ -5,12 +5,10 @@ from tqdm import tqdm
 from dummy_dataloader import (build_train_val_dataloaders, get_config_sequences, prepare_model_inputs)
 from dummy_dataset import CLASS_NAMES, CLASS_TO_IDX
 from dummy_evaluation import boxes_3d_to_ra_xyxy, evaluate_train_val_iou
-from dummy_module import (
-    MVRSS3DModel,
-    MVRSS3DModelDeform,
-    MVRSS3DModelDeformDepthwiseSeparable,
-)
-from dummy_module_multiscale import MVRSS3DModel2
+from model_bifpn_heatmap import RADRAEBiFPNCenterPointModel
+from model_deform_heatmap import RADRAEStageDeformCenterPointModel
+from model_fpn_heatmap import RADRAEFPNDeformCenterPointModel
+from model_con2d_heatmap import RADRAEStageCenterPointModel 
 from utils_dummy.checkpoints import *
 from utils_dummy.logging_utils import *
 from utils_dummy.other_helping_dunctions import *
@@ -18,8 +16,6 @@ from zxy_config import DataConfig
 
 
 NUM_CLASSES = 2
-BACKGROUND_CLASS_ID = 2
-NUM_OUTPUT_CLASSES = 3
 
 
 def parse_gpu_ids(gpu_ids_text):
@@ -61,225 +57,282 @@ def pairwise_box_giou_2d(boxes1, boxes2):
     return giou
 
 
-def focal_loss_fn(logits, targets, class_weights, gamma=2.0):
-    """
-    Applies Focal Loss to combat the massive background class imbalance.
-    """
-    ce_loss = F.cross_entropy(logits, targets, weight=class_weights, reduction='none')
-    pt = torch.exp(-ce_loss) # Get the predicted probability for the target class
-    focal_term = (1.0 - pt) ** gamma
-    return (focal_term * ce_loss).mean()
+def gaussian2d(radius, sigma=None, device="cpu"):
+    diameter = 2 * radius + 1
+    if sigma is None:
+        sigma = diameter / 6
+
+    x = torch.arange(0, diameter, device=device).float()
+    y = torch.arange(0, diameter, device=device).float()
+    y, x = torch.meshgrid(y, x, indexing="ij")
+
+    center = radius
+    gaussian = torch.exp(
+        -((x - center) ** 2 + (y - center) ** 2) / (2 * sigma ** 2)
+    )
+    return gaussian
 
 
-@torch.no_grad()
-def hungarian_cost_match(
-        pred_boxes,
+def draw_gaussian(heatmap, center_y, center_x, radius):
+    R, A = heatmap.shape
+    device = heatmap.device
+    gaussian = gaussian2d(radius, device=device)
+
+    left = min(center_x, radius)
+    right = min(A - center_x - 1, radius)
+    top = min(center_y, radius)
+    bottom = min(R - center_y - 1, radius)
+
+    if left < 0 or right < 0 or top < 0 or bottom < 0:
+        return
+
+    masked_heatmap = heatmap[
+        center_y - top: center_y + bottom + 1,
+        center_x - left: center_x + right + 1
+    ]
+    masked_gaussian = gaussian[
+        radius - top: radius + bottom + 1,
+        radius - left: radius + right + 1
+    ]
+
+    torch.maximum(masked_heatmap, masked_gaussian, out=masked_heatmap)
+
+
+def heatmap_focal_loss(logits, targets, alpha=2.0, beta=4.0):
+    pred = logits.sigmoid().clamp(min=1e-4, max=1.0 - 1e-4)
+    pos_inds = targets.eq(1.0).float()
+    neg_inds = targets.lt(1.0).float()
+    neg_weights = torch.pow(1.0 - targets, beta)
+
+    pos_loss = torch.log(pred) * torch.pow(1.0 - pred, alpha) * pos_inds
+    neg_loss = (
+        torch.log(1.0 - pred)
+        * torch.pow(pred, alpha)
+        * neg_weights
+        * neg_inds
+    )
+
+    num_pos = pos_inds.sum()
+    loss = -(pos_loss.sum() + neg_loss.sum())
+    return loss / torch.clamp(num_pos, min=1.0)
+
+
+def normalized_boxes_to_centerpoint_targets(box, H, W):
+    r_norm = box[0].clamp(0.0, 1.0)
+    a_norm = box[1].clamp(0.0, 1.0)
+    e_norm = box[2].clamp(0.0, 1.0)
+    size_norm = box[3:6].clamp(min=1e-4, max=1.0)
+    yaw_norm = box[6].clamp(0.0, 1.0)
+
+    y_float = r_norm * H
+    x_float = a_norm * W
+    center_y = int(torch.floor(y_float).clamp(0, H - 1).item())
+    center_x = int(torch.floor(x_float).clamp(0, W - 1).item())
+
+    offset_y = (y_float - center_y).clamp(0.0, 1.0)
+    offset_x = (x_float - center_x).clamp(0.0, 1.0)
+
+    yaw_rad = (yaw_norm * 2.0 * torch.pi) - torch.pi
+    yaw_sin_cos = torch.stack([torch.sin(yaw_rad), torch.cos(yaw_rad)])
+
+    return {
+        "center_y": center_y,
+        "center_x": center_x,
+        "center_offset": torch.stack([offset_y, offset_x]),
+        "center_height": e_norm.unsqueeze(0),
+        "size": size_norm,
+        "yaw": yaw_sin_cos,
+    }
+
+
+def build_centerpoint_targets(
         gt_boxes,
-        cost_bbox=1.0,
-        cost_giou=2.0  # Increased priority for IoU overlap
+        gt_labels,
+        cls_logits,
+        num_classes,
+        radius=3
     ):
-    device = pred_boxes.device
+    B, _, H, W = cls_logits.shape
+    device = cls_logits.device
 
-    if pred_boxes.shape[0] == 0 or gt_boxes.shape[0] == 0:
-        return (
-            torch.empty(0, dtype=torch.long, device=device),
-            torch.empty(0, dtype=torch.long, device=device)
-        )
+    heatmap_targets = torch.zeros((B, num_classes, H, W), device=device)
+    reg_targets = {
+        "center_offset": torch.zeros((B, 2, H, W), device=device),
+        "center_height": torch.zeros((B, 1, H, W), device=device),
+        "size": torch.zeros((B, 3, H, W), device=device),
+        "yaw": torch.zeros((B, 2, H, W), device=device),
+        "box": torch.zeros((B, 7, H, W), device=device),
+    }
+    reg_mask = torch.zeros((B, 1, H, W), device=device)
 
-    bbox_cost = torch.cdist(pred_boxes[:, :6], gt_boxes[:, :6], p=1)
+    for b in range(B):
+        boxes_b = gt_boxes[b].to(device)
+        labels_b = gt_labels[b].to(device)
 
-    pred_ra_boxes = boxes_3d_to_ra_xyxy(pred_boxes)
-    gt_ra_boxes = boxes_3d_to_ra_xyxy(gt_boxes)
-
-    # Use GIoU for matching cost instead of standard IoU
-    gious = pairwise_box_giou_2d(pred_ra_boxes, gt_ra_boxes)
-    giou_cost = 1.0 - gious
-
-    total_cost = cost_bbox * bbox_cost + cost_giou * giou_cost
-
-    cost_matrix = total_cost.detach().cpu().numpy()
-
-    from scipy.optimize import linear_sum_assignment
-    matched_pred, matched_gt = linear_sum_assignment(cost_matrix)
-
-    matched_pred_indices = torch.as_tensor(matched_pred, dtype=torch.long, device=device)
-    matched_gt_indices = torch.as_tensor(matched_gt, dtype=torch.long, device=device)
-    
-    return matched_pred_indices, matched_gt_indices
-
-@torch.no_grad()
-def greedy_cost_match(
-        pred_boxes,
-        gt_boxes,
-        cost_bbox=1.0,
-        cost_giou=2.0
-    ):
-    device = pred_boxes.device
-
-    if pred_boxes.shape[0] == 0 or gt_boxes.shape[0] == 0:
-        return (
-            torch.empty(0, dtype=torch.long, device=device),
-            torch.empty(0, dtype=torch.long, device=device)
-        )
-
-    # 1. L1 bbox cost
-    bbox_cost = torch.cdist(pred_boxes[:, :6], gt_boxes[:, :6], p=1)
-
-    # 2. RA-plane GIoU cost
-    pred_ra_boxes = boxes_3d_to_ra_xyxy(pred_boxes)
-    gt_ra_boxes = boxes_3d_to_ra_xyxy(gt_boxes)
-
-    gious = pairwise_box_giou_2d(pred_ra_boxes, gt_ra_boxes)
-    giou_cost = 1.0 - gious
-
-    # 3. Total cost
-    total_cost = cost_bbox * bbox_cost + cost_giou * giou_cost
-
-    num_pred, num_gt = total_cost.shape
-    max_matches = min(num_pred, num_gt)
-
-    # 4. Flatten and sort all candidate pairs by cost
-    flat_cost = total_cost.flatten()
-    sorted_indices = torch.argsort(flat_cost)
-
-    matched_pred = []
-    matched_gt = []
-
-    used_pred = torch.zeros(num_pred, dtype=torch.bool, device=device)
-    used_gt = torch.zeros(num_gt, dtype=torch.bool, device=device)
-
-    # 5. Greedy matching
-    for idx in sorted_indices:
-        pred_idx = idx // num_gt
-        gt_idx = idx % num_gt
-
-        if used_pred[pred_idx] or used_gt[gt_idx]:
+        if boxes_b.numel() == 0:
             continue
 
-        matched_pred.append(pred_idx)
-        matched_gt.append(gt_idx)
+        for box, cls_id in zip(boxes_b, labels_b):
+            cls_id = int(cls_id.item())
+            if cls_id < 0 or cls_id >= num_classes:
+                continue
 
-        used_pred[pred_idx] = True
-        used_gt[gt_idx] = True
+            target = normalized_boxes_to_centerpoint_targets(
+                box=box,
+                H=H,
+                W=W
+            )
+            center_y = target["center_y"]
+            center_x = target["center_x"]
 
-        if len(matched_pred) >= max_matches:
-            break
+            draw_gaussian(
+                heatmap=heatmap_targets[b, cls_id],
+                center_y=center_y,
+                center_x=center_x,
+                radius=radius
+            )
 
-    if len(matched_pred) == 0:
-        return (
-            torch.empty(0, dtype=torch.long, device=device),
-            torch.empty(0, dtype=torch.long, device=device)
-        )
+            reg_targets["center_offset"][b, :, center_y, center_x] = target["center_offset"]
+            reg_targets["center_height"][b, :, center_y, center_x] = target["center_height"]
+            reg_targets["size"][b, :, center_y, center_x] = target["size"]
+            reg_targets["yaw"][b, :, center_y, center_x] = target["yaw"]
+            reg_targets["box"][b, :, center_y, center_x] = box.clamp(0.0, 1.0)
+            reg_mask[b, :, center_y, center_x] = 1.0
 
-    matched_pred_indices = torch.stack(matched_pred).long()
-    matched_gt_indices = torch.stack(matched_gt).long()
+    return heatmap_targets, reg_targets, reg_mask
 
-    return matched_pred_indices, matched_gt_indices
 
-def detection_loss(
+def masked_l1_loss(pred, target, mask):
+    mask = mask.expand_as(pred)
+    denom = torch.clamp(mask.sum(), min=1.0)
+    return F.l1_loss(pred * mask, target * mask, reduction="sum") / denom
+
+
+def dense_centerpoint_outputs_to_boxes(outputs):
+    cls_logits = outputs["cls_logits"]
+    B, _, H, W = cls_logits.shape
+    device = cls_logits.device
+    dtype = cls_logits.dtype
+
+    y_grid = torch.arange(H, device=device, dtype=dtype).view(1, H, 1).expand(B, H, W)
+    x_grid = torch.arange(W, device=device, dtype=dtype).view(1, 1, W).expand(B, H, W)
+
+    center_offset = outputs["center_offset"].sigmoid()
+    center_height = outputs["center_height"].sigmoid()
+    size = outputs["size"].sigmoid()
+    yaw = outputs["yaw"]
+
+    r_center = (y_grid + center_offset[:, 0]) / max(H, 1)
+    a_center = (x_grid + center_offset[:, 1]) / max(W, 1)
+    e_center = center_height[:, 0]
+    yaw_angle = torch.atan2(yaw[:, 0], yaw[:, 1])
+    yaw_norm = (yaw_angle + torch.pi) / (2.0 * torch.pi)
+
+    return torch.stack(
+        [
+            r_center,
+            a_center,
+            e_center,
+            size[:, 0],
+            size[:, 1],
+            size[:, 2],
+            yaw_norm,
+        ],
+        dim=1
+    ).clamp(min=1e-4, max=1.0 - 1e-4)
+
+
+def centerpoint_giou_loss(outputs, target_boxes, mask):
+    positive_mask = mask.squeeze(1).bool()
+    if positive_mask.sum() == 0:
+        return outputs["cls_logits"].new_tensor(0.0)
+
+    pred_box_map = dense_centerpoint_outputs_to_boxes(outputs)
+    pred_boxes = pred_box_map.permute(0, 2, 3, 1)[positive_mask]
+    gt_boxes = target_boxes.permute(0, 2, 3, 1)[positive_mask]
+
+    pred_ra_boxes = boxes_3d_to_ra_xyxy(pred_boxes)
+    gt_ra_boxes = boxes_3d_to_ra_xyxy(gt_boxes)
+    gious = pairwise_box_giou_2d(pred_ra_boxes, gt_ra_boxes).diag()
+
+    return (1.0 - gious).mean()
+
+
+def centerpoint_detection_loss(
         outputs,
         gt_boxes_list,
         gt_labels_list,
         box_loss_weight=1.0,
         cls_loss_weight=1.0,
-        background_weight=0.5
+        giou_loss_weight=2.0,
+        heatmap_radius=3,
+        num_classes=NUM_CLASSES
     ):
-    if isinstance(outputs, dict):
-        pred_boxes = outputs["box_pred"].sigmoid()
-        pred_logits = outputs["cls_pred"]
-    else:
-        box_dim = 7
-        pred_boxes = outputs[:, :, :box_dim].sigmoid()
-        pred_logits = outputs[:, :, box_dim:]
-
-    device = pred_boxes.device
-    batch_size = pred_boxes.shape[0]
-    num_queries = pred_boxes.shape[1]
-
-    target_classes = torch.full(
-        (batch_size, num_queries),
-        fill_value=BACKGROUND_CLASS_ID,
-        dtype=torch.long,
-        device=device
+    cls_logits = outputs["cls_logits"]
+    heatmap_targets, reg_targets, reg_mask = build_centerpoint_targets(
+        gt_boxes=gt_boxes_list,
+        gt_labels=gt_labels_list,
+        cls_logits=cls_logits,
+        num_classes=num_classes,
+        radius=heatmap_radius
     )
 
-    matched_pred_boxes_all = []
-    matched_gt_boxes_all = []
-
-    for b in range(batch_size):
-        gt_boxes = gt_boxes_list[b].to(device)
-        gt_labels = gt_labels_list[b].to(device)
-
-        if gt_boxes.shape[0] == 0:
-            continue
-
-        pred_boxes_b = pred_boxes[b]
-
-        # matched_pred_indices, matched_gt_indices = hungarian_cost_match(
-        #     pred_boxes=pred_boxes_b,
-        #     gt_boxes=gt_boxes,
-        #     cost_bbox=1.0,
-        #     cost_giou=2.0 
-        # )
-        matched_pred_indices, matched_gt_indices = greedy_cost_match(
-            pred_boxes=pred_boxes_b,
-            gt_boxes=gt_boxes,
-            cost_bbox=1.0,
-            cost_giou=2.0
-        )
-
-        if matched_pred_indices.numel() == 0:
-            continue
-
-        target_classes[b, matched_pred_indices] = gt_labels[matched_gt_indices]
-        
-        matched_pred_boxes_all.append(pred_boxes_b[matched_pred_indices])
-        matched_gt_boxes_all.append(gt_boxes[matched_gt_indices])
-
-    class_weights = torch.ones(NUM_OUTPUT_CLASSES, device=device)
-    class_weights[BACKGROUND_CLASS_ID] = background_weight
-
-    # 1. Classification Loss (Upgraded to Focal Loss)
-    cls_loss = focal_loss_fn(
-        pred_logits.reshape(-1, NUM_OUTPUT_CLASSES),
-        target_classes.reshape(-1),
-        class_weights=class_weights,
-        gamma=2.0
+    cls_loss = heatmap_focal_loss(
+        logits=cls_logits,
+        targets=heatmap_targets
     )
 
-    if len(matched_pred_boxes_all) > 0:
-        matched_pred_boxes_all = torch.cat(matched_pred_boxes_all, dim=0)
-        matched_gt_boxes_all = torch.cat(matched_gt_boxes_all, dim=0)
+    pred_center_offset = outputs["center_offset"].sigmoid()
+    pred_center_height = outputs["center_height"].sigmoid()
+    pred_size = outputs["size"].sigmoid()
+    pred_yaw = F.normalize(outputs["yaw"], dim=1)
 
-        # 2. Coordinate distance loss (L1)
-        pred_boxes_dim = matched_pred_boxes_all[:, :6]
-        gt_boxes_dim = matched_gt_boxes_all[:, :6]
-        loss_dim = F.l1_loss(pred_boxes_dim, gt_boxes_dim)
+    offset_loss = masked_l1_loss(
+        pred=pred_center_offset,
+        target=reg_targets["center_offset"],
+        mask=reg_mask
+    )
+    height_loss = masked_l1_loss(
+        pred=pred_center_height,
+        target=reg_targets["center_height"],
+        mask=reg_mask
+    )
+    size_loss = masked_l1_loss(
+        pred=pred_size,
+        target=reg_targets["size"],
+        mask=reg_mask
+    )
+    yaw_loss = masked_l1_loss(
+        pred=pred_yaw,
+        target=reg_targets["yaw"],
+        mask=reg_mask
+    )
+    giou_loss = centerpoint_giou_loss(
+        outputs=outputs,
+        target_boxes=reg_targets["box"],
+        mask=reg_mask
+    )
 
-        # 3. Circular angle loss (Dim 6)
-        pred_angles = matched_pred_boxes_all[:, 6]
-        gt_angles = matched_gt_boxes_all[:, 6]
-        angle_diff = torch.abs(pred_angles - gt_angles)
-        angle_diff = torch.min(angle_diff, 1.0 - angle_diff) 
-        loss_angle = angle_diff.mean()
-
-        # 4. GIoU loss integration (Upgraded from standard IoU)
-        pred_ra = boxes_3d_to_ra_xyxy(matched_pred_boxes_all)
-        gt_ra = boxes_3d_to_ra_xyxy(matched_gt_boxes_all)
-        gious = pairwise_box_giou_2d(pred_ra, gt_ra).diag()
-        loss_giou = (1.0 - gious).mean()
-
-        box_loss = loss_dim + loss_angle + (2.0 * loss_giou)
-        box_loss = 1*(loss_dim + loss_angle) + (2.0 * loss_giou)
-    else:
-        box_loss = torch.tensor(0.0, device=device)
-
+    box_loss = (
+        offset_loss
+        + height_loss
+        + size_loss
+        + yaw_loss
+        + (giou_loss_weight * giou_loss)
+    )
     total_loss = (box_loss_weight * box_loss) + (cls_loss_weight * cls_loss)
 
     loss_dict = {
         "total_loss": total_loss.item(),
         "box_loss": box_loss.item(),
-        "cls_loss": cls_loss.item()
+        "cls_loss": cls_loss.item(),
+        "heatmap_loss": cls_loss.item(),
+        "offset_loss": offset_loss.item(),
+        "height_loss": height_loss.item(),
+        "size_loss": size_loss.item(),
+        "yaw_loss": yaw_loss.item(),
+        "giou_loss": giou_loss.item(),
+        "num_center_targets": int(reg_mask.sum().item()),
     }
 
     return total_loss, loss_dict
@@ -294,13 +347,15 @@ def train_one_epoch(
         num_epochs=None,
         box_loss_weight=1.0,
         cls_loss_weight=1.0,
-        background_weight=0.5
+        heatmap_radius=3,
+        centerpoint_giou_loss_weight=2.0
     ):
     model.train()
 
     total_loss_sum = 0.0
     box_loss_sum = 0.0
     cls_loss_sum = 0.0
+    heatmap_loss_sum = 0.0
     num_batches = 0
 
     desc = f"Epoch {epoch + 1}/{num_epochs}" if epoch is not None else "Training"
@@ -310,13 +365,15 @@ def train_one_epoch(
         rad, rae = prepare_model_inputs(batch, device)
         outputs = model(rad, rae)
 
-        loss, loss_dict = detection_loss(
+        loss, loss_dict = centerpoint_detection_loss(
             outputs=outputs,
             gt_boxes_list=batch["gt_boxes"],
             gt_labels_list=batch["gt_labels"],
             box_loss_weight=box_loss_weight,
             cls_loss_weight=cls_loss_weight,
-            background_weight=background_weight
+            giou_loss_weight=centerpoint_giou_loss_weight,
+            heatmap_radius=heatmap_radius,
+            num_classes=NUM_CLASSES
         )
 
         optimizer.zero_grad()
@@ -326,18 +383,21 @@ def train_one_epoch(
         total_loss_sum += loss_dict["total_loss"]
         box_loss_sum += loss_dict["box_loss"]
         cls_loss_sum += loss_dict["cls_loss"]
+        heatmap_loss_sum += loss_dict["heatmap_loss"]
         num_batches += 1
 
         pbar.set_postfix({
             "loss": f"{(total_loss_sum / num_batches):.4f}",
             "box": f"{(box_loss_sum / num_batches):.4f}",
             "cls": f"{(cls_loss_sum / num_batches):.4f}",
+            "hm": f"{(heatmap_loss_sum / num_batches):.4f}",
         })
 
     return {
         "train_loss": total_loss_sum / max(num_batches, 1),
         "train_box_loss": box_loss_sum / max(num_batches, 1),
         "train_cls_loss": cls_loss_sum / max(num_batches, 1),
+        "train_heatmap_loss": heatmap_loss_sum / max(num_batches, 1),
     }
 
 
@@ -348,52 +408,58 @@ def validate_loss(
         device,
         box_loss_weight=1.0,
         cls_loss_weight=1.0,
-        background_weight=0.5
+        heatmap_radius=3,
+        centerpoint_giou_loss_weight=2.0
     ):
     model.eval()
 
     total_loss_sum = 0.0
     box_loss_sum = 0.0
     cls_loss_sum = 0.0
+    heatmap_loss_sum = 0.0
     num_batches = 0
 
     for batch in tqdm(dataloader, desc="Validation loss", ncols=120, leave=False):
         rad, rae = prepare_model_inputs(batch, device)
         outputs = model(rad, rae)
 
-        _, loss_dict = detection_loss(
+        _, loss_dict = centerpoint_detection_loss(
             outputs=outputs,
             gt_boxes_list=batch["gt_boxes"],
             gt_labels_list=batch["gt_labels"],
             box_loss_weight=box_loss_weight,
             cls_loss_weight=cls_loss_weight,
-            background_weight=background_weight
+            giou_loss_weight=centerpoint_giou_loss_weight,
+            heatmap_radius=heatmap_radius,
+            num_classes=NUM_CLASSES
         )
 
         total_loss_sum += loss_dict["total_loss"]
         box_loss_sum += loss_dict["box_loss"]
         cls_loss_sum += loss_dict["cls_loss"]
+        heatmap_loss_sum += loss_dict["heatmap_loss"]
         num_batches += 1
 
     return {
         "val_loss": total_loss_sum / max(num_batches, 1),
         "val_box_loss": box_loss_sum / max(num_batches, 1),
         "val_cls_loss": cls_loss_sum / max(num_batches, 1),
+        "val_heatmap_loss": heatmap_loss_sum / max(num_batches, 1),
     }
 
 
 def argparse_args():
     parser = argparse.ArgumentParser(description="Train the dummy MVRSS detection module.")
-    # Training timeline increased to allow the Hungarian Matcher to stabilize
-    parser.add_argument("--epochs", type=int, default=150)
+    parser.add_argument("--epochs", type=int, default=80)
     parser.add_argument("--batch-size", type=int, default=50)#50
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--num-boxes", type=int, default=64)
-    parser.add_argument("--background-weight", type=float, default=0.5)
+    parser.add_argument("--heatmap-radius", type=int, default=3)
+    parser.add_argument("--centerpoint-giou-loss-weight", type=float, default=2.0)
     parser.add_argument("--score-thresh", type=float, default=0.4)
     parser.add_argument("--eval-iou-thresh", type=float, default=0.1)
     parser.add_argument("--train-ratio", type=float, default=0.7)
-    parser.add_argument("--split-mode", default="file", choices=["random", "file", "order"])
+    parser.add_argument("--split-mode", default="file", choices=["random", "file"])
     parser.add_argument("--split-dir", default="split")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=0)
@@ -402,7 +468,7 @@ def argparse_args():
     parser.add_argument("--checkpoint-base-dir", default="checkpoints")
     parser.add_argument("--log-base-dir", default="runs")
     parser.add_argument("--gpu-ids", default="0,1,2")
-    parser.add_argument("--model-type", type=str, default="model3", choices=["model1", "model2", "model3", "model4", "model5"])
+    parser.add_argument("--model-type", type=str, default="model5", choices=["model1", "model2", "model4", "model5"])
     args = parser.parse_args()
     return args
 
@@ -453,65 +519,40 @@ def main():
         raise ValueError("Validation split is empty.")
 
     if args.model_type == "model1":
-        model = MVRSS3DModel(
+        model = RADRAEStageCenterPointModel(
             d_in=64,
             e_in=37,
-            num_boxes=args.num_boxes,
-            box_dim=7,
             num_classes=NUM_CLASSES,
-            feature_channels=64,
-            fusion_hidden_channels=64,
             decoder_hidden_channels=128,
-            pooled_size=(16, 16)
+            num_boxes=args.num_boxes,
         ).to(device)
     elif args.model_type == "model2":
-        model = MVRSS3DModel2(
+        model = RADRAEBiFPNCenterPointModel(
             d_in=64,
             e_in=37,
-            num_boxes=args.num_boxes,
-            box_dim=7,
             num_classes=NUM_CLASSES,
-            feature_channels=64,
-            fusion_hidden_channels=64,
             decoder_hidden_channels=128,
-            pooled_size=(8, 8)
+            num_boxes=args.num_boxes,
         ).to(device)
-    elif args.model_type == "model3":
-        model = MVRSS3DModelDeform(
+    elif args.model_type == "model4":
+        model = RADRAEStageDeformCenterPointModel(
             d_in=64,
             e_in=37,
-            num_boxes=args.num_boxes,
-            box_dim=7,
             num_classes=NUM_CLASSES,
-            feature_channels=64,
-            fusion_hidden_channels=64,
             decoder_hidden_channels=128,
-            pooled_size=(16, 16)
+            num_boxes=args.num_boxes
         ).to(device)
-    # elif args.model_type == "model4":
-    #     model = MVRSS3DModelDeform(
-    #         d_in=64,
-    #         e_in=37,
-    #         num_boxes=args.num_boxes,
-    #         box_dim=7,
-    #         num_classes=NUM_CLASSES,
-    #         feature_channels=64,
-    #         fusion_hidden_channels=64,
-    #         decoder_hidden_channels=128,
-    #         pooled_size=(4, 4)
-    #     ).to(device)
-    # elif args.model_type == "model5":
-    #     model = MVRSS3DModelDeformDepthwiseSeparable(
-    #         d_in=64,
-    #         e_in=37,
-    #         num_boxes=args.num_boxes,
-    #         box_dim=7,
-    #         num_classes=NUM_CLASSES,
-    #         feature_channels=64,
-    #         fusion_hidden_channels=64,
-    #         decoder_hidden_channels=128,
-    #         pooled_size=(8,8)
-    #     ).to(device)
+    elif args.model_type == "model5":
+        model = RADRAEFPNDeformCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes
+        ).to(device)
+    else:
+        raise ValueError(f"Unknown or unsupported model_type: {args.model_type}")
+
     if len(gpu_ids) > 1:
         model = torch.nn.DataParallel(
             model,
@@ -544,7 +585,7 @@ def main():
         writer=writer, cfg=cfg, num_epochs=args.epochs, batch_size=args.batch_size,
         train_size=len(train_dataset), val_size=len(val_dataset), learning_rate=args.lr,
         num_boxes=args.num_boxes, num_classes=NUM_CLASSES, class_names=CLASS_NAMES,
-        background_weight=args.background_weight, eval_iou_thresh=args.eval_iou_thresh
+        eval_iou_thresh=args.eval_iou_thresh
     )
 
     for epoch in range(args.epochs):
@@ -557,7 +598,8 @@ def main():
             num_epochs=args.epochs,
             box_loss_weight=1.0,
             cls_loss_weight=1.0,
-            background_weight=args.background_weight
+            heatmap_radius=args.heatmap_radius,
+            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight
         )
         
         val_loss_metrics = validate_loss(
@@ -566,7 +608,8 @@ def main():
             device=device,
             box_loss_weight=1.0,
             cls_loss_weight=1.0,
-            background_weight=args.background_weight
+            heatmap_radius=args.heatmap_radius,
+            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight
         )
 
 

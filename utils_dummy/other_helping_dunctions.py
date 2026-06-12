@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pyexpat import features
 import random
 
 import numpy as np
@@ -27,16 +28,19 @@ def set_seed(seed=42):
     torch.backends.cudnn.benchmark = False
 
 
+
 def append_training_history(history, epoch, train_metrics, val_metrics, f1):
     history.append({
         "epoch": epoch,
         "train_loss": train_metrics["train_loss"],
         "train_box_loss": train_metrics["train_box_loss"],
         "train_cls_loss": train_metrics["train_cls_loss"],
+        "train_heatmap_loss": train_metrics.get("train_heatmap_loss", 0.0),
         "train_iou": train_metrics["train_iou"],
         "val_loss": val_metrics["val_loss"],
         "val_box_loss": val_metrics["val_box_loss"],
         "val_cls_loss": val_metrics["val_cls_loss"],
+        "val_heatmap_loss": val_metrics.get("val_heatmap_loss", 0.0),
         "val_mAP": val_metrics["mAP"],
         "val_precision": val_metrics["precision"],
         "val_recall": val_metrics["recall"],
@@ -267,3 +271,13 @@ def save_global_best_checkpoint(best_state, checkpoint_dirs, checkpoint_key):
     global_best_checkpoint_path = global_best_checkpoint_paths[checkpoint_key]
 
     return global_best_checkpoint_path, global_best_checkpoint_paths
+
+def gather_topk_features(features, indices):
+    channels = features.shape[-1]
+    gather_indices = indices.unsqueeze(-1).expand(-1, -1, channels)
+    return features.gather(dim=1, index=gather_indices)
+
+
+def inverse_sigmoid(x):
+    x = x.clamp(min=1e-4, max=1.0 - 1e-4)
+    return torch.log(x / (1.0 - x))

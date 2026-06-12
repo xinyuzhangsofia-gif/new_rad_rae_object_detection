@@ -2,9 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
-from tqdm import tqdm
 import random
-import argparse
 from torchvision.ops import DeformConv2d
 
 def set_seed(seed=42):
@@ -34,26 +32,6 @@ class RadarConvBlock(nn.Module):
     def forward(self,x: torch.Tensor) -> torch.Tensor:
         x = self.model(x)
         return x
-
-
-class RadarDepthwiseSeparableConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.model = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, kernel_size=5, padding=2, groups=in_channels),
-            nn.Conv2d(in_channels, 128, kernel_size=1),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(inplace=True),
-            nn.Conv2d(128, 128, kernel_size=5, padding=2, groups=128),
-            nn.Conv2d(128, out_channels, kernel_size=1),
-            nn.BatchNorm2d(out_channels),
-            nn.LeakyReLU(inplace=True)
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.model(x)
-        return x
-
 
 class RadarDeformConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3):
@@ -95,44 +73,6 @@ class RadarDeformConvBlock(nn.Module):
 
         return x
 
-
-class RadarRADRAEDepthwiseSeparableEncoder(nn.Module):
-    """
-    Encode RAD and RAE tensors separately with depthwise separable conv blocks.
-    RAD: [B, D, R, A] -> [B, C, R, A]
-    RAE: [B, E, R, A] -> [B, C, R, A]
-    """
-    def __init__(self, d_in, e_in, feature_channels=64):
-        super().__init__()
-
-        self.rad_encoder = nn.Sequential(
-            RadarDepthwiseSeparableConvBlock(
-                in_channels=d_in,
-                out_channels=128
-            ),
-            RadarDepthwiseSeparableConvBlock(
-                in_channels=128,
-                out_channels=feature_channels
-            )
-        )
-
-        self.rae_encoder = nn.Sequential(
-            RadarDepthwiseSeparableConvBlock(
-                in_channels=e_in,
-                out_channels=128
-            ),
-            RadarDepthwiseSeparableConvBlock(
-                in_channels=128,
-                out_channels=feature_channels
-            )
-        )
-
-    def forward(self, rad: torch.Tensor, rae: torch.Tensor):
-        rad_feat = self.rad_encoder(rad)
-        rae_feat = self.rae_encoder(rae)
-
-        return rad_feat, rae_feat
-    
 class RadarRADRAEEncoder(nn.Module):
     """
     Encode RAD and RAE tensors separately.
@@ -246,67 +186,43 @@ class Radar3DTensorDecoder(nn.Module):
             "cls_pred": cls_pred,
         }
 
+class AuxiliaryHeatmapHead(nn.Module):
+    """
+    Auxiliary RA center heatmap branch.
 
-class Radar3DTensorDepthwiseSeparableDecoder(nn.Module):
-    def __init__(
-        self,
-        input_channels,
-        num_boxes,
-        box_dim,
-        num_classes,
-        hidden_channels=128,
-        pooled_size=(16, 16)
-    ):
+    Input:
+        fused feature: [B, C, R, A]
+
+    Output:
+        heatmap_logits: [B, num_classes, R, A]
+
+    Note:
+        num_classes = foreground classes only.
+        Do not include background class here.
+    """
+
+    def __init__(self, in_channels, num_classes, hidden_channels=None):
         super().__init__()
+        if hidden_channels is None:
+            hidden_channels = in_channels
 
-        self.num_boxes = num_boxes
-        self.box_dim = box_dim
-        self.num_classes = num_classes
-        self.total_classes = num_classes + 1
+        self.head = nn.Sequential(
+            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(hidden_channels),
+            nn.SiLU(inplace=True),
 
-        self.decoder_backbone = nn.Sequential(
-            RadarDepthwiseSeparableConvBlock(
-                in_channels=input_channels,
-                out_channels=hidden_channels
-            ),
-            RadarDepthwiseSeparableConvBlock(
-                in_channels=hidden_channels,
-                out_channels=hidden_channels
-            ),
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(hidden_channels),
+            nn.SiLU(inplace=True),
+
+            nn.Conv2d(hidden_channels, num_classes, kernel_size=1)
         )
 
-        self.pool = nn.AdaptiveAvgPool2d(pooled_size)
+        nn.init.constant_(self.head[-1].bias, -2.19)
 
-        pooled_h, pooled_w = pooled_size
-        flatten_dim = hidden_channels * pooled_h * pooled_w
-
-        self.box_head = nn.Linear(
-            in_features=flatten_dim,
-            out_features=num_boxes * box_dim
-        )
-
-        self.cls_head = nn.Linear(
-            in_features=flatten_dim,
-            out_features=num_boxes * self.total_classes
-        )
-
-    def forward(self, x: torch.Tensor):
-        B = x.shape[0]
-
-        feat = self.decoder_backbone(x)
-        feat = self.pool(feat)
-        feat = feat.flatten(start_dim=1)
-
-        box_pred = self.box_head(feat)
-        box_pred = box_pred.view(B, self.num_boxes, self.box_dim)
-
-        cls_pred = self.cls_head(feat)
-        cls_pred = cls_pred.view(B, self.num_boxes, self.total_classes)
-
-        return {
-            "box_pred": box_pred,
-            "cls_pred": cls_pred,
-        }
+    def forward(self, x):
+        return self.head(x)
+    
     
 class MVRSS3DModel(nn.Module):
     """
@@ -455,66 +371,3 @@ class MVRSS3DModelDeform(MVRSS3DModel):
                 kernel_size=3
             )
         )
-
-
-class MVRSS3DModelDeformDepthwiseSeparable(nn.Module):
-    def __init__(
-        self,
-        d_in,
-        e_in,
-        num_boxes,
-        box_dim,
-        num_classes,
-        feature_channels=64,
-        fusion_hidden_channels=64,
-        decoder_hidden_channels=128,
-        pooled_size=(4, 4)
-    ):
-        super().__init__()
-
-        self.num_boxes = num_boxes
-        self.box_dim = box_dim
-        self.num_classes = num_classes
-        self.total_classes = num_classes + 1
-
-        self.encoder = RadarRADRAEDepthwiseSeparableEncoder(
-            d_in=d_in,
-            e_in=e_in,
-            feature_channels=feature_channels
-        )
-
-        self.fusion = nn.Sequential(
-            nn.Conv2d(
-                in_channels=feature_channels * 2,
-                out_channels=fusion_hidden_channels,
-                kernel_size=1
-            ),
-            nn.BatchNorm2d(fusion_hidden_channels),
-            nn.LeakyReLU(inplace=True),
-            RadarDepthwiseSeparableConvBlock(
-                in_channels=fusion_hidden_channels,
-                out_channels=feature_channels
-            ),
-            RadarDeformConvBlock(
-                in_channels=feature_channels,
-                out_channels=feature_channels,
-                kernel_size=3
-            )
-        )
-
-        self.decoder = Radar3DTensorDepthwiseSeparableDecoder(
-            input_channels=feature_channels,
-            num_boxes=num_boxes,
-            box_dim=box_dim,
-            num_classes=num_classes,
-            hidden_channels=decoder_hidden_channels,
-            pooled_size=pooled_size
-        )
-
-    def forward(self, rad: torch.Tensor, rae: torch.Tensor):
-        rad_feat, rae_feat = self.encoder(rad, rae)
-        fused_feat = torch.cat([rad_feat, rae_feat], dim=1)
-        fused_feat = self.fusion(fused_feat)
-        outputs = self.decoder(fused_feat)
-
-        return outputs

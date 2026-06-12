@@ -86,9 +86,6 @@ def build_train_val_dataloaders(
             allowed_sequences=get_config_sequences(cfg),
             limit_samples=limit_samples,
         )
-    elif split_mode == "order":
-        train_indices = list(range(0, int(len(full_dataset) * train_ratio)))
-        val_indices = list(range(int(len(full_dataset) * train_ratio), len(full_dataset)))
     else:
         raise ValueError(f"Unknown split_mode: {split_mode}")
 

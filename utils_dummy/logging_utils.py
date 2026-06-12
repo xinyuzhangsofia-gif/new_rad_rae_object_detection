@@ -16,9 +16,11 @@ def print_training_history(history):
         f"{'train_loss':>11} "
         f"{'train_box':>10} "
         f"{'train_cls':>10} "
+        f"{'train_hm':>10} "
         f"{'val_loss':>9} "
         f"{'val_box':>9} "
         f"{'val_cls':>9} "
+        f"{'val_hm':>9} "
         f"{'val_mAP':>8} "
         f"{'val_precision':>14} "
         f"{'val_recall':>11} "
@@ -37,9 +39,11 @@ def print_training_history(history):
             f"{row['train_loss']:11.4f} "
             f"{row['train_box_loss']:10.4f} "
             f"{row['train_cls_loss']:10.4f} "
+            f"{row.get('train_heatmap_loss', 0.0):10.4f} "
             f"{row['val_loss']:9.4f} "
             f"{row['val_box_loss']:9.4f} "
             f"{row['val_cls_loss']:9.4f} "
+            f"{row.get('val_heatmap_loss', 0.0):9.4f} "
             f"{row['val_mAP']:8.4f} "
             f"{row['val_precision']:14.4f} "
             f"{row['val_recall']:11.4f} "
@@ -78,7 +82,6 @@ def write_tensorboard_run_config(
         num_boxes,
         num_classes,
         class_names,
-        background_weight,
         eval_iou_thresh
     ):
     config_text = "\n".join([
@@ -92,7 +95,6 @@ def write_tensorboard_run_config(
         f"num_boxes: {num_boxes}",
         f"num_classes: {num_classes}",
         f"class_names: {class_names}",
-        f"background_weight: {background_weight}",
         f"eval_iou_thresh: {eval_iou_thresh}",
     ])
     writer.add_text("run/config", config_text, 0)
@@ -103,6 +105,11 @@ def write_tensorboard_metrics(writer, epoch, train_metrics, val_metrics, f1, lea
     writer.add_scalar("training_metrics/train_loss", train_metrics["train_loss"], epoch)
     writer.add_scalar("training_metrics/train_box_loss", train_metrics["train_box_loss"], epoch)
     writer.add_scalar("training_metrics/train_cls_loss", train_metrics["train_cls_loss"], epoch)
+    writer.add_scalar(
+        "training_metrics/train_heatmap_loss",
+        train_metrics.get("train_heatmap_loss", 0.0),
+        epoch
+    )
 
     writer.add_scalar("validation_metrics/val_loss", val_metrics["val_loss"], epoch)
     writer.add_scalar("validation_metrics/val_box_loss", val_metrics["val_box_loss"], epoch)
