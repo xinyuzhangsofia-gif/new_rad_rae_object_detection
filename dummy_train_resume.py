@@ -6,10 +6,16 @@ import torch
 from dummy_dataloader import build_train_val_dataloaders, get_config_sequences, prepare_model_inputs
 from dummy_dataset import CLASS_NAMES, CLASS_TO_IDX
 from dummy_evaluation import evaluate_train_val_iou
-from model_bifpn_heatmap import RADRAEBiFPNCenterPointModel
-from model_con2d_heatmap import RADRAEStageCenterPointModel
-from model_deform_heatmap import RADRAEStageDeformCenterPointModel
-from model_fpn_heatmap import RADRAEFPNDeformCenterPointModel
+from model_bifpn_heatmap_model2 import RADRAEBiFPNCenterPointModel
+from model_con2d_heatmap_model1 import RADRAEStageCenterPointModel
+from model_deform_heatmap_model4 import RADRAEStageDeformCenterPointModel
+from model_fpn_heatmap_model5 import RADRAEFPNDeformCenterPointModel
+from model_fpn_nodeform_heatmap_model3 import RADRAEFPNNoDeformCenterPointModel
+from model_fpn_quality_heatmap_model6 import RADRAEFPNQualityCenterPointModel
+from model_swin_heatmap_model7 import RADRAESwinFPNCenterPointModel
+from model_cfe_heatmap_model8 import RADRAEFPNCFECenterPointModel
+from model_cfe_bifpn_heatmap_model9 import RADRAECFEBiFPNCenterPointModel
+from model_fpn_split_heatmap_model10 import RADRAEFPNMultiFeatureCenterPointModel
 from dummy_train import NUM_CLASSES, parse_gpu_ids, train_one_epoch, validate_loss
 from utils_dummy.checkpoints import (
     create_checkpoint_run_dirs,
@@ -57,6 +63,7 @@ def parse_args():
     parser.add_argument("--num-boxes", type=int, default=64)
     parser.add_argument("--heatmap-radius", type=int, default=3)
     parser.add_argument("--centerpoint-giou-loss-weight", type=float, default=2.0)
+    parser.add_argument("--quality-loss-weight", type=float, default=0.25)
     parser.add_argument("--score-thresh", type=float, default=0.4)
     parser.add_argument("--eval-iou-thresh", type=float, default=0.1)
     parser.add_argument("--train-ratio", type=float, default=0.7)
@@ -69,7 +76,7 @@ def parse_args():
     parser.add_argument("--checkpoint-base-dir", default="checkpoints")
     parser.add_argument("--log-base-dir", default="runs")
     parser.add_argument("--gpu-ids", default="0")
-    parser.add_argument("--model-type", default="model4", choices=["model1", "model2", "model4", "model5"])
+    parser.add_argument("--model-type", default="model4", choices=["model1", "model2", "model3", "model4", "model5", "model6", "model7", "model8", "model9", "model10"])
     parser.add_argument("--no-load-optimizer", action="store_true")
     return parser.parse_args()
 
@@ -111,6 +118,15 @@ def build_model(device, args):
             num_boxes=args.num_boxes,
         ).to(device)
 
+    if args.model_type == "model3":
+        return RADRAEFPNNoDeformCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes,
+        ).to(device)
+
     if args.model_type == "model4":
         return RADRAEStageDeformCenterPointModel(
             d_in=64,
@@ -122,6 +138,51 @@ def build_model(device, args):
 
     if args.model_type == "model5":
         return RADRAEFPNDeformCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes,
+        ).to(device)
+
+    if args.model_type == "model6":
+        return RADRAEFPNQualityCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes,
+        ).to(device)
+
+    if args.model_type == "model7":
+        return RADRAESwinFPNCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes,
+        ).to(device)
+
+    if args.model_type == "model8":
+        return RADRAEFPNCFECenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes,
+        ).to(device)
+
+    if args.model_type == "model9":
+        return RADRAECFEBiFPNCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes,
+        ).to(device)
+
+    if args.model_type == "model10":
+        return RADRAEFPNMultiFeatureCenterPointModel(
             d_in=64,
             e_in=37,
             num_classes=NUM_CLASSES,
@@ -255,6 +316,7 @@ def main():
         base_dir=args.checkpoint_base_dir,
         experiment_name="mvrss_detection_resume",
         sequences=configured_sequences,
+        model_type=args.model_type,
     )
     checkpoint_key = next(iter(checkpoint_dirs))
     checkpoint_dir = checkpoint_dirs[checkpoint_key]
@@ -264,6 +326,7 @@ def main():
         base_dir=args.log_base_dir,
         experiment_name="mvrss_detection_resume",
         sequence=configured_sequences,
+        model_type=args.model_type,
     )
     write_tensorboard_run_config(
         writer=writer,
@@ -277,6 +340,7 @@ def main():
         num_classes=NUM_CLASSES,
         class_names=CLASS_NAMES,
         eval_iou_thresh=args.eval_iou_thresh,
+        model_type=args.model_type,
     )
 
     history = []
@@ -301,6 +365,7 @@ def main():
             cls_loss_weight=1.0,
             heatmap_radius=args.heatmap_radius,
             centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
+            quality_loss_weight=args.quality_loss_weight,
         )
 
         val_loss_metrics = validate_loss(
@@ -311,6 +376,7 @@ def main():
             cls_loss_weight=1.0,
             heatmap_radius=args.heatmap_radius,
             centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
+            quality_loss_weight=args.quality_loss_weight,
         )
 
         eval_metrics = evaluate_train_val_iou(

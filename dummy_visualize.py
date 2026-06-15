@@ -17,10 +17,16 @@ from dummy_dataset import (
     CLASS_TO_IDX,
     detection_collate,
 )
-from model_bifpn_heatmap import RADRAEBiFPNCenterPointModel
-from model_con2d_heatmap import RADRAEStageCenterPointModel
-from model_deform_heatmap import RADRAEStageDeformCenterPointModel
-from model_fpn_heatmap import RADRAEFPNDeformCenterPointModel
+from model_bifpn_heatmap_model2 import RADRAEBiFPNCenterPointModel
+from model_con2d_heatmap_model1 import RADRAEStageCenterPointModel
+from model_deform_heatmap_model4 import RADRAEStageDeformCenterPointModel
+from model_fpn_heatmap_model5 import RADRAEFPNDeformCenterPointModel
+from model_fpn_nodeform_heatmap_model3 import RADRAEFPNNoDeformCenterPointModel
+from model_fpn_quality_heatmap_model6 import RADRAEFPNQualityCenterPointModel
+from model_swin_heatmap_model7 import RADRAESwinFPNCenterPointModel
+from model_cfe_heatmap_model8 import RADRAEFPNCFECenterPointModel
+from model_cfe_bifpn_heatmap_model9 import RADRAECFEBiFPNCenterPointModel
+from model_fpn_split_heatmap_model10 import RADRAEFPNMultiFeatureCenterPointModel
 from zxy_config import DataConfig
 
 
@@ -32,16 +38,16 @@ def parse_args():
         description="Visualize ground-truth and predicted boxes on RA maps."
     )
     parser.add_argument("--checkpoint-path", 
-                        default="checkpoints/mvrss_detection_resume/seq1-11_20260612_100006_228073/global_best_epoch_114_20260612_122807_mAP_0p3579.pth")
+                        default="checkpoints/mvrss_detection/seq1-11_20260612_231616_505170/global_best_epoch_085_20260613_182056_mAP_0p4705.pth")
     parser.add_argument("--sequence", type=int, default=11)
     parser.add_argument("--start-file-idx", type=int, default=0)
     parser.add_argument("--frame-step", type=int, default=5)
     parser.add_argument("--max-frames", type=int, default=0)
-    parser.add_argument("--score-thresh", type=float, default=0.2)
+    parser.add_argument("--score-thresh", type=float, default=0.1)
     parser.add_argument("--num-boxes", type=int, default=64)
     parser.add_argument("--pred-mode", default="final", choices=["raw", "final"])
     parser.add_argument("--heatmap-nms-kernel", type=int, default=3)
-    parser.add_argument("--model-type", default="auto", choices=["auto", "model1", "model2", "model4", "model5"])
+    parser.add_argument("--model-type", default="auto", choices=["auto", "model1", "model2", "model3", "model4", "model5", "model6", "model7", "model8", "model9", "model10"])
     parser.add_argument("--save-images", action="store_true", help="Save visualizations to disk.")
     parser.add_argument("--no-display", action="store_true", help="Do not display images to the screen (useful for background saving).")
     parser.add_argument("--save-dir", default="./ra_vis")
@@ -65,6 +71,14 @@ def build_model(device, num_boxes, num_classes=NUM_CLASSES, model_type="model1")
             decoder_hidden_channels=128,
             num_boxes=num_boxes,
         )
+    elif model_type == "model3":
+        model = RADRAEFPNNoDeformCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=num_classes,
+            decoder_hidden_channels=128,
+            num_boxes=num_boxes,
+        )
     elif model_type == "model4":
         model = RADRAEStageDeformCenterPointModel(
             d_in=64,
@@ -75,6 +89,46 @@ def build_model(device, num_boxes, num_classes=NUM_CLASSES, model_type="model1")
         )
     elif model_type == "model5":
         model = RADRAEFPNDeformCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=num_classes,
+            decoder_hidden_channels=128,
+            num_boxes=num_boxes,
+        )
+    elif model_type == "model6":
+        model = RADRAEFPNQualityCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=num_classes,
+            decoder_hidden_channels=128,
+            num_boxes=num_boxes,
+        )
+    elif model_type == "model7":
+        model = RADRAESwinFPNCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=num_classes,
+            decoder_hidden_channels=128,
+            num_boxes=num_boxes,
+        )
+    elif model_type == "model8":
+        model = RADRAEFPNCFECenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=num_classes,
+            decoder_hidden_channels=128,
+            num_boxes=num_boxes,
+        )
+    elif model_type == "model9":
+        model = RADRAECFEBiFPNCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=num_classes,
+            decoder_hidden_channels=128,
+            num_boxes=num_boxes,
+        )
+    elif model_type == "model10":
+        model = RADRAEFPNMultiFeatureCenterPointModel(
             d_in=64,
             e_in=37,
             num_classes=num_classes,
@@ -109,16 +163,37 @@ def infer_model_type_from_checkpoint(checkpoint):
             return model_type
 
     state_dict = get_checkpoint_state_dict(checkpoint)
-    if any(".bifpn_blocks." in key for key in state_dict.keys()):
+    if any(".cls_feature_mixer." in key or ".reg_feature_mixer." in key for key in state_dict.keys()):
+        return "model10"
+
+    has_bifpn = any(".bifpn_blocks." in key for key in state_dict.keys())
+    has_cfe = any(".cfe1." in key or ".cfe2." in key or ".cfe3." in key for key in state_dict.keys())
+    if has_bifpn and has_cfe:
+        return "model9"
+    if has_bifpn:
         return "model2"
-    if any(key.startswith("backbone.encoder.rad_encoder.lateral") for key in state_dict.keys()):
-        return "model5"
-    if any(".offset_conv." in key or ".deform_conv." in key for key in state_dict.keys()):
+    if has_cfe:
+        return "model8"
+    if any(".attn.relative_position_bias_table" in key for key in state_dict.keys()):
+        return "model7"
+    if any(".quality_decoder." in key for key in state_dict.keys()):
+        return "model6"
+    has_fpn_lateral = any(
+        key.startswith("backbone.encoder.rad_encoder.lateral")
+        for key in state_dict.keys()
+    )
+    has_deform_conv = any(
+        ".offset_conv." in key or ".deform_conv." in key
+        for key in state_dict.keys()
+    )
+    if has_fpn_lateral:
+        return "model5" if has_deform_conv else "model3"
+    if has_deform_conv:
         return "model4"
     if any(key.startswith("backbone.encoder.") for key in state_dict.keys()):
         return "model1"
 
-    raise ValueError("Unsupported old model checkpoint: expected model1, model4, or model5.")
+    raise ValueError("Unsupported old model checkpoint: expected model1, model2, model3, model4, model5, model6, model7, model8, model9, or model10.")
 
 
 def resolve_model_type(args, checkpoint):
@@ -186,6 +261,21 @@ def gather_dense_feature(feature_map, indices):
     return flat.gather(dim=1, index=gather_index)
 
 
+def apply_quality_score(heatmap_scores, outputs):
+    if "quality_logits" not in outputs:
+        return heatmap_scores
+
+    quality_scores = outputs["quality_logits"].sigmoid()
+    if quality_scores.shape[-2:] != heatmap_scores.shape[-2:]:
+        quality_scores = F.interpolate(
+            quality_scores,
+            size=heatmap_scores.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        )
+    return heatmap_scores * quality_scores
+
+
 def dense_centerpoint_outputs_to_detections(
         outputs,
         num_classes,
@@ -206,7 +296,7 @@ def dense_centerpoint_outputs_to_detections(
     if B != 1:
         raise ValueError(f"Visualization expects batch size 1, got {B}")
 
-    heatmap_scores = cls_logits.sigmoid()
+    heatmap_scores = apply_quality_score(cls_logits.sigmoid(), outputs)
     if pred_mode == "final":
         heatmap_scores = centerpoint_heatmap_nms(
             heatmap=heatmap_scores,
@@ -222,25 +312,40 @@ def dense_centerpoint_outputs_to_detections(
     spatial_size = H * W
     pred_labels = flat_indices // spatial_size
     spatial_indices = flat_indices % spatial_size
-    y_idx = (spatial_indices // W).to(cls_logits.dtype)
-    x_idx = (spatial_indices % W).to(cls_logits.dtype)
+
+    heatmap_y_idx = spatial_indices // W
+    heatmap_x_idx = spatial_indices % W
+    _, _, box_h, box_w = outputs["center_offset"].shape
+    box_y_idx_long = torch.div(
+        heatmap_y_idx * box_h,
+        max(H, 1),
+        rounding_mode="floor",
+    ).clamp(max=box_h - 1)
+    box_x_idx_long = torch.div(
+        heatmap_x_idx * box_w,
+        max(W, 1),
+        rounding_mode="floor",
+    ).clamp(max=box_w - 1)
+    box_indices = box_y_idx_long * box_w + box_x_idx_long
+    y_idx = box_y_idx_long.to(cls_logits.dtype)
+    x_idx = box_x_idx_long.to(cls_logits.dtype)
 
     center_offset = gather_dense_feature(
         outputs["center_offset"],
-        spatial_indices
+        box_indices
     ).sigmoid()
     center_height = gather_dense_feature(
         outputs["center_height"],
-        spatial_indices
+        box_indices
     ).sigmoid()
     size = gather_dense_feature(
         outputs["size"],
-        spatial_indices
+        box_indices
     ).sigmoid()
-    yaw = gather_dense_feature(outputs["yaw"], spatial_indices)
+    yaw = gather_dense_feature(outputs["yaw"], box_indices)
 
-    r_center = (y_idx + center_offset[..., 0]) / max(H, 1)
-    a_center = (x_idx + center_offset[..., 1]) / max(W, 1)
+    r_center = (y_idx + center_offset[..., 0]) / max(box_h, 1)
+    a_center = (x_idx + center_offset[..., 1]) / max(box_w, 1)
     e_center = center_height[..., 0]
     yaw_angle = torch.atan2(yaw[..., 0], yaw[..., 1])
     yaw_norm = (yaw_angle + torch.pi) / (2.0 * torch.pi)

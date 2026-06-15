@@ -2,8 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model_con2d_heatmap import (
-    CenterPointDecoder,
+from model_con2d_heatmap_model1 import (
+    CenterPointBoxDecoder,
+    CenterPointClsDecoder,
     ConvBNAct,
     RADRAEFusion,
 )
@@ -112,18 +113,17 @@ class BiFPNBlock(nn.Module):
         return p1_td, p2_out, p3_out
 
 
-class BiFPNEncoder(nn.Module):
+class PyramidEncoder(nn.Module):
     """
-    Non-deformable radar encoder with BiFPN feature fusion.
-
-    Input:
-        x: [B, in_channels, R, A]
+    Non-deformable three-stage encoder.
 
     Output:
-        feat: [B, bifpn_channels, H, W], where H/W follow the stride-4 feature map.
+        c1: stride-2 feature
+        c2: stride-4 feature
+        c3: stride-8 feature
     """
 
-    def __init__(self, in_channels, bifpn_channels=128, num_bifpn_blocks=1):
+    def __init__(self, in_channels):
         super().__init__()
 
         self.stem = nn.Sequential(
@@ -144,90 +144,126 @@ class BiFPNEncoder(nn.Module):
             ConvBNAct(256, 256, kernel_size=3, stride=1),
         )
 
-        self.lateral1 = ConvBNAct(64, bifpn_channels, kernel_size=1, stride=1, padding=0)
-        self.lateral2 = ConvBNAct(128, bifpn_channels, kernel_size=1, stride=1, padding=0)
-        self.lateral3 = ConvBNAct(256, bifpn_channels, kernel_size=1, stride=1, padding=0)
+    def forward(self, x):
+        x = self.stem(x)
+        c1 = self.stage1(x)
+        c2 = self.stage2(c1)
+        c3 = self.stage3(c2)
+        return c1, c2, c3
+
+
+class RADRAEBiFPNEncoder(nn.Module):
+    """
+    Separate RAD and RAE non-deformable pyramid encoders.
+    """
+
+    def __init__(self, d_in=64, e_in=37):
+        super().__init__()
+        self.rad_encoder = PyramidEncoder(in_channels=d_in)
+        self.rae_encoder = PyramidEncoder(in_channels=e_in)
+
+    def forward(self, rad, rae):
+        rad_c1, rad_c2, rad_c3 = self.rad_encoder(rad)
+        rae_c1, rae_c2, rae_c3 = self.rae_encoder(rae)
+        return {
+            "rad_c1": rad_c1,
+            "rad_c2": rad_c2,
+            "rad_c3": rad_c3,
+            "rae_c1": rae_c1,
+            "rae_c2": rae_c2,
+            "rae_c3": rae_c3,
+        }
+
+
+class RADRAEBiFPNFusionModel(nn.Module):
+    """
+    RAD/RAE pyramid encoder, per-scale RAD/RAE fusion, then BiFPN.
+
+    Output dict:
+        p1:         fused stride-2 feature before BiFPN
+        p2:         fused stride-4 feature before BiFPN
+        p3:         fused stride-8 feature before BiFPN
+        p1_out:     BiFPN stride-2 output
+        p2_out:     BiFPN stride-4 output
+        p3_out:     BiFPN stride-8 output
+        decoder_feat: high-resolution decoder feature fused from p1/p2/p3 outputs
+    """
+
+    def __init__(self, d_in=64, e_in=37, bifpn_channels=128, num_bifpn_blocks=1):
+        super().__init__()
+        self.encoder = RADRAEBiFPNEncoder(d_in=d_in, e_in=e_in)
+
+        self.p1_fusion = RADRAEFusion(
+            in_channels=64,
+            fused_channels=bifpn_channels,
+        )
+        self.p2_fusion = RADRAEFusion(
+            in_channels=128,
+            fused_channels=bifpn_channels,
+        )
+        self.p3_fusion = RADRAEFusion(
+            in_channels=256,
+            fused_channels=bifpn_channels,
+        )
 
         self.bifpn_blocks = nn.ModuleList([
             BiFPNBlock(bifpn_channels)
             for _ in range(num_bifpn_blocks)
         ])
 
-        self.output_refine = nn.Sequential(
+        self.decoder_fusion = nn.Sequential(
+            ConvBNAct(
+                bifpn_channels * 3,
+                bifpn_channels,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+            ),
             ConvBNAct(bifpn_channels, bifpn_channels, kernel_size=3, stride=1),
             ConvBNAct(bifpn_channels, bifpn_channels, kernel_size=3, stride=1),
         )
 
-    def forward(self, x):
-        x = self.stem(x)
-        c1 = self.stage1(x)
-        c2 = self.stage2(c1)
-        c3 = self.stage3(c2)
+    def forward(self, rad, rae):
+        features = self.encoder(rad, rae)
 
-        p1 = self.lateral1(c1)
-        p2 = self.lateral2(c2)
-        p3 = self.lateral3(c3)
+        p1 = self.p1_fusion(features["rad_c1"], features["rae_c1"])
+        p2 = self.p2_fusion(features["rad_c2"], features["rae_c2"])
+        p3 = self.p3_fusion(features["rad_c3"], features["rae_c3"])
 
+        p1_out, p2_out, p3_out = p1, p2, p3
         for bifpn_block in self.bifpn_blocks:
-            p1, p2, p3 = bifpn_block(p1, p2, p3)
+            p1_out, p2_out, p3_out = bifpn_block(p1_out, p2_out, p3_out)
 
-        return self.output_refine(p2)
-
-
-class RADRAEBiFPNEncoder(nn.Module):
-    """
-    Separate RAD and RAE non-deformable BiFPN encoders.
-    """
-
-    def __init__(self, d_in=64, e_in=37, bifpn_channels=128, num_bifpn_blocks=1):
-        super().__init__()
-        self.rad_encoder = BiFPNEncoder(
-            in_channels=d_in,
-            bifpn_channels=bifpn_channels,
-            num_bifpn_blocks=num_bifpn_blocks,
+        p2_to_p1 = F.interpolate(
+            p2_out,
+            size=p1_out.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
         )
-        self.rae_encoder = BiFPNEncoder(
-            in_channels=e_in,
-            bifpn_channels=bifpn_channels,
-            num_bifpn_blocks=num_bifpn_blocks,
+        p3_to_p1 = F.interpolate(
+            p3_out,
+            size=p1_out.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        )
+        decoder_feat = self.decoder_fusion(
+            torch.cat([p1_out, p2_to_p1, p3_to_p1], dim=1)
         )
 
-    def forward(self, rad, rae):
-        rad_feat = self.rad_encoder(rad)
-        rae_feat = self.rae_encoder(rae)
-        return rad_feat, rae_feat
-
-
-class RADRAEBiFPNFusionModel(nn.Module):
-    """
-    BiFPN encoder + same RAD/RAE fusion used by the other CenterPoint models.
-
-    Output dict:
-        rad_feat:   [B, 128, H, W]
-        rae_feat:   [B, 128, H, W]
-        fused_feat: [B, 128, H, W]
-    """
-
-    def __init__(self, d_in=64, e_in=37, bifpn_channels=128, num_bifpn_blocks=1):
-        super().__init__()
-        self.encoder = RADRAEBiFPNEncoder(
-            d_in=d_in,
-            e_in=e_in,
-            bifpn_channels=bifpn_channels,
-            num_bifpn_blocks=num_bifpn_blocks,
-        )
-        self.fusion = RADRAEFusion(
-            in_channels=bifpn_channels,
-            fused_channels=bifpn_channels,
-        )
-
-    def forward(self, rad, rae):
-        rad_feat, rae_feat = self.encoder(rad, rae)
-        fused_feat = self.fusion(rad_feat, rae_feat)
         return {
-            "rad_feat": rad_feat,
-            "rae_feat": rae_feat,
-            "fused_feat": fused_feat,
+            **features,
+            "rad_feat": features["rad_c2"],
+            "rae_feat": features["rae_c2"],
+            "p1": p1,
+            "p2": p2,
+            "p3": p3,
+            "p1_out": p1_out,
+            "p2_out": p2_out,
+            "p3_out": p3_out,
+            "decoder_feat": decoder_feat,
+            "heatmap_feat": decoder_feat,
+            "box_feat": decoder_feat,
+            "fused_feat": decoder_feat,
         }
 
 
@@ -258,15 +294,22 @@ class RADRAEBiFPNCenterPointModel(nn.Module):
             bifpn_channels=bifpn_channels,
             num_bifpn_blocks=num_bifpn_blocks,
         )
-        self.decoder = CenterPointDecoder(
+        self.cls_decoder = CenterPointClsDecoder(
             in_channels=bifpn_channels,
             hidden_channels=decoder_hidden_channels,
             num_classes=num_classes,
         )
+        self.box_decoder = CenterPointBoxDecoder(
+            in_channels=bifpn_channels,
+            hidden_channels=decoder_hidden_channels,
+        )
 
     def forward(self, rad, rae):
         features = self.backbone(rad, rae)
-        decoded = self.decoder(features["fused_feat"])
+        decoded = {
+            "cls_logits": self.cls_decoder(features["heatmap_feat"]),
+            **self.box_decoder(features["box_feat"]),
+        }
         query_outputs = self._dense_outputs_to_query_outputs(decoded)
         return {
             **features,
@@ -282,8 +325,9 @@ class RADRAEBiFPNCenterPointModel(nn.Module):
         size = decoded["size"]
         yaw = decoded["yaw"]
 
-        B, _, H, W = cls_logits.shape
-        dense_count = H * W
+        B, _, heatmap_h, heatmap_w = cls_logits.shape
+        _, _, box_h, box_w = center_offset.shape
+        dense_count = heatmap_h * heatmap_w
         topk_count = min(self.num_boxes, dense_count)
 
         score_logits, _ = cls_logits.flatten(start_dim=2).max(dim=1)
@@ -296,20 +340,34 @@ class RADRAEBiFPNCenterPointModel(nn.Module):
         yaw_flat = yaw.flatten(start_dim=2).transpose(1, 2)
 
         cls_pred = gather_topk_features(cls_flat, topk_indices)
-        center_offset_topk = gather_topk_features(center_offset_flat, topk_indices)
-        center_height_topk = gather_topk_features(center_height_flat, topk_indices)
-        size_topk = gather_topk_features(size_flat, topk_indices)
-        yaw_topk = gather_topk_features(yaw_flat, topk_indices)
-
         background_logits = cls_pred.new_zeros((B, topk_count, 1))
         cls_pred = torch.cat([cls_pred, background_logits], dim=-1)
 
-        y_idx = (topk_indices // W).to(cls_logits.dtype)
-        x_idx = (topk_indices % W).to(cls_logits.dtype)
+        heat_y_idx = topk_indices // heatmap_w
+        heat_x_idx = topk_indices % heatmap_w
+        box_y_idx_long = torch.div(
+            heat_y_idx * box_h,
+            max(heatmap_h, 1),
+            rounding_mode="floor",
+        ).clamp(max=box_h - 1)
+        box_x_idx_long = torch.div(
+            heat_x_idx * box_w,
+            max(heatmap_w, 1),
+            rounding_mode="floor",
+        ).clamp(max=box_w - 1)
+        box_indices = box_y_idx_long * box_w + box_x_idx_long
+
+        center_offset_topk = gather_topk_features(center_offset_flat, box_indices)
+        center_height_topk = gather_topk_features(center_height_flat, box_indices)
+        size_topk = gather_topk_features(size_flat, box_indices)
+        yaw_topk = gather_topk_features(yaw_flat, box_indices)
+
+        y_idx = box_y_idx_long.to(cls_logits.dtype)
+        x_idx = box_x_idx_long.to(cls_logits.dtype)
 
         offset = center_offset_topk.sigmoid()
-        r_center = (y_idx + offset[..., 0]) / max(H, 1)
-        a_center = (x_idx + offset[..., 1]) / max(W, 1)
+        r_center = (y_idx + offset[..., 0]) / max(box_h, 1)
+        a_center = (x_idx + offset[..., 1]) / max(box_w, 1)
         e_center = center_height_topk[..., 0].sigmoid()
 
         box_size = size_topk.sigmoid()
@@ -334,4 +392,3 @@ class RADRAEBiFPNCenterPointModel(nn.Module):
             "box_pred": box_pred,
             "cls_pred": cls_pred,
         }
-

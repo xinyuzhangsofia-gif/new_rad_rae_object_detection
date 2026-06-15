@@ -71,7 +71,7 @@ def select_evaluation_device(cuda_text, gpu_ids_text):
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate dummy MVRSS checkpoints.")
     parser.add_argument("--checkpoint-root", default=
-                        "checkpoints/mvrss_detection/seq1-11_20260611_000838_914547/global_best_epoch_043_20260611_042218_mAP_0p2878.pth")
+                        "checkpoints/mvrss_detection_resume/fpn_quality_heatmap_model6__seq1-11_20260615_070309_941996/global_best_epoch_107_20260615_073413_mAP_0p5183.pth")
     parser.add_argument("--epoch-step", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--train-ratio", type=float, default=0.7)
@@ -84,7 +84,7 @@ def parse_args():
     parser.add_argument("--eval-iou-thresh", type=float, default=0.3)
     parser.add_argument("--num-boxes", type=int, default=64)
     parser.add_argument("--heatmap-nms-kernel", type=int, default=3)
-    parser.add_argument("--model-type", default="auto", choices=["auto", "model1", "model2", "model4", "model5"])
+    parser.add_argument("--model-type", default="auto", choices=["auto", "model1", "model2", "model3", "model4", "model5", "model6", "model7", "model8", "model9", "model10"])
     parser.add_argument("--gpu-ids", default="0,1,2" )
     parser.add_argument("--plot-dir", default="evaluation_plots")
     parser.add_argument("--save-plots", action="store_true")
@@ -159,6 +159,21 @@ def gather_dense_feature(feature_map, indices):
     return flat.gather(dim=1, index=gather_index)
 
 
+def apply_quality_score(heatmap_scores, outputs):
+    if "quality_logits" not in outputs:
+        return heatmap_scores
+
+    quality_scores = outputs["quality_logits"].sigmoid()
+    if quality_scores.shape[-2:] != heatmap_scores.shape[-2:]:
+        quality_scores = F.interpolate(
+            quality_scores,
+            size=heatmap_scores.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        )
+    return heatmap_scores * quality_scores
+
+
 def dense_centerpoint_outputs_to_detections(
         outputs,
         num_classes,
@@ -169,7 +184,7 @@ def dense_centerpoint_outputs_to_detections(
     B, _, H, W = cls_logits.shape
     dtype = cls_logits.dtype
 
-    heatmap_scores = cls_logits.sigmoid()
+    heatmap_scores = apply_quality_score(cls_logits.sigmoid(), outputs)
     heatmap_scores = centerpoint_heatmap_nms(
         heatmap=heatmap_scores,
         kernel_size=heatmap_nms_kernel
@@ -182,25 +197,40 @@ def dense_centerpoint_outputs_to_detections(
     spatial_size = H * W
     labels = flat_indices // spatial_size
     spatial_indices = flat_indices % spatial_size
-    y_idx = (spatial_indices // W).to(dtype)
-    x_idx = (spatial_indices % W).to(dtype)
+
+    heatmap_y_idx = spatial_indices // W
+    heatmap_x_idx = spatial_indices % W
+    _, _, box_h, box_w = outputs["center_offset"].shape
+    box_y_idx_long = torch.div(
+        heatmap_y_idx * box_h,
+        max(H, 1),
+        rounding_mode="floor",
+    ).clamp(max=box_h - 1)
+    box_x_idx_long = torch.div(
+        heatmap_x_idx * box_w,
+        max(W, 1),
+        rounding_mode="floor",
+    ).clamp(max=box_w - 1)
+    box_indices = box_y_idx_long * box_w + box_x_idx_long
+    y_idx = box_y_idx_long.to(dtype)
+    x_idx = box_x_idx_long.to(dtype)
 
     center_offset = gather_dense_feature(
         outputs["center_offset"],
-        spatial_indices
+        box_indices
     ).sigmoid()
     center_height = gather_dense_feature(
         outputs["center_height"],
-        spatial_indices
+        box_indices
     ).sigmoid()
     size = gather_dense_feature(
         outputs["size"],
-        spatial_indices
+        box_indices
     ).sigmoid()
-    yaw = gather_dense_feature(outputs["yaw"], spatial_indices)
+    yaw = gather_dense_feature(outputs["yaw"], box_indices)
 
-    r_center = (y_idx + center_offset[..., 0]) / max(H, 1)
-    a_center = (x_idx + center_offset[..., 1]) / max(W, 1)
+    r_center = (y_idx + center_offset[..., 0]) / max(box_h, 1)
+    a_center = (x_idx + center_offset[..., 1]) / max(box_w, 1)
     e_center = center_height[..., 0]
     yaw_angle = torch.atan2(yaw[..., 0], yaw[..., 1])
     yaw_norm = (yaw_angle + torch.pi) / (2.0 * torch.pi)
@@ -629,13 +659,38 @@ def infer_model_type_from_checkpoint(checkpoint_path):
         if model_type:
             return model_type
 
-    if any(".bifpn_blocks." in key for key in state_dict.keys()):
+    if any(".cls_feature_mixer." in key or ".reg_feature_mixer." in key for key in state_dict.keys()):
+        return "model10"
+
+    has_bifpn = any(".bifpn_blocks." in key for key in state_dict.keys())
+    has_cfe = any(".cfe1." in key or ".cfe2." in key or ".cfe3." in key for key in state_dict.keys())
+    if has_bifpn and has_cfe:
+        return "model9"
+
+    if has_bifpn:
         return "model2"
 
-    if any(key.startswith("backbone.encoder.rad_encoder.lateral") for key in state_dict.keys()):
-        return "model5"
+    if has_cfe:
+        return "model8"
 
-    if any(".offset_conv." in key or ".deform_conv." in key for key in state_dict.keys()):
+    if any(".attn.relative_position_bias_table" in key for key in state_dict.keys()):
+        return "model7"
+
+    if any(".quality_decoder." in key for key in state_dict.keys()):
+        return "model6"
+
+    has_fpn_lateral = any(
+        key.startswith("backbone.encoder.rad_encoder.lateral")
+        for key in state_dict.keys()
+    )
+    has_deform_conv = any(
+        ".offset_conv." in key or ".deform_conv." in key
+        for key in state_dict.keys()
+    )
+    if has_fpn_lateral:
+        return "model5" if has_deform_conv else "model3"
+
+    if has_deform_conv:
         return "model4"
 
     if any(key.startswith("backbone.encoder.") for key in state_dict.keys()):

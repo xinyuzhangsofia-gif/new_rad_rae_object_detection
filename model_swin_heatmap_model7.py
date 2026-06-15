@@ -1,52 +1,64 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models.swin_transformer import SwinTransformer
 
-from model_deform_heatmap import (
+from model_deform_heatmap_model4 import (
     CenterPointDecoder,
     ConvBNAct,
-    DeformConvBNAct,
     RADRAEFusion,
     gather_topk_features,
     inverse_sigmoid,
 )
 
 
-class FPNDeformEncoder(nn.Module):
+class SwinFPNEncoder(nn.Module):
     """
-    FPN-style radar encoder with deformable convolutions.
-
-    Input:
-        x: [B, in_channels, R, A]
-
-    Output:
-        feat: [B, 128, H, W], where H/W follow the stride-4 feature map.
+    Swin Transformer encoder with the same stride-4 FPN output contract as model5.
     """
 
-    def __init__(self, in_channels, fpn_channels=128):
+    def __init__(
+            self,
+            in_channels,
+            fpn_channels=128,
+            embed_dim=64,
+            depths=(2, 2, 2),
+            num_heads=(2, 4, 8),
+            window_size=4,
+            patch_size=4,
+            mlp_ratio=4.0,
+            dropout=0.0,
+            attention_dropout=0.0,
+            stochastic_depth_prob=0.1,
+        ):
         super().__init__()
-
-        self.stem = nn.Sequential(
-            ConvBNAct(in_channels, 32, kernel_size=3, stride=1),
-            ConvBNAct(32, 32, kernel_size=3, stride=1),
+        self.patch_size = patch_size
+        self.swin = SwinTransformer(
+            patch_size=[patch_size, patch_size],
+            embed_dim=embed_dim,
+            depths=list(depths),
+            num_heads=list(num_heads),
+            window_size=[window_size, window_size],
+            mlp_ratio=mlp_ratio,
+            dropout=dropout,
+            attention_dropout=attention_dropout,
+            stochastic_depth_prob=stochastic_depth_prob,
+            num_classes=1,
+        )
+        self.swin.features[0][0] = nn.Conv2d(
+            in_channels,
+            embed_dim,
+            kernel_size=(patch_size, patch_size),
+            stride=(patch_size, patch_size),
         )
 
-        self.stage1 = nn.Sequential(
-            ConvBNAct(32, 64, kernel_size=3, stride=2),
-            ConvBNAct(64, 64, kernel_size=3, stride=1),
-        )
-        self.stage2 = nn.Sequential(
-            ConvBNAct(64, 128, kernel_size=3, stride=2),
-            DeformConvBNAct(128, 128, kernel_size=3, stride=1),
-        )
-        self.stage3 = nn.Sequential(
-            ConvBNAct(128, 256, kernel_size=3, stride=2),
-            DeformConvBNAct(256, 256, kernel_size=3, stride=1),
-        )
+        c1_channels = embed_dim
+        c2_channels = embed_dim * 2
+        c3_channels = embed_dim * 4
 
-        self.lateral1 = ConvBNAct(64, fpn_channels, kernel_size=1, stride=1, padding=0)
-        self.lateral2 = ConvBNAct(128, fpn_channels, kernel_size=1, stride=1, padding=0)
-        self.lateral3 = ConvBNAct(256, fpn_channels, kernel_size=1, stride=1, padding=0)
+        self.lateral1 = ConvBNAct(c1_channels, fpn_channels, kernel_size=1, stride=1, padding=0)
+        self.lateral2 = ConvBNAct(c2_channels, fpn_channels, kernel_size=1, stride=1, padding=0)
+        self.lateral3 = ConvBNAct(c3_channels, fpn_channels, kernel_size=1, stride=1, padding=0)
 
         self.smooth1 = ConvBNAct(fpn_channels, fpn_channels, kernel_size=3, stride=1)
         self.smooth2 = ConvBNAct(fpn_channels, fpn_channels, kernel_size=3, stride=1)
@@ -54,14 +66,31 @@ class FPNDeformEncoder(nn.Module):
 
         self.output_refine = nn.Sequential(
             ConvBNAct(fpn_channels, fpn_channels, kernel_size=3, stride=1),
-            DeformConvBNAct(fpn_channels, fpn_channels, kernel_size=3, stride=1),
+            ConvBNAct(fpn_channels, fpn_channels, kernel_size=3, stride=1),
         )
 
+    @staticmethod
+    def _channels_first(x):
+        return x.permute(0, 3, 1, 2).contiguous()
+
     def forward(self, x):
-        x = self.stem(x)
-        c1 = self.stage1(x)
-        c2 = self.stage2(c1)
-        c3 = self.stage3(c2)
+        pad_h = (self.patch_size - x.shape[-2] % self.patch_size) % self.patch_size
+        pad_w = (self.patch_size - x.shape[-1] % self.patch_size) % self.patch_size
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, (0, pad_w, 0, pad_h))
+
+        features = self.swin.features
+        x = features[0](x)
+        x = features[1](x)
+        c1 = self._channels_first(x)
+
+        x = features[2](x)
+        x = features[3](x)
+        c2 = self._channels_first(x)
+
+        x = features[4](x)
+        x = features[5](x)
+        c3 = self._channels_first(x)
 
         p3 = self.smooth3(self.lateral3(c3))
         p2 = self.lateral2(c2) + F.interpolate(
@@ -80,33 +109,17 @@ class FPNDeformEncoder(nn.Module):
         )
         p1 = self.smooth1(p1)
 
-        fused_at_stride4 = p2 + F.interpolate(
-            p1,
-            size=p2.shape[-2:],
-            mode="bilinear",
-            align_corners=False,
-        )
-        return self.output_refine(fused_at_stride4)
+        return self.output_refine(p1)
 
 
-class RADRAEFPNDeformEncoder(nn.Module):
-    """
-    Separate RAD and RAE FPN-deform encoders.
-
-    RAD:
-        [B, D, R, A] -> [B, 128, H, W]
-
-    RAE:
-        [B, E, R, A] -> [B, 128, H, W]
-    """
-
+class RADRAESwinFPNEncoder(nn.Module):
     def __init__(self, d_in=64, e_in=37, fpn_channels=128):
         super().__init__()
-        self.rad_encoder = FPNDeformEncoder(
+        self.rad_encoder = SwinFPNEncoder(
             in_channels=d_in,
             fpn_channels=fpn_channels,
         )
-        self.rae_encoder = FPNDeformEncoder(
+        self.rae_encoder = SwinFPNEncoder(
             in_channels=e_in,
             fpn_channels=fpn_channels,
         )
@@ -117,19 +130,10 @@ class RADRAEFPNDeformEncoder(nn.Module):
         return rad_feat, rae_feat
 
 
-class RADRAEFPNDeformFusionModel(nn.Module):
-    """
-    FPN-deform encoder + same RAD/RAE fusion used by model_deform_heatmap.
-
-    Output dict:
-        rad_feat:   [B, 128, H, W]
-        rae_feat:   [B, 128, H, W]
-        fused_feat: [B, 128, H, W]
-    """
-
+class RADRAESwinFPNFusionModel(nn.Module):
     def __init__(self, d_in=64, e_in=37, fpn_channels=128):
         super().__init__()
-        self.encoder = RADRAEFPNDeformEncoder(
+        self.encoder = RADRAESwinFPNEncoder(
             d_in=d_in,
             e_in=e_in,
             fpn_channels=fpn_channels,
@@ -149,12 +153,9 @@ class RADRAEFPNDeformFusionModel(nn.Module):
         }
 
 
-class RADRAEFPNDeformCenterPointModel(nn.Module):
+class RADRAESwinFPNCenterPointModel(nn.Module):
     """
-    Full RAD/RAE model with FPN-deform encoders, unchanged fusion,
-    and unchanged decoupled CenterPoint decoder.
-
-    Output keys match model_deform_heatmap for train/evaluation/visualization compatibility.
+    model7: model5-style FPN heatmap detector with Swin Transformer encoders.
     """
 
     def __init__(
@@ -169,7 +170,7 @@ class RADRAEFPNDeformCenterPointModel(nn.Module):
         super().__init__()
         self.num_classes = num_classes
         self.num_boxes = num_boxes
-        self.backbone = RADRAEFPNDeformFusionModel(
+        self.backbone = RADRAESwinFPNFusionModel(
             d_in=d_in,
             e_in=e_in,
             fpn_channels=fpn_channels,
@@ -242,7 +243,7 @@ class RADRAEFPNDeformCenterPointModel(nn.Module):
                 box_size[..., 2],
                 yaw_norm,
             ],
-            dim=-1
+            dim=-1,
         ).clamp(min=1e-4, max=1.0 - 1e-4)
 
         box_pred = inverse_sigmoid(box_norm)

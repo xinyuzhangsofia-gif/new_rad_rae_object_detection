@@ -3,7 +3,7 @@ from datetime import datetime
 
 from torch.utils.tensorboard import SummaryWriter
 
-from utils_dummy.checkpoints import format_sequence_run_name
+from utils_dummy.checkpoints import format_model_sequence_run_name
 
 
 def print_training_history(history):
@@ -56,9 +56,9 @@ def print_training_history(history):
         )
 
 
-def create_tensorboard_writer(base_dir, experiment_name, sequence):
+def create_tensorboard_writer(base_dir, experiment_name, sequence, model_type=None):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    run_name = f"{format_sequence_run_name(sequence)}_{timestamp}"
+    run_name = f"{format_model_sequence_run_name(sequence, model_type)}_{timestamp}"
     log_dir = os.path.join(base_dir, experiment_name, run_name)
 
     suffix = 1
@@ -82,11 +82,13 @@ def write_tensorboard_run_config(
         num_boxes,
         num_classes,
         class_names,
-        eval_iou_thresh
+        eval_iou_thresh,
+        model_type=None
     ):
     config_text = "\n".join([
         f"sequence: {cfg.sequence}",
         f"sequences: {getattr(cfg, 'sequences', None)}",
+        f"model_type: {model_type}",
         f"num_epochs: {num_epochs}",
         f"batch_size: {batch_size}",
         f"train_size: {train_size}",
@@ -110,10 +112,20 @@ def write_tensorboard_metrics(writer, epoch, train_metrics, val_metrics, f1, lea
         train_metrics.get("train_heatmap_loss", 0.0),
         epoch
     )
+    writer.add_scalar(
+        "training_metrics/train_quality_loss",
+        train_metrics.get("train_quality_loss", 0.0),
+        epoch
+    )
 
     writer.add_scalar("validation_metrics/val_loss", val_metrics["val_loss"], epoch)
     writer.add_scalar("validation_metrics/val_box_loss", val_metrics["val_box_loss"], epoch)
     writer.add_scalar("validation_metrics/val_cls_loss", val_metrics["val_cls_loss"], epoch)
+    writer.add_scalar(
+        "validation_metrics/val_quality_loss",
+        val_metrics.get("val_quality_loss", 0.0),
+        epoch
+    )
     writer.add_scalar("validation_metrics/val_mAP", val_metrics["mAP"], epoch)
     writer.add_scalar("validation_metrics/val_precision", val_metrics["precision"], epoch)
     writer.add_scalar("validation_metrics/val_recall", val_metrics["recall"], epoch)

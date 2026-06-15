@@ -6,6 +6,20 @@ from datetime import datetime
 import torch
 
 
+MODEL_RUN_NAME_PREFIXES = {
+    "model1": "con2d_heatmap_model1",
+    "model2": "bifpn_heatmap_model2",
+    "model3": "fpn_nodeform_heatmap_model3",
+    "model4": "deform_heatmap_model4",
+    "model5": "fpn_heatmap_model5",
+    "model6": "fpn_quality_heatmap_model6",
+    "model7": "swin_heatmap_model7",
+    "model8": "cfe_heatmap_model8",
+    "model9": "cfe_bifpn_heatmap_model9",
+    "model10": "fpn_split_heatmap_model10",
+}
+
+
 def _create_unique_checkpoint_dir(checkpoint_dir):
     suffix = 1
     unique_checkpoint_dir = checkpoint_dir
@@ -45,17 +59,33 @@ def format_sequence_run_name(sequences):
     return 'seq' + '_'.join(range_texts)
 
 
-def create_checkpoint_run_dir(base_dir, experiment_name, sequence):
+def get_model_run_name_prefix(model_type):
+    if model_type is None or model_type == "":
+        return None
+
+    return MODEL_RUN_NAME_PREFIXES.get(model_type, str(model_type))
+
+
+def format_model_sequence_run_name(sequences, model_type=None):
+    sequence_name = format_sequence_run_name(sequences)
+    model_prefix = get_model_run_name_prefix(model_type)
+    if model_prefix is None:
+        return sequence_name
+
+    return f"{model_prefix}__{sequence_name}"
+
+
+def create_checkpoint_run_dir(base_dir, experiment_name, sequence, model_type=None):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    run_name = f"{format_sequence_run_name(sequence)}_{timestamp}"
+    run_name = f"{format_model_sequence_run_name(sequence, model_type)}_{timestamp}"
     checkpoint_dir = os.path.join(base_dir, experiment_name, run_name)
     return _create_unique_checkpoint_dir(checkpoint_dir)
 
 
-def create_checkpoint_run_dirs(base_dir, experiment_name, sequences):
+def create_checkpoint_run_dirs(base_dir, experiment_name, sequences, model_type=None):
     sequences = tuple(sequences)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    run_name = f"{format_sequence_run_name(sequences)}_{timestamp}"
+    run_name = f"{format_model_sequence_run_name(sequences, model_type)}_{timestamp}"
     checkpoint_dir = os.path.join(base_dir, experiment_name, run_name)
     return {sequences: _create_unique_checkpoint_dir(checkpoint_dir)}
 

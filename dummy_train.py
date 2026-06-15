@@ -5,10 +5,16 @@ from tqdm import tqdm
 from dummy_dataloader import (build_train_val_dataloaders, get_config_sequences, prepare_model_inputs)
 from dummy_dataset import CLASS_NAMES, CLASS_TO_IDX
 from dummy_evaluation import boxes_3d_to_ra_xyxy, evaluate_train_val_iou
-from model_bifpn_heatmap import RADRAEBiFPNCenterPointModel
-from model_deform_heatmap import RADRAEStageDeformCenterPointModel
-from model_fpn_heatmap import RADRAEFPNDeformCenterPointModel
-from model_con2d_heatmap import RADRAEStageCenterPointModel 
+from model_bifpn_heatmap_model2 import RADRAEBiFPNCenterPointModel
+from model_deform_heatmap_model4 import RADRAEStageDeformCenterPointModel
+from model_fpn_heatmap_model5 import RADRAEFPNDeformCenterPointModel
+from model_fpn_nodeform_heatmap_model3 import RADRAEFPNNoDeformCenterPointModel
+from model_fpn_quality_heatmap_model6 import RADRAEFPNQualityCenterPointModel
+from model_swin_heatmap_model7 import RADRAESwinFPNCenterPointModel
+from model_cfe_heatmap_model8 import RADRAEFPNCFECenterPointModel
+from model_cfe_bifpn_heatmap_model9 import RADRAECFEBiFPNCenterPointModel
+from model_fpn_split_heatmap_model10 import RADRAEFPNMultiFeatureCenterPointModel
+from model_con2d_heatmap_model1 import RADRAEStageCenterPointModel 
 from utils_dummy.checkpoints import *
 from utils_dummy.logging_utils import *
 from utils_dummy.other_helping_dunctions import *
@@ -55,6 +61,27 @@ def pairwise_box_giou_2d(boxes1, boxes2):
     # GIoU Calculation
     giou = iou - (enclose_area - union) / enclose_area
     return giou
+
+
+def pairwise_box_iou_2d(boxes1, boxes2):
+    if boxes1.shape[0] == 0 or boxes2.shape[0] == 0:
+        return torch.zeros((boxes1.shape[0], boxes2.shape[0]), device=boxes1.device)
+
+    left_top = torch.max(boxes1[:, None, :2], boxes2[None, :, :2])
+    right_bottom = torch.min(boxes1[:, None, 2:], boxes2[None, :, 2:])
+    wh = (right_bottom - left_top).clamp(min=0)
+    inter = wh[:, :, 0] * wh[:, :, 1]
+
+    area1 = (
+        (boxes1[:, 2] - boxes1[:, 0]).clamp(min=0)
+        * (boxes1[:, 3] - boxes1[:, 1]).clamp(min=0)
+    )
+    area2 = (
+        (boxes2[:, 2] - boxes2[:, 0]).clamp(min=0)
+        * (boxes2[:, 3] - boxes2[:, 1]).clamp(min=0)
+    )
+    union = area1[:, None] + area2[None, :] - inter + 1e-6
+    return inter / union
 
 
 def gaussian2d(radius, sigma=None, device="cpu"):
@@ -150,20 +177,24 @@ def build_centerpoint_targets(
         gt_labels,
         cls_logits,
         num_classes,
-        radius=3
+        radius=3,
+        reg_reference=None
     ):
-    B, _, H, W = cls_logits.shape
+    B, _, heatmap_h, heatmap_w = cls_logits.shape
     device = cls_logits.device
+    if reg_reference is None:
+        reg_reference = cls_logits
+    _, _, reg_h, reg_w = reg_reference.shape
 
-    heatmap_targets = torch.zeros((B, num_classes, H, W), device=device)
+    heatmap_targets = torch.zeros((B, num_classes, heatmap_h, heatmap_w), device=device)
     reg_targets = {
-        "center_offset": torch.zeros((B, 2, H, W), device=device),
-        "center_height": torch.zeros((B, 1, H, W), device=device),
-        "size": torch.zeros((B, 3, H, W), device=device),
-        "yaw": torch.zeros((B, 2, H, W), device=device),
-        "box": torch.zeros((B, 7, H, W), device=device),
+        "center_offset": torch.zeros((B, 2, reg_h, reg_w), device=device),
+        "center_height": torch.zeros((B, 1, reg_h, reg_w), device=device),
+        "size": torch.zeros((B, 3, reg_h, reg_w), device=device),
+        "yaw": torch.zeros((B, 2, reg_h, reg_w), device=device),
+        "box": torch.zeros((B, 7, reg_h, reg_w), device=device),
     }
-    reg_mask = torch.zeros((B, 1, H, W), device=device)
+    reg_mask = torch.zeros((B, 1, reg_h, reg_w), device=device)
 
     for b in range(B):
         boxes_b = gt_boxes[b].to(device)
@@ -177,27 +208,35 @@ def build_centerpoint_targets(
             if cls_id < 0 or cls_id >= num_classes:
                 continue
 
-            target = normalized_boxes_to_centerpoint_targets(
+            heatmap_target = normalized_boxes_to_centerpoint_targets(
                 box=box,
-                H=H,
-                W=W
+                H=heatmap_h,
+                W=heatmap_w
             )
-            center_y = target["center_y"]
-            center_x = target["center_x"]
+            heatmap_center_y = heatmap_target["center_y"]
+            heatmap_center_x = heatmap_target["center_x"]
 
             draw_gaussian(
                 heatmap=heatmap_targets[b, cls_id],
-                center_y=center_y,
-                center_x=center_x,
+                center_y=heatmap_center_y,
+                center_x=heatmap_center_x,
                 radius=radius
             )
 
-            reg_targets["center_offset"][b, :, center_y, center_x] = target["center_offset"]
-            reg_targets["center_height"][b, :, center_y, center_x] = target["center_height"]
-            reg_targets["size"][b, :, center_y, center_x] = target["size"]
-            reg_targets["yaw"][b, :, center_y, center_x] = target["yaw"]
-            reg_targets["box"][b, :, center_y, center_x] = box.clamp(0.0, 1.0)
-            reg_mask[b, :, center_y, center_x] = 1.0
+            reg_target = normalized_boxes_to_centerpoint_targets(
+                box=box,
+                H=reg_h,
+                W=reg_w
+            )
+            reg_center_y = reg_target["center_y"]
+            reg_center_x = reg_target["center_x"]
+
+            reg_targets["center_offset"][b, :, reg_center_y, reg_center_x] = reg_target["center_offset"]
+            reg_targets["center_height"][b, :, reg_center_y, reg_center_x] = reg_target["center_height"]
+            reg_targets["size"][b, :, reg_center_y, reg_center_x] = reg_target["size"]
+            reg_targets["yaw"][b, :, reg_center_y, reg_center_x] = reg_target["yaw"]
+            reg_targets["box"][b, :, reg_center_y, reg_center_x] = box.clamp(0.0, 1.0)
+            reg_mask[b, :, reg_center_y, reg_center_x] = 1.0
 
     return heatmap_targets, reg_targets, reg_mask
 
@@ -209,15 +248,15 @@ def masked_l1_loss(pred, target, mask):
 
 
 def dense_centerpoint_outputs_to_boxes(outputs):
-    cls_logits = outputs["cls_logits"]
-    B, _, H, W = cls_logits.shape
-    device = cls_logits.device
-    dtype = cls_logits.dtype
+    center_offset = outputs["center_offset"]
+    B, _, H, W = center_offset.shape
+    device = center_offset.device
+    dtype = center_offset.dtype
 
     y_grid = torch.arange(H, device=device, dtype=dtype).view(1, H, 1).expand(B, H, W)
     x_grid = torch.arange(W, device=device, dtype=dtype).view(1, 1, W).expand(B, H, W)
 
-    center_offset = outputs["center_offset"].sigmoid()
+    center_offset = center_offset.sigmoid()
     center_height = outputs["center_height"].sigmoid()
     size = outputs["size"].sigmoid()
     yaw = outputs["yaw"]
@@ -258,6 +297,38 @@ def centerpoint_giou_loss(outputs, target_boxes, mask):
     return (1.0 - gious).mean()
 
 
+def centerpoint_quality_loss(outputs, target_boxes, mask):
+    if "quality_logits" not in outputs:
+        return outputs["cls_logits"].new_tensor(0.0)
+
+    quality_logits = outputs["quality_logits"]
+    if quality_logits.shape[-2:] != mask.shape[-2:]:
+        raise ValueError(
+            "quality_logits and regression targets must have the same spatial size, "
+            f"got quality={tuple(quality_logits.shape)} and mask={tuple(mask.shape)}"
+        )
+
+    positive_mask = mask.squeeze(1).bool()
+    if positive_mask.sum() == 0:
+        return outputs["cls_logits"].new_tensor(0.0)
+
+    pred_box_map = dense_centerpoint_outputs_to_boxes(outputs)
+    pred_boxes = pred_box_map.permute(0, 2, 3, 1)[positive_mask]
+    gt_boxes = target_boxes.permute(0, 2, 3, 1)[positive_mask]
+
+    pred_ra_boxes = boxes_3d_to_ra_xyxy(pred_boxes)
+    gt_ra_boxes = boxes_3d_to_ra_xyxy(gt_boxes)
+    iou_targets = pairwise_box_iou_2d(pred_ra_boxes, gt_ra_boxes).diag()
+    iou_targets = iou_targets.clamp(0.0, 1.0).detach()
+
+    quality_pos = quality_logits.squeeze(1)[positive_mask]
+    return F.binary_cross_entropy_with_logits(
+        input=quality_pos,
+        target=iou_targets,
+        reduction="mean",
+    )
+
+
 def centerpoint_detection_loss(
         outputs,
         gt_boxes_list,
@@ -265,6 +336,7 @@ def centerpoint_detection_loss(
         box_loss_weight=1.0,
         cls_loss_weight=1.0,
         giou_loss_weight=2.0,
+        quality_loss_weight=0.25,
         heatmap_radius=3,
         num_classes=NUM_CLASSES
     ):
@@ -274,7 +346,8 @@ def centerpoint_detection_loss(
         gt_labels=gt_labels_list,
         cls_logits=cls_logits,
         num_classes=num_classes,
-        radius=heatmap_radius
+        radius=heatmap_radius,
+        reg_reference=outputs["center_offset"],
     )
 
     cls_loss = heatmap_focal_loss(
@@ -312,6 +385,11 @@ def centerpoint_detection_loss(
         target_boxes=reg_targets["box"],
         mask=reg_mask
     )
+    quality_loss = centerpoint_quality_loss(
+        outputs=outputs,
+        target_boxes=reg_targets["box"],
+        mask=reg_mask
+    )
 
     box_loss = (
         offset_loss
@@ -320,13 +398,18 @@ def centerpoint_detection_loss(
         + yaw_loss
         + (giou_loss_weight * giou_loss)
     )
-    total_loss = (box_loss_weight * box_loss) + (cls_loss_weight * cls_loss)
+    total_loss = (
+        (box_loss_weight * box_loss)
+        + (cls_loss_weight * cls_loss)
+        + (quality_loss_weight * quality_loss)
+    )
 
     loss_dict = {
         "total_loss": total_loss.item(),
         "box_loss": box_loss.item(),
         "cls_loss": cls_loss.item(),
         "heatmap_loss": cls_loss.item(),
+        "quality_loss": quality_loss.item(),
         "offset_loss": offset_loss.item(),
         "height_loss": height_loss.item(),
         "size_loss": size_loss.item(),
@@ -348,7 +431,8 @@ def train_one_epoch(
         box_loss_weight=1.0,
         cls_loss_weight=1.0,
         heatmap_radius=3,
-        centerpoint_giou_loss_weight=2.0
+        centerpoint_giou_loss_weight=2.0,
+        quality_loss_weight=0.25
     ):
     model.train()
 
@@ -356,6 +440,7 @@ def train_one_epoch(
     box_loss_sum = 0.0
     cls_loss_sum = 0.0
     heatmap_loss_sum = 0.0
+    quality_loss_sum = 0.0
     num_batches = 0
 
     desc = f"Epoch {epoch + 1}/{num_epochs}" if epoch is not None else "Training"
@@ -372,6 +457,7 @@ def train_one_epoch(
             box_loss_weight=box_loss_weight,
             cls_loss_weight=cls_loss_weight,
             giou_loss_weight=centerpoint_giou_loss_weight,
+            quality_loss_weight=quality_loss_weight,
             heatmap_radius=heatmap_radius,
             num_classes=NUM_CLASSES
         )
@@ -384,6 +470,7 @@ def train_one_epoch(
         box_loss_sum += loss_dict["box_loss"]
         cls_loss_sum += loss_dict["cls_loss"]
         heatmap_loss_sum += loss_dict["heatmap_loss"]
+        quality_loss_sum += loss_dict["quality_loss"]
         num_batches += 1
 
         pbar.set_postfix({
@@ -391,6 +478,7 @@ def train_one_epoch(
             "box": f"{(box_loss_sum / num_batches):.4f}",
             "cls": f"{(cls_loss_sum / num_batches):.4f}",
             "hm": f"{(heatmap_loss_sum / num_batches):.4f}",
+            "q": f"{(quality_loss_sum / num_batches):.4f}",
         })
 
     return {
@@ -398,6 +486,7 @@ def train_one_epoch(
         "train_box_loss": box_loss_sum / max(num_batches, 1),
         "train_cls_loss": cls_loss_sum / max(num_batches, 1),
         "train_heatmap_loss": heatmap_loss_sum / max(num_batches, 1),
+        "train_quality_loss": quality_loss_sum / max(num_batches, 1),
     }
 
 
@@ -409,7 +498,8 @@ def validate_loss(
         box_loss_weight=1.0,
         cls_loss_weight=1.0,
         heatmap_radius=3,
-        centerpoint_giou_loss_weight=2.0
+        centerpoint_giou_loss_weight=2.0,
+        quality_loss_weight=0.25
     ):
     model.eval()
 
@@ -417,6 +507,7 @@ def validate_loss(
     box_loss_sum = 0.0
     cls_loss_sum = 0.0
     heatmap_loss_sum = 0.0
+    quality_loss_sum = 0.0
     num_batches = 0
 
     for batch in tqdm(dataloader, desc="Validation loss", ncols=120, leave=False):
@@ -430,6 +521,7 @@ def validate_loss(
             box_loss_weight=box_loss_weight,
             cls_loss_weight=cls_loss_weight,
             giou_loss_weight=centerpoint_giou_loss_weight,
+            quality_loss_weight=quality_loss_weight,
             heatmap_radius=heatmap_radius,
             num_classes=NUM_CLASSES
         )
@@ -438,6 +530,7 @@ def validate_loss(
         box_loss_sum += loss_dict["box_loss"]
         cls_loss_sum += loss_dict["cls_loss"]
         heatmap_loss_sum += loss_dict["heatmap_loss"]
+        quality_loss_sum += loss_dict["quality_loss"]
         num_batches += 1
 
     return {
@@ -445,17 +538,19 @@ def validate_loss(
         "val_box_loss": box_loss_sum / max(num_batches, 1),
         "val_cls_loss": cls_loss_sum / max(num_batches, 1),
         "val_heatmap_loss": heatmap_loss_sum / max(num_batches, 1),
+        "val_quality_loss": quality_loss_sum / max(num_batches, 1),
     }
 
 
 def argparse_args():
     parser = argparse.ArgumentParser(description="Train the dummy MVRSS detection module.")
-    parser.add_argument("--epochs", type=int, default=80)
-    parser.add_argument("--batch-size", type=int, default=50)#50
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--batch-size", type=int, default=180)#50
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--num-boxes", type=int, default=64)
     parser.add_argument("--heatmap-radius", type=int, default=3)
     parser.add_argument("--centerpoint-giou-loss-weight", type=float, default=2.0)
+    parser.add_argument("--quality-loss-weight", type=float, default=0.25)
     parser.add_argument("--score-thresh", type=float, default=0.4)
     parser.add_argument("--eval-iou-thresh", type=float, default=0.1)
     parser.add_argument("--train-ratio", type=float, default=0.7)
@@ -468,7 +563,7 @@ def argparse_args():
     parser.add_argument("--checkpoint-base-dir", default="checkpoints")
     parser.add_argument("--log-base-dir", default="runs")
     parser.add_argument("--gpu-ids", default="0,1,2")
-    parser.add_argument("--model-type", type=str, default="model5", choices=["model1", "model2", "model4", "model5"])
+    parser.add_argument("--model-type", type=str, default="model5", choices=["model1", "model2", "model3", "model4", "model5", "model6", "model7", "model8", "model9", "model10"])
     args = parser.parse_args()
     return args
 
@@ -534,6 +629,14 @@ def main():
             decoder_hidden_channels=128,
             num_boxes=args.num_boxes,
         ).to(device)
+    elif args.model_type == "model3":
+        model = RADRAEFPNNoDeformCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes,
+        ).to(device)
     elif args.model_type == "model4":
         model = RADRAEStageDeformCenterPointModel(
             d_in=64,
@@ -544,6 +647,46 @@ def main():
         ).to(device)
     elif args.model_type == "model5":
         model = RADRAEFPNDeformCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes
+        ).to(device)
+    elif args.model_type == "model6":
+        model = RADRAEFPNQualityCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes
+        ).to(device)
+    elif args.model_type == "model7":
+        model = RADRAESwinFPNCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes
+        ).to(device)
+    elif args.model_type == "model8":
+        model = RADRAEFPNCFECenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes
+        ).to(device)
+    elif args.model_type == "model9":
+        model = RADRAECFEBiFPNCenterPointModel(
+            d_in=64,
+            e_in=37,
+            num_classes=NUM_CLASSES,
+            decoder_hidden_channels=128,
+            num_boxes=args.num_boxes
+        ).to(device)
+    elif args.model_type == "model10":
+        model = RADRAEFPNMultiFeatureCenterPointModel(
             d_in=64,
             e_in=37,
             num_classes=NUM_CLASSES,
@@ -570,7 +713,8 @@ def main():
     checkpoint_dirs = create_checkpoint_run_dirs(
         base_dir=args.checkpoint_base_dir,
         experiment_name="mvrss_detection",
-        sequences=configured_sequences
+        sequences=configured_sequences,
+        model_type=args.model_type
     )
     checkpoint_key = next(iter(checkpoint_dirs))
     checkpoint_dir = checkpoint_dirs[checkpoint_key]
@@ -578,14 +722,16 @@ def main():
     writer = create_tensorboard_writer(
         base_dir=args.log_base_dir,
         experiment_name="mvrss_detection",
-        sequence=configured_sequences
+        sequence=configured_sequences,
+        model_type=args.model_type
     )
     
     write_tensorboard_run_config(
         writer=writer, cfg=cfg, num_epochs=args.epochs, batch_size=args.batch_size,
         train_size=len(train_dataset), val_size=len(val_dataset), learning_rate=args.lr,
         num_boxes=args.num_boxes, num_classes=NUM_CLASSES, class_names=CLASS_NAMES,
-        eval_iou_thresh=args.eval_iou_thresh
+        eval_iou_thresh=args.eval_iou_thresh,
+        model_type=args.model_type
     )
 
     for epoch in range(args.epochs):
@@ -599,7 +745,8 @@ def main():
             box_loss_weight=1.0,
             cls_loss_weight=1.0,
             heatmap_radius=args.heatmap_radius,
-            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight
+            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
+            quality_loss_weight=args.quality_loss_weight
         )
         
         val_loss_metrics = validate_loss(
@@ -609,7 +756,8 @@ def main():
             box_loss_weight=1.0,
             cls_loss_weight=1.0,
             heatmap_radius=args.heatmap_radius,
-            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight
+            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
+            quality_loss_weight=args.quality_loss_weight
         )
 
 
