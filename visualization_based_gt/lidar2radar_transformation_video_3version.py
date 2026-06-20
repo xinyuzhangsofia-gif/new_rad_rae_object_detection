@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 #os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = "/usr/lib/x86_64-linux-gnu/qt5/plugins"
 import cv2
 from scipy.io import loadmat
-from dummy_dataset import KRadarDataset
+from dataset import KRadarDataset
 from tqdm import tqdm
 
 def read_info_label(label_path):

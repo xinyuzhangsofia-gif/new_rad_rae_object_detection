@@ -9,7 +9,7 @@ import yaml
 # import open3d as o3d
 from matplotlib import pyplot as plt
 from scipy.io import loadmat
-from dummy_dataset import KRadarDataset
+from dataset import KRadarDataset
 from tqdm import tqdm
 import time
 def read_info_label(label_path):

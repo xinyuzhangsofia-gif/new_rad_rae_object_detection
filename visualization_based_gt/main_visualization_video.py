@@ -5,7 +5,7 @@ from zxy_label_utils import *
 from zxy_data_path import *
 from sensor_transformation import *
 from visualization import *
-from dummy_dataset import KRadarDataset
+from dataset import KRadarDataset
 
 
 if __name__ == "__main__":
