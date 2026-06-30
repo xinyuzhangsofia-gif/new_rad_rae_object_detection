@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/home/local/xinyu/MVRSS/mvrss/evaluation.py", line 1242, in <module>
+    main()
+  File "/home/local/xinyu/MVRSS/mvrss/evaluation.py", line 1171, in main
+    context = build_eval_context(args)
+  File "/home/local/xinyu/MVRSS/mvrss/evaluation.py", line 1124, in build_eval_context
+    device = select_evaluation_device(args.cuda, args.gpu_ids)
+  File "/home/local/xinyu/MVRSS/mvrss/evaluation.py", line 110, in select_evaluation_device
+    raise RuntimeError(
+RuntimeError: CUDA was explicitly requested via cuda='0', but torch.cuda.is_available() is False.
+ERROR conda.cli.main_run:execute(142): `conda run python -u evaluation.py --checkpoint-root checkpoints/mvrss_detection/fpn_quality_heatmap_model6__seq1-11_20260616_141245_228518/global_best_epoch_013_20260616_145536_mAP_0p5850.pth --cuda 0 --official-eval-iou-backend cuda --official-eval-iou-mode all --detection-score-thresh 0.3 --plot-output yes` failed. (See above for error)

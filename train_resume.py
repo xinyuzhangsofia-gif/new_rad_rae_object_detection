@@ -26,6 +26,7 @@ from training_utils.checkpoints import (
 )
 from training_utils.logging_utils import (
     create_tensorboard_writer,
+    print_epoch_evaluation_summary,
     write_tensorboard_metrics,
     write_tensorboard_run_config,
 )
@@ -37,6 +38,7 @@ from training_utils.other_helping_functions import (
     save_global_best_checkpoint,
     set_seed,
 )
+from training_utils.torch_load import load_torch_checkpoint
 from zxy_config import DataConfig
 
 
@@ -60,6 +62,7 @@ def validate_resume_args(args):
     if args.model_type not in {
             "model1", "model2", "model3", "model4", "model5", "model6",
             "model7", "model8", "model9", "model10", "model11", "model12",
+            "model13", "model14", "model15",
     }:
         raise ValueError(f"Unknown or unsupported model_type: {args.model_type}")
     return args
@@ -69,7 +72,7 @@ def load_resume_checkpoint(model, optimizer, checkpoint_path, device, load_optim
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
 
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = load_torch_checkpoint(checkpoint_path, map_location=device)
     state_dict = checkpoint["model_state_dict"] if isinstance(checkpoint, dict) else checkpoint
     model_for_state_dict = model.module if isinstance(model, torch.nn.DataParallel) else model
     model_for_state_dict.load_state_dict(state_dict)
@@ -103,7 +106,7 @@ def initialize_best_state(best_state, initial_best_checkpoint, checkpoint_dir):
     if not os.path.exists(initial_best_checkpoint):
         raise FileNotFoundError(f"Initial best checkpoint not found: {initial_best_checkpoint}")
 
-    checkpoint = torch.load(initial_best_checkpoint, map_location="cpu")
+    checkpoint = load_torch_checkpoint(initial_best_checkpoint, map_location="cpu")
     best_epoch = int(checkpoint.get("epoch", 0))
     best_metric_key = checkpoint.get(
         "selection_metric_key",
@@ -235,7 +238,6 @@ def main():
         max_detections=args.max_detections,
         num_classes=NUM_CLASSES,
         class_names=CLASS_NAMES,
-        eval_iou_thresh=args.eval_iou_thresh,
         model_type=args.model_type,
         train_scope=args.train_scope,
         split_mode=args.split_mode,
@@ -246,7 +248,8 @@ def main():
         official_eval_version=getattr(args, "official_eval_version", "revised"),
         official_eval_iou_backend=getattr(args, "official_eval_iou_backend", "auto"),
         official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
-        official_eval_include_empty_gt_frames=getattr(args, "official_eval_include_empty_gt_frames", False),
+        coco_style_eval_enabled=getattr(args, "coco_style_eval_enabled", False),
+        nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
     )
 
     history = []
@@ -259,7 +262,12 @@ def main():
     if initial_best_path is not None:
         print(f"Copied initial global best to: {initial_best_path}")
 
-    loss_mode = "yolox" if args.model_type == "model12" else "centerpoint"
+    if args.model_type in {"model12", "model14"}:
+        loss_mode = "yolox"
+    elif args.model_type == "model15":
+        loss_mode = "radenet"
+    else:
+        loss_mode = "centerpoint"
     for epoch_number in range(args.start_epoch, args.end_epoch + 1):
         train_metrics = train_one_epoch(
             model=model,
@@ -293,8 +301,6 @@ def main():
             device=device,
             num_classes=NUM_CLASSES,
             prepare_model_inputs=prepare_model_inputs,
-            score_thresh=args.score_thresh,
-            iou_thresh=args.eval_iou_thresh,
             max_detections=args.max_detections,
             scope_mode=args.train_scope,
             evaluate_train=args.eval_train,
@@ -302,7 +308,8 @@ def main():
             official_eval_version=getattr(args, "official_eval_version", "revised"),
             official_eval_iou_backend=getattr(args, "official_eval_iou_backend", "auto"),
             official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
-            official_eval_include_empty_gt_frames=getattr(args, "official_eval_include_empty_gt_frames", False),
+            coco_style_eval_enabled=getattr(args, "coco_style_eval_enabled", False),
+            nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
         )
         val_metrics, f1 = build_epoch_eval_metrics(
             train_metrics=train_metrics,
@@ -312,6 +319,7 @@ def main():
             official_eval_enabled=getattr(args, "official_eval_enabled", False),
             official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
         )
+        print_epoch_evaluation_summary(epoch=epoch_number, val_metrics=val_metrics, f1=f1)
 
         learning_rate = optimizer.param_groups[0]["lr"]
         write_tensorboard_metrics(

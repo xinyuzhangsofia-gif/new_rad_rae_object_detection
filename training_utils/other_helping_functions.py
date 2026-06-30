@@ -69,42 +69,44 @@ def selection_metric_value(val_metrics):
 
 
 def append_training_history(history, epoch, train_metrics, val_metrics, f1):
+    del f1
+
     row = {
         "epoch": epoch,
         "train_loss": train_metrics["train_loss"],
         "train_box_loss": train_metrics["train_box_loss"],
         "train_cls_loss": train_metrics["train_cls_loss"],
-        "train_heatmap_loss": train_metrics.get("train_heatmap_loss", 0.0),
-        "train_quality_loss": train_metrics.get("train_quality_loss", 0.0),
         "train_obj_loss": train_metrics.get("train_obj_loss", 0.0),
         "train_l1_loss": train_metrics.get("train_l1_loss", 0.0),
-        "train_iou": train_metrics["train_iou"],
         "val_loss": val_metrics["val_loss"],
         "val_box_loss": val_metrics["val_box_loss"],
         "val_cls_loss": val_metrics["val_cls_loss"],
-        "val_heatmap_loss": val_metrics.get("val_heatmap_loss", 0.0),
-        "val_quality_loss": val_metrics.get("val_quality_loss", 0.0),
         "val_obj_loss": val_metrics.get("val_obj_loss", 0.0),
         "val_l1_loss": val_metrics.get("val_l1_loss", 0.0),
         "val_mAP": val_metrics["mAP"],
-        "val_2d_mAP_0.3": val_metrics.get("2d_mAP_0.3", val_metrics["mAP"]),
-        "val_2d_mAP_0.5": val_metrics.get("2d_mAP_0.5", 0.0),
-        "val_3d_mAP_0.3": val_metrics.get("3d_mAP_0.3", 0.0),
-        "val_3d_mAP_0.5": val_metrics.get("3d_mAP_0.5", 0.0),
-        "val_precision": val_metrics["precision"],
-        "val_recall": val_metrics["recall"],
-        "val_iou": val_metrics["val_iou"],
-        "val_f1": f1,
-        "iou": val_metrics["iou_thresh"],
-        "tp": val_metrics["tp"],
-        "fp": val_metrics["fp"],
-        "fn": val_metrics["fn"],
+        "val_bev_mAP_0.3": val_metrics.get("official_bev_mAP_0.3", val_metrics["mAP"]),
+        "val_bev_mAP_0.5": val_metrics.get("official_bev_mAP_0.5", 0.0),
+        "val_bev_mAP_0.7": val_metrics.get("official_bev_mAP_0.7", 0.0),
+        "val_3d_mAP_0.3": val_metrics.get("official_3d_mAP_0.3", 0.0),
+        "val_3d_mAP_0.5": val_metrics.get("official_3d_mAP_0.5", 0.0),
+        "val_3d_mAP_0.7": val_metrics.get("official_3d_mAP_0.7", 0.0),
         "selection_metric_key": val_metrics.get("selection_metric_key", "mAP"),
         "selection_metric_value": val_metrics.get("selection_metric_value", val_metrics["mAP"]),
     }
+    if "train_heatmap_loss" in train_metrics:
+        row["train_heatmap_loss"] = train_metrics["train_heatmap_loss"]
+    if "train_quality_loss" in train_metrics:
+        row["train_quality_loss"] = train_metrics["train_quality_loss"]
+    if "val_heatmap_loss" in val_metrics:
+        row["val_heatmap_loss"] = val_metrics["val_heatmap_loss"]
+    if "val_quality_loss" in val_metrics:
+        row["val_quality_loss"] = val_metrics["val_quality_loss"]
 
     for key, value in val_metrics.items():
-        if key.startswith("official_") and isinstance(value, (int, float)):
+        if (
+            (key.startswith("official_") or key.startswith("coco_") or key.startswith("nuscenes_"))
+            and isinstance(value, (int, float))
+        ):
             row[key] = float(value)
 
     history.append(row)
@@ -118,20 +120,9 @@ def build_epoch_eval_metrics(
         official_eval_enabled=False,
         official_eval_iou_mode="easy",
     ):
-    train_eval_metrics = eval_metrics.get("train_eval_metrics")
-    train_metrics["train_iou"] = (
-        train_eval_metrics["mean_iou"]
-        if train_eval_metrics is not None
-        else 0.0
-    )
-
     val_metrics = eval_metrics["val_eval_metrics"].copy()
-    val_metrics["val_iou"] = val_metrics["mean_iou"]
     val_metrics.update(val_loss_metrics)
-
-    precision = val_metrics["precision"]
-    recall = val_metrics["recall"]
-    f1 = 2 * precision * recall / (precision + recall + 1e-6)
+    f1 = 0.0
 
     resolved_metric_key = resolve_best_metric_key(
         requested_key=best_metric_key,

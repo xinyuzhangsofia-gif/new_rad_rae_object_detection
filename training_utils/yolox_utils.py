@@ -74,7 +74,7 @@ def _make_grids(batch_size, height, width, device, dtype):
 
 def decode_yolox_boxes(outputs, clamp=True):
     """
-    Decode model12 predictions into normalized RAE boxes.
+    Decode YOLOX-style dense predictions into normalized RAE boxes.
 
     The RA center and RA size follow the YOLOX grid parameterization. The radar
     task still needs elevation, elevation size, and yaw, so those attributes are

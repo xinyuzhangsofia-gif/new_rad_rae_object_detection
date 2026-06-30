@@ -5,6 +5,8 @@ from datetime import datetime
 
 import torch
 
+from training_utils.torch_load import load_torch_checkpoint
+
 
 MODEL_RUN_NAME_PREFIXES = {
     "model1": "con2d_heatmap_model1",
@@ -188,7 +190,6 @@ def build_checkpoint_payload(
         "mAP": val_metrics["mAP"],
         "selection_metric_key": val_metrics.get("selection_metric_key", "mAP"),
         "selection_metric_value": val_metrics.get("selection_metric_value", val_metrics["mAP"]),
-        "eval_iou_thresh": val_metrics["iou_thresh"],
         "learning_rate": learning_rate,
         "is_best": is_best,
         "config": {
@@ -202,9 +203,6 @@ def build_checkpoint_payload(
             "model_type": getattr(args, "model_type", None),
             "class_names": getattr(args, "class_names", None),
             "class_to_idx": getattr(args, "class_to_idx", None),
-            "match_iou_thresh": getattr(args, "match_iou_thresh", None),
-            "score_thresh": args.score_thresh,
-            "eval_iou_thresh": args.eval_iou_thresh,
             "train_ratio": args.train_ratio,
             "train_scope": getattr(args, "train_scope", "full"),
             "best_metric_key": getattr(args, "best_metric_key", "auto"),
@@ -212,7 +210,8 @@ def build_checkpoint_payload(
             "official_eval_version": getattr(args, "official_eval_version", "revised"),
             "official_eval_iou_backend": getattr(args, "official_eval_iou_backend", "auto"),
             "official_eval_iou_mode": getattr(args, "official_eval_iou_mode", "easy"),
-            "official_eval_include_empty_gt_frames": getattr(args, "official_eval_include_empty_gt_frames", False),
+            "coco_style_eval_enabled": getattr(args, "coco_style_eval_enabled", False),
+            "nuscenes_style_eval_enabled": getattr(args, "nuscenes_style_eval_enabled", False),
             "split_mode": getattr(args, "split_mode", None),
             "split_dir": getattr(args, "split_dir", None),
             "train_sequences": getattr(args, "train_sequences", None),
@@ -303,7 +302,7 @@ def save_named_checkpoint_copy(
     ):
     saved_at = datetime.now().strftime("%Y%m%d_%H%M%S")
     if model_type is None or sequences is None:
-        source_checkpoint = torch.load(source_checkpoint_path, map_location="cpu")
+        source_checkpoint = load_torch_checkpoint(source_checkpoint_path, map_location="cpu")
         if model_type is None:
             model_type = _payload_model_type(source_checkpoint)
         if sequences is None:

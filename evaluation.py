@@ -1,14 +1,22 @@
+"""Evaluation entrypoint for this project using K-Radar official eval_revised.py.
+
+This file does not implement mAP itself. It only:
+1. runs the project model,
+2. converts predictions and GT into K-Radar KITTI-style annos,
+3. calls eval/kitti_eval/eval_revised.py.
+"""
+
 import argparse
-import importlib.util
-import math
 import os
-from pathlib import Path
 import re
-import sys
+from datetime import datetime
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 import tqdm
+import yaml
+
 from cfg_model import (
     AZIMUTH_AXIS,
     ELEVATION_AXIS,
@@ -19,22 +27,59 @@ from cfg_model import (
     denormalize_rae_boxes_for_scope,
     normalized_rae_box_centers_in_cartesian_roi,
 )
-from dataloader import build_train_val_dataloaders, prepare_model_inputs
-from dataset import (
-    CLASS_NAMES,
-    CLASS_TO_IDX,
+from dataloader import (
+    build_train_val_dataloaders,
+    normalize_sequence_list,
+    prepare_model_inputs,
 )
-from models import build_model
-from visualize import load_checkpoint
+from dataset import CLASS_NAMES, CLASS_TO_IDX
+from eval.adapter import (
+    compute_official_kradar_style_metrics,
+    metric_boxes_to_kitti_anno,
+)
+from eval.coco_style import compute_coco_style_metrics
+from eval.custom_iou_range import (
+    DEFAULT_CUSTOM_IOU_THRESHOLDS,
+    compute_custom_iou_range_metrics,
+    format_custom_iou_suffix,
+)
+from eval.nuscenes_style import compute_nuscenes_style_metrics
+from models import MODEL_TYPES, build_model
+from training_utils.checkpoints import format_sequence_run_name
+from training_utils.radenet_utils import regression_cell_to_normalized_rae_box
 from training_utils.yolox_utils import yolox_outputs_to_detections
 from zxy_config import DataConfig
 
+try:
+    from eval_cfg import EVAL_CONFIG
+except ImportError:
+    EVAL_CONFIG = {}
 
-NUM_CLASSES = 2
-OFFICIAL_CLASS_NAMES = {
-    0: "sed",
-    1: "bus",
-}
+
+NUM_CLASSES = len(CLASS_NAMES)
+
+
+def load_torch_checkpoint(checkpoint_path, map_location="cpu"):
+    # PyTorch 2.6 changed torch.load default weights_only to True.
+    # Our local training checkpoints store config/history objects too.
+    try:
+        return torch.load(
+            checkpoint_path,
+            map_location=map_location,
+            weights_only=False,
+        )
+    except TypeError:
+        return torch.load(checkpoint_path, map_location=map_location)
+
+
+def load_model_checkpoint(model, checkpoint_path, device):
+    checkpoint = load_torch_checkpoint(checkpoint_path, map_location=device)
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"])
+    else:
+        model.load_state_dict(checkpoint)
+    model.eval()
+    return model
 
 
 def parse_gpu_ids(gpu_ids_text):
@@ -65,112 +110,213 @@ def parse_cuda_choice(cuda_text, fallback_gpu_ids_text):
             gpu_ids.append(gpu_number - 1)
         else:
             gpu_ids.append(int(cuda_part))
-
     return gpu_ids
 
 
 def select_evaluation_device(cuda_text, gpu_ids_text):
     gpu_ids = parse_cuda_choice(cuda_text, gpu_ids_text)
+    requested_cuda = cuda_text is not None and cuda_text.strip().lower() not in ("", "cpu", "none")
+    if requested_cuda and not torch.cuda.is_available():
+        raise RuntimeError(
+            f"CUDA was explicitly requested via cuda={cuda_text!r}, "
+            "but torch.cuda.is_available() is False."
+        )
     if torch.cuda.is_available() and len(gpu_ids) > 0:
         available_gpu_count = torch.cuda.device_count()
-        unavailable_gpu_ids = [
-            gpu_id for gpu_id in gpu_ids
+        invalid_gpu_ids = [
+            gpu_id
+            for gpu_id in gpu_ids
             if gpu_id < 0 or gpu_id >= available_gpu_count
         ]
-        if len(unavailable_gpu_ids) > 0:
+        if len(invalid_gpu_ids) > 0:
             raise ValueError(
-                f"Requested GPU ids {unavailable_gpu_ids}, "
+                f"Requested GPU ids {invalid_gpu_ids}, "
                 f"but only {available_gpu_count} CUDA device(s) are available."
             )
-        if len(gpu_ids) > 1:
-            print(f"Evaluation uses one GPU only; using cuda:{gpu_ids[0]} from {gpu_ids}.")
         return torch.device(f"cuda:{gpu_ids[0]}")
-
+    if requested_cuda:
+        raise RuntimeError(
+            f"CUDA was explicitly requested via cuda={cuda_text!r}, "
+            "but no CUDA device could be selected."
+        )
     return torch.device("cpu")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Evaluate object detection checkpoints.")
-    parser.add_argument("--checkpoint-root", default="checkpoints/object_detection/20260619_155520_209652__model_12__seq1_4-6_11_14_20_3_18/20260620_040729_mAP_0p4741_model_12_global_best_epoch_059_seq1-11.pth")
-    parser.add_argument("--epoch-step", type=int, default=1)
-    parser.add_argument("--batch-size", type=int, default=100)
-    parser.add_argument("--train-ratio", type=float, default=0.7)
-    parser.add_argument("--split-mode", default="file", choices=["random", "file", "sequence"])
-    parser.add_argument("--split-dir", default="split")
+    cfg_defaults = {
+        "checkpoint_root": (
+            "checkpoints/object_detection/20260619_155520_209652__model_12__seq1_4-6_11_14_20_3_18/"
+            "20260620_040729_mAP_0p4741_model_12_global_best_epoch_059_seq1-11.pth"
+        ),
+        "epoch_step": 1,
+        "batch_size": 100,
+        "train_ratio": 0.7,
+        "split_mode": "file",
+        "split_dir": "split",
+        "train_sequences": None,
+        "val_sequences": None,
+        "seed": 42,
+        "num_workers": 0,
+        "limit_samples": None,
+        "eval_scope": None,
+        "max_detections": 64,
+        "heatmap_nms_kernel": 3,
+        "yolox_nms_iou": 0.65,
+        "model_type": "auto",
+        "gpu_ids": "0,1,2",
+        "cuda": None,
+        "official_eval_version": "revised",
+        "official_eval_iou_backend": "auto",
+        "official_eval_iou_mode": "easy",
+        "custom_iou_range_eval_enabled": False,
+        "custom_iou_thresholds": DEFAULT_CUSTOM_IOU_THRESHOLDS.tolist(),
+        "coco_style_eval_enabled": False,
+        "nuscenes_style_eval_enabled": False,
+        "detection_score_thresh": 0.3,
+        "plot_output": None,
+    }
+    cfg_defaults.update(EVAL_CONFIG)
+
+    parser = argparse.ArgumentParser(
+        description="Run official K-Radar KITTI-style evaluation."
+    )
+    parser.add_argument("--checkpoint-root", default=cfg_defaults["checkpoint_root"])
+    parser.add_argument("--epoch-step", type=int, default=cfg_defaults["epoch_step"])
+    parser.add_argument("--batch-size", type=int, default=cfg_defaults["batch_size"])
+    parser.add_argument("--train-ratio", type=float, default=cfg_defaults["train_ratio"])
+    parser.add_argument("--split-mode", default=cfg_defaults["split_mode"], choices=["random", "order", "file", "sequence"])
+    parser.add_argument("--split-dir", default=cfg_defaults["split_dir"])
+    parser.add_argument("--train-sequences", default=cfg_defaults["train_sequences"])
+    parser.add_argument("--val-sequences", default=cfg_defaults["val_sequences"])
+    parser.add_argument("--seed", type=int, default=cfg_defaults["seed"])
+    parser.add_argument("--num-workers", type=int, default=cfg_defaults["num_workers"])
+    parser.add_argument("--limit-samples", type=int, default=cfg_defaults["limit_samples"])
+    parser.add_argument("--eval-scope", default=cfg_defaults["eval_scope"], choices=SCOPE_CHOICES)
+    parser.add_argument("--max-detections", type=int, default=cfg_defaults["max_detections"])
+    parser.add_argument("--heatmap-nms-kernel", type=int, default=cfg_defaults["heatmap_nms_kernel"])
+    parser.add_argument("--yolox-nms-iou", type=float, default=cfg_defaults["yolox_nms_iou"])
     parser.add_argument(
-        "--train-sequences",
-        default=None,
-        help="Train sequences for --split-mode sequence, e.g. 1-11 or 1,2,3.",
+        "--model-type",
+        default=cfg_defaults["model_type"],
+        choices=["auto"] + sorted(MODEL_TYPES),
+    )
+    parser.add_argument("--gpu-ids", default=cfg_defaults["gpu_ids"])
+    parser.add_argument("--cuda", default=cfg_defaults["cuda"])
+    parser.add_argument(
+        "--official-eval-version",
+        default=cfg_defaults["official_eval_version"],
+        choices=["revised", "kradar"],
     )
     parser.add_argument(
-        "--val-sequences",
-        default=None,
-        help="Validation/test sequences for --split-mode sequence, e.g. 12 or 12-20.",
+        "--official-eval-iou-backend",
+        default=cfg_defaults["official_eval_iou_backend"],
+        choices=["auto", "cuda", "cpu"],
     )
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--num-workers", type=int, default=0)
-    parser.add_argument("--limit-samples", type=int, default=None)
     parser.add_argument(
-        "--eval-scope",
-        default=None,
-        choices=SCOPE_CHOICES,
-        help="Evaluation scope. Defaults to checkpoint config train_scope, or full for old checkpoints.",
+        "--official-eval-iou-mode",
+        default=cfg_defaults["official_eval_iou_mode"],
+        choices=["easy", "mod", "hard", "all"],
     )
-    parser.add_argument("--score-thresh", type=float, default=0.5)
-    parser.add_argument("--eval-iou-thresh", type=float, default=0.3)
-    parser.add_argument("--max-detections", type=int, default=64)
-    parser.add_argument("--heatmap-nms-kernel", type=int, default=3)
-    parser.add_argument("--yolox-nms-iou", type=float, default=0.65)
-    parser.add_argument("--model-type", default="auto", choices=["auto", "model1", "model2", "model3", "model4", "model5", "model6", "model7", "model8", "model9", "model10", "model11", "model12"])
-    parser.add_argument("--gpu-ids", default="0,1,2" )
-    parser.add_argument("--plot-dir", default="evaluation_plots")
-    parser.add_argument("--save-plots", action="store_true")
     parser.add_argument(
-        "--cuda",
-        default=None,
-        help="Choose device: gpu1, gpu2, cuda:0, cuda:1, 0, 1, or cpu."
+        "--custom-iou-range-eval-enabled",
+        default=cfg_defaults["custom_iou_range_eval_enabled"],
     )
-    return parser.parse_args()
-
-
-def boxes_3d_to_ra_xyxy(boxes):
-    r = boxes[:, 0]
-    a = boxes[:, 1]
-    r_w = boxes[:, 3]
-    a_w = boxes[:, 4]
-
-    r_min = r - r_w / 2.0
-    r_max = r + r_w / 2.0
-    a_min = a - a_w / 2.0
-    a_max = a + a_w / 2.0
-
-    return torch.stack([r_min, a_min, r_max, a_max], dim=-1)
-
-
-def box_iou_2d(boxes1, boxes2):
-    if boxes1.numel() == 0 or boxes2.numel() == 0:
-        return torch.zeros(
-            (boxes1.shape[0], boxes2.shape[0]),
-            device=boxes1.device
+    parser.add_argument(
+        "--custom-iou-thresholds",
+        default=cfg_defaults["custom_iou_thresholds"],
+    )
+    parser.add_argument(
+        "--coco-style-eval-enabled",
+        default=cfg_defaults["coco_style_eval_enabled"],
+    )
+    parser.add_argument(
+        "--nuscenes-style-eval-enabled",
+        default=cfg_defaults["nuscenes_style_eval_enabled"],
+    )
+    parser.add_argument(
+        "--detection-score-thresh",
+        type=float,
+        default=cfg_defaults["detection_score_thresh"],
+    )
+    parser.add_argument("--plot-output", default=cfg_defaults["plot_output"])
+    args = parser.parse_args()
+    args.custom_iou_range_eval_enabled = normalize_bool_flag(
+        args.custom_iou_range_eval_enabled,
+        name="custom_iou_range_eval_enabled",
+    )
+    args.custom_iou_thresholds = normalize_float_thresholds(
+        args.custom_iou_thresholds,
+        name="custom_iou_thresholds",
+    )
+    args.coco_style_eval_enabled = normalize_bool_flag(
+        args.coco_style_eval_enabled,
+        name="coco_style_eval_enabled",
+    )
+    args.nuscenes_style_eval_enabled = normalize_bool_flag(
+        args.nuscenes_style_eval_enabled,
+        name="nuscenes_style_eval_enabled",
+    )
+    if args.custom_iou_range_eval_enabled and len(args.custom_iou_thresholds) == 0:
+        raise ValueError(
+            "custom_iou_range_eval_enabled is True, but custom_iou_thresholds is empty."
         )
+    return args
 
-    left_top = torch.max(boxes1[:, None, :2], boxes2[None, :, :2])
-    right_bottom = torch.min(boxes1[:, None, 2:], boxes2[None, :, 2:])
 
-    wh = (right_bottom - left_top).clamp(min=0)
-    inter = wh[:, :, 0] * wh[:, :, 1]
+def normalize_bool_flag(value, name):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", ""}:
+            return False
+    raise ValueError(f"Invalid boolean-like value for {name}: {value!r}")
 
-    area1 = (
-        (boxes1[:, 2] - boxes1[:, 0]).clamp(min=0)
-        * (boxes1[:, 3] - boxes1[:, 1]).clamp(min=0)
-    )
-    area2 = (
-        (boxes2[:, 2] - boxes2[:, 0]).clamp(min=0)
-        * (boxes2[:, 3] - boxes2[:, 1]).clamp(min=0)
-    )
-    union = area1[:, None] + area2[None, :] - inter + 1e-6
 
-    return inter / union
+def normalize_float_thresholds(value, name):
+    if value is None:
+        return []
+
+    values = None
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized == "":
+            return []
+        if normalized.count(":") == 2:
+            start_text, step_text, end_text = [part.strip() for part in normalized.split(":")]
+            start = float(start_text)
+            step = float(step_text)
+            end = float(end_text)
+            if step <= 0:
+                raise ValueError(f"{name} step must be > 0, got {step}")
+            values = []
+            current = start
+            while current <= end + 1e-9:
+                values.append(float(round(current, 6)))
+                current += step
+        else:
+            values = [
+                float(item.strip())
+                for item in normalized.split(",")
+                if item.strip() != ""
+            ]
+    elif isinstance(value, np.ndarray):
+        values = [float(item) for item in value.reshape(-1).tolist()]
+    elif isinstance(value, (list, tuple)):
+        values = [float(item) for item in value]
+    else:
+        raise ValueError(f"Unsupported threshold list value for {name}: {value!r}")
+
+    if len(values) == 0:
+        return []
+    for threshold in values:
+        if threshold <= 0.0 or threshold > 1.0:
+            raise ValueError(f"{name} values must be in (0, 1], got {threshold}")
+    return [float(round(threshold, 6)) for threshold in values]
 
 
 def normalized_rae_boxes_to_cartesian_metric_boxes(boxes, scope_mode, rae_shape):
@@ -212,174 +358,6 @@ def normalized_rae_boxes_to_cartesian_metric_boxes(boxes, scope_mode, rae_shape)
     return torch.stack([x, y, z, length, width, height, yaw], dim=-1)
 
 
-def rotated_box_corners_bev(box):
-    x, y, _, length, width, _, yaw = [float(v) for v in box.tolist()]
-    half_l = max(length, 1e-6) * 0.5
-    half_w = max(width, 1e-6) * 0.5
-    cos_yaw = math.cos(yaw)
-    sin_yaw = math.sin(yaw)
-    local_corners = [
-        (half_l, half_w),
-        (half_l, -half_w),
-        (-half_l, -half_w),
-        (-half_l, half_w),
-    ]
-    return [
-        (
-            x + (lx * cos_yaw - ly * sin_yaw),
-            y + (lx * sin_yaw + ly * cos_yaw),
-        )
-        for lx, ly in local_corners
-    ]
-
-
-def polygon_area(points):
-    if len(points) < 3:
-        return 0.0
-    area = 0.0
-    for idx in range(len(points)):
-        x1, y1 = points[idx]
-        x2, y2 = points[(idx + 1) % len(points)]
-        area += (x1 * y2) - (x2 * y1)
-    return abs(area) * 0.5
-
-
-def _polygon_orientation(points):
-    signed_area = 0.0
-    for idx in range(len(points)):
-        x1, y1 = points[idx]
-        x2, y2 = points[(idx + 1) % len(points)]
-        signed_area += (x1 * y2) - (x2 * y1)
-    return 1.0 if signed_area >= 0.0 else -1.0
-
-
-def _inside_clip_edge(point, edge_start, edge_end, orientation):
-    cross = (
-        (edge_end[0] - edge_start[0]) * (point[1] - edge_start[1])
-        - (edge_end[1] - edge_start[1]) * (point[0] - edge_start[0])
-    )
-    return cross * orientation >= -1e-9
-
-
-def _line_intersection(p1, p2, q1, q2):
-    x1, y1 = p1
-    x2, y2 = p2
-    x3, y3 = q1
-    x4, y4 = q2
-    denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-    if abs(denominator) < 1e-12:
-        return p2
-    px = (
-        ((x1 * y2 - y1 * x2) * (x3 - x4))
-        - ((x1 - x2) * (x3 * y4 - y3 * x4))
-    ) / denominator
-    py = (
-        ((x1 * y2 - y1 * x2) * (y3 - y4))
-        - ((y1 - y2) * (x3 * y4 - y3 * x4))
-    ) / denominator
-    return px, py
-
-
-def polygon_clip(subject_polygon, clip_polygon):
-    if len(subject_polygon) == 0 or len(clip_polygon) == 0:
-        return []
-
-    output = subject_polygon
-    orientation = _polygon_orientation(clip_polygon)
-    for edge_idx in range(len(clip_polygon)):
-        edge_start = clip_polygon[edge_idx]
-        edge_end = clip_polygon[(edge_idx + 1) % len(clip_polygon)]
-        input_polygon = output
-        output = []
-        if len(input_polygon) == 0:
-            break
-
-        previous = input_polygon[-1]
-        previous_inside = _inside_clip_edge(
-            previous,
-            edge_start,
-            edge_end,
-            orientation,
-        )
-        for current in input_polygon:
-            current_inside = _inside_clip_edge(
-                current,
-                edge_start,
-                edge_end,
-                orientation,
-            )
-            if current_inside:
-                if not previous_inside:
-                    output.append(
-                        _line_intersection(previous, current, edge_start, edge_end)
-                    )
-                output.append(current)
-            elif previous_inside:
-                output.append(
-                    _line_intersection(previous, current, edge_start, edge_end)
-                )
-            previous = current
-            previous_inside = current_inside
-    return output
-
-
-def rotated_bev_iou_single(box1, box2):
-    poly1 = rotated_box_corners_bev(box1)
-    poly2 = rotated_box_corners_bev(box2)
-    area1 = polygon_area(poly1)
-    area2 = polygon_area(poly2)
-    if area1 <= 0.0 or area2 <= 0.0:
-        return 0.0
-
-    inter_poly = polygon_clip(poly1, poly2)
-    inter_area = polygon_area(inter_poly)
-    union = area1 + area2 - inter_area
-    if union <= 0.0:
-        return 0.0
-    return inter_area / union
-
-
-def metric_box_iou_single(box1, box2, metric):
-    bev_intersection = None
-    poly1 = rotated_box_corners_bev(box1)
-    poly2 = rotated_box_corners_bev(box2)
-    area1 = polygon_area(poly1)
-    area2 = polygon_area(poly2)
-    if area1 <= 0.0 or area2 <= 0.0:
-        return 0.0
-
-    inter_poly = polygon_clip(poly1, poly2)
-    bev_intersection = polygon_area(inter_poly)
-    if metric == "2d":
-        union = area1 + area2 - bev_intersection
-        return 0.0 if union <= 0.0 else bev_intersection / union
-
-    z1, h1 = float(box1[2].item()), max(float(box1[5].item()), 1e-6)
-    z2, h2 = float(box2[2].item()), max(float(box2[5].item()), 1e-6)
-    z1_min, z1_max = z1 - h1 * 0.5, z1 + h1 * 0.5
-    z2_min, z2_max = z2 - h2 * 0.5, z2 + h2 * 0.5
-    height_intersection = max(0.0, min(z1_max, z2_max) - max(z1_min, z2_min))
-    intersection = bev_intersection * height_intersection
-    volume1 = area1 * h1
-    volume2 = area2 * h2
-    union = volume1 + volume2 - intersection
-    return 0.0 if union <= 0.0 else intersection / union
-
-
-def pairwise_metric_iou(boxes1, boxes2, metric):
-    if boxes1.numel() == 0 or boxes2.numel() == 0:
-        return torch.zeros((boxes1.shape[0], boxes2.shape[0]), dtype=torch.float32)
-    ious = torch.zeros((boxes1.shape[0], boxes2.shape[0]), dtype=torch.float32)
-    for pred_idx in range(boxes1.shape[0]):
-        for gt_idx in range(boxes2.shape[0]):
-            ious[pred_idx, gt_idx] = metric_box_iou_single(
-                boxes1[pred_idx].cpu(),
-                boxes2[gt_idx].cpu(),
-                metric=metric,
-            )
-    return ious
-
-
 def centerpoint_heatmap_nms(heatmap, kernel_size=3):
     if kernel_size <= 1:
         return heatmap
@@ -387,12 +365,7 @@ def centerpoint_heatmap_nms(heatmap, kernel_size=3):
         raise ValueError(f"Heatmap NMS kernel must be odd, got {kernel_size}")
 
     pad = (kernel_size - 1) // 2
-    pooled = F.max_pool2d(
-        heatmap,
-        kernel_size=kernel_size,
-        stride=1,
-        padding=pad
-    )
+    pooled = F.max_pool2d(heatmap, kernel_size=kernel_size, stride=1, padding=pad)
     keep = pooled == heatmap
     return heatmap * keep.to(heatmap.dtype)
 
@@ -404,84 +377,83 @@ def gather_dense_feature(feature_map, indices):
 
 
 def apply_quality_score(heatmap_scores, outputs):
-    if "quality_logits" not in outputs:
-        if "objectness_logits" not in outputs:
-            return heatmap_scores
-
-        objectness_scores = outputs["objectness_logits"].sigmoid()
-        if objectness_scores.shape[-2:] != heatmap_scores.shape[-2:]:
-            objectness_scores = F.interpolate(
-                objectness_scores,
+    if "quality_logits" in outputs:
+        quality_scores = outputs["quality_logits"].sigmoid()
+        if quality_scores.shape[-2:] != heatmap_scores.shape[-2:]:
+            quality_scores = F.interpolate(
+                quality_scores,
                 size=heatmap_scores.shape[-2:],
                 mode="bilinear",
                 align_corners=False,
             )
-        return heatmap_scores * objectness_scores
+        return heatmap_scores * quality_scores
 
-    quality_scores = outputs["quality_logits"].sigmoid()
-    if quality_scores.shape[-2:] != heatmap_scores.shape[-2:]:
-        quality_scores = F.interpolate(
-            quality_scores,
+    if "objectness_logits" not in outputs:
+        return heatmap_scores
+
+    objectness_scores = outputs["objectness_logits"].sigmoid()
+    if objectness_scores.shape[-2:] != heatmap_scores.shape[-2:]:
+        objectness_scores = F.interpolate(
+            objectness_scores,
             size=heatmap_scores.shape[-2:],
             mode="bilinear",
             align_corners=False,
         )
-    return heatmap_scores * quality_scores
+    return heatmap_scores * objectness_scores
 
 
-def dense_centerpoint_outputs_to_detections(
+def outputs_to_detections(
         outputs,
         num_classes,
         max_detections=64,
-        heatmap_nms_kernel=3
+        heatmap_nms_kernel=3,
     ):
+    dense_keys = {"cls_logits", "center_offset", "center_height", "size", "yaw"}
+    missing_keys = sorted(dense_keys - set(outputs.keys()))
+    if len(missing_keys) > 0:
+        raise KeyError(
+            "Dense CenterPoint evaluation requires output keys "
+            f"{sorted(dense_keys)}, missing {missing_keys}."
+        )
+
     cls_logits = outputs["cls_logits"][:, :num_classes]
-    B, _, H, W = cls_logits.shape
+    _, _, heatmap_h, heatmap_w = cls_logits.shape
     dtype = cls_logits.dtype
 
     heatmap_scores = apply_quality_score(cls_logits.sigmoid(), outputs)
     heatmap_scores = centerpoint_heatmap_nms(
         heatmap=heatmap_scores,
-        kernel_size=heatmap_nms_kernel
+        kernel_size=heatmap_nms_kernel,
     )
 
     flat_scores = heatmap_scores.flatten(start_dim=1)
     topk_count = min(max_detections, flat_scores.shape[1])
     scores, flat_indices = flat_scores.topk(topk_count, dim=1)
 
-    spatial_size = H * W
+    spatial_size = heatmap_h * heatmap_w
     labels = flat_indices // spatial_size
     spatial_indices = flat_indices % spatial_size
 
-    heatmap_y_idx = spatial_indices // W
-    heatmap_x_idx = spatial_indices % W
+    heatmap_y_idx = spatial_indices // heatmap_w
+    heatmap_x_idx = spatial_indices % heatmap_w
     _, _, box_h, box_w = outputs["center_offset"].shape
     box_y_idx_long = torch.div(
         heatmap_y_idx * box_h,
-        max(H, 1),
+        max(heatmap_h, 1),
         rounding_mode="floor",
     ).clamp(max=box_h - 1)
     box_x_idx_long = torch.div(
         heatmap_x_idx * box_w,
-        max(W, 1),
+        max(heatmap_w, 1),
         rounding_mode="floor",
     ).clamp(max=box_w - 1)
     box_indices = box_y_idx_long * box_w + box_x_idx_long
+
     y_idx = box_y_idx_long.to(dtype)
     x_idx = box_x_idx_long.to(dtype)
-
-    center_offset = gather_dense_feature(
-        outputs["center_offset"],
-        box_indices
-    ).sigmoid()
-    center_height = gather_dense_feature(
-        outputs["center_height"],
-        box_indices
-    ).sigmoid()
-    size = gather_dense_feature(
-        outputs["size"],
-        box_indices
-    ).sigmoid()
+    center_offset = gather_dense_feature(outputs["center_offset"], box_indices).sigmoid()
+    center_height = gather_dense_feature(outputs["center_height"], box_indices).sigmoid()
+    size = gather_dense_feature(outputs["size"], box_indices).sigmoid()
     yaw = gather_dense_feature(outputs["yaw"], box_indices)
 
     r_center = (y_idx + center_offset[..., 0]) / max(box_h, 1)
@@ -500,762 +472,331 @@ def dense_centerpoint_outputs_to_detections(
             size[..., 2],
             yaw_norm,
         ],
-        dim=-1
+        dim=-1,
     ).clamp(min=1e-4, max=1.0 - 1e-4)
 
     return boxes, scores, labels
 
 
-def outputs_to_detections(
+def official_radenet_outputs_to_detections(
         outputs,
         num_classes,
+        scope_modes,
+        full_rae_shapes,
         max_detections=64,
-        heatmap_nms_kernel=3
+        heatmap_nms_kernel=3,
     ):
-    dense_keys = {"cls_logits", "center_offset", "center_height", "size", "yaw"}
-    missing_keys = sorted(dense_keys - set(outputs.keys()))
-    if len(missing_keys) > 0:
-        raise KeyError(
-            "Dense CenterPoint evaluation requires output keys "
-            f"{sorted(dense_keys)}, missing {missing_keys}."
-        )
+    if scope_modes is None or full_rae_shapes is None:
+        raise ValueError("Official RADE-Net decoding requires scope_modes and full_rae_shapes.")
 
-    return dense_centerpoint_outputs_to_detections(
-        outputs=outputs,
-        num_classes=num_classes,
-        max_detections=max_detections,
-        heatmap_nms_kernel=heatmap_nms_kernel
+    heatmap = outputs["heatmap"][:, :num_classes]
+    heatmap_scores = centerpoint_heatmap_nms(
+        heatmap=heatmap,
+        kernel_size=heatmap_nms_kernel,
     )
+    regression = outputs["regression"]
+    batch_size, _, heatmap_h, heatmap_w = heatmap_scores.shape
 
+    flat_scores = heatmap_scores.flatten(start_dim=1)
+    topk_count = min(max_detections, flat_scores.shape[1])
+    scores, flat_indices = flat_scores.topk(topk_count, dim=1)
 
-def format_iou_suffix(iou_value):
-    return f"{float(iou_value):.1f}"
+    spatial_size = heatmap_h * heatmap_w
+    labels = flat_indices // spatial_size
+    spatial_indices = flat_indices % spatial_size
+    y_idx = spatial_indices // heatmap_w
+    x_idx = spatial_indices % heatmap_w
+    reg = gather_dense_feature(regression, spatial_indices)
 
-
-def _prepend_sys_path(path_text):
-    if path_text in sys.path:
-        sys.path.remove(path_text)
-    sys.path.insert(0, path_text)
-
-
-def clear_official_eval_modules(eval_version):
-    module_key = f"kradar_{eval_version}_eval"
-    for key in [module_key, "nms_gpu"]:
-        if key in sys.modules:
-            del sys.modules[key]
-
-
-def patch_official_split_parts(module):
-    def safe_get_split_parts(num, num_part):
-        if num <= 0:
-            return []
-        num_part = min(max(int(num_part), 1), int(num))
-        same_part = num // num_part
-        remain_num = num % num_part
-        parts = [same_part] * num_part
-        if remain_num > 0:
-            parts.append(remain_num)
-        return [part for part in parts if part > 0]
-
-    module.get_split_parts = safe_get_split_parts
-
-
-def load_official_eval_function(eval_version, iou_backend="auto"):
-    eval_dir = Path(__file__).resolve().parent / "third_party" / "kradar_kitti_eval"
-    cpu_dir = Path(__file__).resolve().parent / "third_party" / "kradar_kitti_eval_cpu"
-    module_name = "eval_revised.py" if eval_version == "revised" else "eval.py"
-    module_path = eval_dir / module_name
-
-    _prepend_sys_path(str(eval_dir))
-    if iou_backend == "cpu":
-        _prepend_sys_path(str(cpu_dir))
-
-    spec = importlib.util.spec_from_file_location(f"kradar_{eval_version}_eval", module_path)
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-        used_backend = "cpu" if iou_backend == "cpu" else "cuda"
-    except Exception:
-        if iou_backend != "auto":
-            raise
-        clear_official_eval_modules(eval_version)
-        _prepend_sys_path(str(cpu_dir))
-        spec = importlib.util.spec_from_file_location(f"kradar_{eval_version}_eval", module_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        used_backend = "cpu"
-        print("Official CUDA rotated IoU backend failed; using CPU rotated IoU fallback.")
-
-    patch_official_split_parts(module)
-
-    if eval_version == "revised":
-        return module.get_official_eval_result_revised, used_backend
-    return module.get_official_eval_result, used_backend
-
-
-def empty_kitti_anno():
-    return {
-        "name": np.array([], dtype=str),
-        "truncated": np.zeros((0,), dtype=np.float64),
-        "occluded": np.zeros((0,), dtype=np.int64),
-        "alpha": np.zeros((0,), dtype=np.float64),
-        "bbox": np.zeros((0, 4), dtype=np.float64),
-        "dimensions": np.zeros((0, 3), dtype=np.float64),
-        "location": np.zeros((0, 3), dtype=np.float64),
-        "rotation_y": np.zeros((0,), dtype=np.float64),
-        "score": np.zeros((0,), dtype=np.float64),
-    }
-
-
-def metric_boxes_to_kitti_anno(boxes, labels, scores=None, is_prediction=False):
-    if torch.is_tensor(boxes):
-        boxes = boxes.detach().cpu().numpy()
-    if torch.is_tensor(labels):
-        labels = labels.detach().cpu().numpy()
-    if scores is not None and torch.is_tensor(scores):
-        scores = scores.detach().cpu().numpy()
-
-    boxes = np.asarray(boxes, dtype=np.float64).reshape(-1, 7)
-    labels = np.asarray(labels, dtype=np.int64).reshape(-1)
-    if scores is None:
-        scores = np.zeros((boxes.shape[0],), dtype=np.float64)
-    else:
-        scores = np.asarray(scores, dtype=np.float64).reshape(-1)
-
-    if boxes.shape[0] == 0:
-        return empty_kitti_anno()
-
-    names = np.array([OFFICIAL_CLASS_NAMES[int(label)] for label in labels])
-    x = boxes[:, 0]
-    y = boxes[:, 1]
-    z = boxes[:, 2]
-    length = boxes[:, 3]
-    width = boxes[:, 4]
-    height = boxes[:, 5]
-    yaw = boxes[:, 6]
-
-    location = np.stack([y, z, x], axis=1)
-    dimensions = np.stack([length, height, width], axis=1)
-
-    if is_prediction:
-        truncated = np.full((boxes.shape[0],), -1.0, dtype=np.float64)
-        occluded = np.full((boxes.shape[0],), -1, dtype=np.int64)
-    else:
-        truncated = np.zeros((boxes.shape[0],), dtype=np.float64)
-        occluded = np.zeros((boxes.shape[0],), dtype=np.int64)
-
-    return {
-        "name": names,
-        "truncated": truncated,
-        "occluded": occluded,
-        "alpha": np.zeros((boxes.shape[0],), dtype=np.float64),
-        "bbox": np.tile(np.array([[50.0, 50.0, 150.0, 150.0]], dtype=np.float64), (boxes.shape[0], 1)),
-        "dimensions": dimensions,
-        "location": location,
-        "rotation_y": yaw.astype(np.float64),
-        "score": scores.astype(np.float64),
-    }
-
-
-def official_metrics_for_classes(
-        eval_fn,
-        gt_annos,
-        dt_annos,
-        classes,
-        iou_mode,
-        class_name_map=None,
-    ):
-    if class_name_map is None:
-        class_name_map = OFFICIAL_CLASS_NAMES
-
-    result_text = eval_fn(
-        gt_annos,
-        dt_annos,
-        classes,
-        iou_mode=iou_mode,
-        is_return_with_dict=False,
-    )
-    per_class = {}
-    for class_id in classes:
-        metrics, _ = eval_fn(
-            gt_annos,
-            dt_annos,
-            class_id,
-            iou_mode=iou_mode,
-            is_return_with_dict=True,
-        )
-        per_class[class_name_map[class_id]] = metrics
-    return result_text, per_class
-
-
-def flatten_official_metrics(per_class):
-    if len(per_class) == 0:
-        return {}
-
-    class_order = [
-        class_name
-        for _, class_name in sorted(OFFICIAL_CLASS_NAMES.items())
-        if class_name in per_class
-    ]
-    if len(class_order) == 0:
-        class_order = sorted(per_class.keys())
-
-    sample_metrics = per_class[class_order[0]]
-    iou_values = list(sample_metrics.get("iou", []))
-    flat_metrics = {}
-
-    for class_name in class_order:
-        class_metrics = per_class[class_name]
-        for metric_name in ("bbox", "bev", "3d"):
-            metric_values = class_metrics.get(metric_name, [])
-            for idx, metric_value in enumerate(metric_values):
-                iou_suffix = format_iou_suffix(iou_values[idx])
-                flat_metrics[
-                    f"official_{class_name}_{metric_name}_AP_{iou_suffix}"
-                ] = float(metric_value)
-
-    for metric_name in ("bbox", "bev", "3d"):
-        for idx, iou_value in enumerate(iou_values):
-            values = [
-                float(per_class[class_name][metric_name][idx])
-                for class_name in class_order
-            ]
-            iou_suffix = format_iou_suffix(iou_value)
-            flat_metrics[f"official_{metric_name}_mAP_{iou_suffix}"] = sum(values) / len(values)
-
-    return flat_metrics
-
-
-def k_radar_score_thresholds(scores, num_gt, num_sample_points=41):
-    if num_gt <= 0 or len(scores) == 0:
-        return []
-
-    sorted_scores = sorted(scores, reverse=True)
-    thresholds = []
-    current_recall = 0.0
-    recall_step = 1.0 / max(num_sample_points - 1.0, 1.0)
-
-    for idx, score in enumerate(sorted_scores):
-        left_recall = (idx + 1) / num_gt
-        if idx < len(sorted_scores) - 1:
-            right_recall = (idx + 2) / num_gt
-        else:
-            right_recall = left_recall
-        if (
-            (right_recall - current_recall) < (current_recall - left_recall)
-            and idx < len(sorted_scores) - 1
-        ):
-            continue
-        thresholds.append(score)
-        current_recall += recall_step
-        if len(thresholds) >= num_sample_points:
-            break
-
-    return thresholds
-
-
-def collect_k_radar_tp_score_threshold_candidates(
-        predictions,
-        gt_for_class,
-        iou_thresh,
-        metric,
-    ):
-    tp_scores = []
-    for sequence_id, gt_data in gt_for_class.items():
-        gt_boxes = gt_data["boxes"]
-        if gt_boxes.shape[0] == 0:
-            continue
-
-        frame_predictions = [
-            prediction for prediction in predictions
-            if prediction["sequence_id"] == sequence_id
-        ]
-        if len(frame_predictions) == 0:
-            continue
-
-        pred_boxes = torch.stack([prediction["box"] for prediction in frame_predictions])
-        ious = pairwise_metric_iou(pred_boxes, gt_boxes, metric=metric)
-        assigned_detection = set()
-
-        for gt_idx in range(gt_boxes.shape[0]):
-            best_score = -1.0
-            best_pred_idx = -1
-            for pred_idx, prediction in enumerate(frame_predictions):
-                if pred_idx in assigned_detection:
-                    continue
-                if ious[pred_idx, gt_idx].item() > iou_thresh:
-                    pred_score = prediction["score"]
-                    if pred_score > best_score:
-                        best_score = pred_score
-                        best_pred_idx = pred_idx
-            if best_pred_idx >= 0:
-                assigned_detection.add(best_pred_idx)
-                tp_scores.append(best_score)
-
-    return tp_scores
-
-
-def compute_k_radar_stats_at_threshold(
-        predictions,
-        gt_for_class,
-        iou_thresh,
-        score_thresh,
-        metric,
-    ):
-    tp = 0
-    fp = 0
-    fn = 0
-    all_sequence_ids = set(gt_for_class.keys())
-    all_sequence_ids.update(prediction["sequence_id"] for prediction in predictions)
-
-    for sequence_id in all_sequence_ids:
-        gt_boxes = gt_for_class.get(
-            sequence_id,
-            {"boxes": torch.zeros((0, 7), dtype=torch.float32)}
-        )["boxes"]
-        frame_predictions = [
-            prediction for prediction in predictions
-            if (
-                prediction["sequence_id"] == sequence_id
-                and prediction["score"] >= score_thresh
+    boxes = []
+    for batch_index in range(batch_size):
+        boxes.append(
+            regression_cell_to_normalized_rae_box(
+                pred_reg=reg[batch_index],
+                y_idx=y_idx[batch_index].to(reg.dtype),
+                x_idx=x_idx[batch_index].to(reg.dtype),
+                feature_shape=(heatmap_h, heatmap_w),
+                scope_mode=scope_modes[batch_index],
+                full_rae_shape=full_rae_shapes[batch_index],
             )
-        ]
-
-        if gt_boxes.shape[0] == 0:
-            fp += len(frame_predictions)
-            continue
-        if len(frame_predictions) == 0:
-            fn += gt_boxes.shape[0]
-            continue
-
-        pred_boxes = torch.stack([prediction["box"] for prediction in frame_predictions])
-        ious = pairwise_metric_iou(pred_boxes, gt_boxes, metric=metric)
-        assigned_detection = set()
-        matched_gt = set()
-
-        for gt_idx in range(gt_boxes.shape[0]):
-            best_iou = -1.0
-            best_pred_idx = -1
-            for pred_idx in range(pred_boxes.shape[0]):
-                if pred_idx in assigned_detection:
-                    continue
-                iou_value = ious[pred_idx, gt_idx].item()
-                if iou_value > iou_thresh and iou_value > best_iou:
-                    best_iou = iou_value
-                    best_pred_idx = pred_idx
-            if best_pred_idx >= 0:
-                tp += 1
-                assigned_detection.add(best_pred_idx)
-                matched_gt.add(gt_idx)
-
-        fp += len(frame_predictions) - len(assigned_detection)
-        fn += gt_boxes.shape[0] - len(matched_gt)
-
-    return tp, fp, fn
-
-
-def k_radar_official_style_average_precision(
-        predictions,
-        gt_for_class,
-        iou_thresh,
-        metric,
-        num_sample_points=41,
-    ):
-    num_gt = sum(data["boxes"].shape[0] for data in gt_for_class.values())
-    if num_gt == 0:
-        return 0.0, {
-            "precision": [],
-            "thresholds": [],
-            "num_gt": 0,
-        }
-
-    tp_scores = collect_k_radar_tp_score_threshold_candidates(
-        predictions=predictions,
-        gt_for_class=gt_for_class,
-        iou_thresh=iou_thresh,
-        metric=metric,
-    )
-    thresholds = k_radar_score_thresholds(
-        scores=tp_scores,
-        num_gt=num_gt,
-        num_sample_points=num_sample_points,
-    )
-    precision = torch.zeros((num_sample_points,), dtype=torch.float32)
-
-    for idx, threshold in enumerate(thresholds[:num_sample_points]):
-        tp, fp, _ = compute_k_radar_stats_at_threshold(
-            predictions=predictions,
-            gt_for_class=gt_for_class,
-            iou_thresh=iou_thresh,
-            score_thresh=threshold,
-            metric=metric,
         )
-        precision[idx] = tp / max(tp + fp, 1)
-
-    for idx in range(num_sample_points - 2, -1, -1):
-        precision[idx] = torch.maximum(precision[idx], precision[idx + 1])
-
-    return float(precision.mean().item()), {
-        "precision": precision.tolist(),
-        "thresholds": thresholds,
-        "num_gt": num_gt,
-    }
+    return torch.stack(boxes, dim=0), scores, labels
 
 
-def compute_k_radar_map(
-        predictions_by_class,
-        gt_by_class,
+def decode_batch_predictions(
+        outputs,
         num_classes,
-        iou_thresh,
-        iou_thresholds=(0.3, 0.5, 0.7),
-        num_sample_points=41,
+        max_detections,
+        heatmap_nms_kernel,
+        yolox_nms_iou,
+        scope_modes=None,
+        full_rae_shapes=None,
     ):
-    ap_by_metric = {
-        "2d": {threshold: {} for threshold in iou_thresholds},
-        "3d": {threshold: {} for threshold in iou_thresholds},
-    }
-    details_by_metric = {
-        "2d": {threshold: {} for threshold in iou_thresholds},
-        "3d": {threshold: {} for threshold in iou_thresholds},
-    }
-    classes_with_gt = [
-        class_id
-        for class_id in range(num_classes)
-        if sum(data["boxes"].shape[0] for data in gt_by_class[class_id].values()) > 0
-    ]
+    if "objectness_logits" in outputs:
+        return yolox_outputs_to_detections(
+            outputs=outputs,
+            num_classes=num_classes,
+            score_thresh=None,
+            max_detections=max_detections,
+            nms_iou_thresh=yolox_nms_iou,
+        )
 
-    for metric in ("2d", "3d"):
-        for threshold in iou_thresholds:
-            for class_id in range(num_classes):
-                predictions = sorted(
-                    predictions_by_class[class_id],
-                    key=lambda item: item["score"],
-                    reverse=True
-                )
-                ap, details = k_radar_official_style_average_precision(
-                    predictions=predictions,
-                    gt_for_class=gt_by_class[class_id],
-                    iou_thresh=threshold,
-                    metric=metric,
-                    num_sample_points=num_sample_points,
-                )
-                ap_by_metric[metric][threshold][class_id] = ap
-                details_by_metric[metric][threshold][class_id] = details
+    if "heatmap" in outputs and "regression" in outputs:
+        pred_boxes, pred_scores, pred_labels = official_radenet_outputs_to_detections(
+            outputs=outputs,
+            num_classes=num_classes,
+            scope_modes=scope_modes,
+            full_rae_shapes=full_rae_shapes,
+            max_detections=max_detections,
+            heatmap_nms_kernel=heatmap_nms_kernel,
+        )
+    else:
+        pred_boxes, pred_scores, pred_labels = outputs_to_detections(
+            outputs=outputs,
+            num_classes=num_classes,
+            max_detections=max_detections,
+            heatmap_nms_kernel=heatmap_nms_kernel,
+        )
 
-    map_by_metric = {"2d": {}, "3d": {}}
-    for metric in ("2d", "3d"):
-        for threshold in iou_thresholds:
-            if len(classes_with_gt) == 0:
-                map_by_metric[metric][threshold] = 0.0
-            else:
-                map_by_metric[metric][threshold] = (
-                    sum(
-                        ap_by_metric[metric][threshold][class_id]
-                        for class_id in classes_with_gt
-                    )
-                    / len(classes_with_gt)
-                )
+    batch_predictions = []
+    for batch_index in range(pred_boxes.shape[0]):
+        batch_predictions.append({
+            "boxes": pred_boxes[batch_index],
+            "scores": pred_scores[batch_index],
+            "labels": pred_labels[batch_index],
+        })
+    return batch_predictions
 
-    main_iou_thresh = min(
-        iou_thresholds,
-        key=lambda threshold: abs(threshold - iou_thresh),
+
+def filter_predictions_to_scope(frame_predictions, scope_mode, full_rae_shape):
+    if scope_mode != SCOPE_NARROW:
+        return frame_predictions
+
+    keep = normalized_rae_box_centers_in_cartesian_roi(
+        frame_predictions["boxes"],
+        scope_mode=scope_mode,
+        rae_shape=full_rae_shape,
     )
-    mean_ap = map_by_metric["2d"][main_iou_thresh]
-    ap_per_class = ap_by_metric["2d"][main_iou_thresh]
-
     return {
-        "mAP": mean_ap,
-        "ap_per_class": ap_per_class,
-        "map_2d": map_by_metric["2d"],
-        "map_3d": map_by_metric["3d"],
-        "ap_2d_per_class": ap_by_metric["2d"],
-        "ap_3d_per_class": ap_by_metric["3d"],
-        "details": details_by_metric,
-        "main_iou_thresh": main_iou_thresh,
+        "boxes": frame_predictions["boxes"][keep],
+        "scores": frame_predictions["scores"][keep],
+        "labels": frame_predictions["labels"][keep],
     }
+
+
+def init_kradar_eval_state():
+    return {
+        "official_gt_annos": [],
+        "official_dt_annos": [],
+        "metric_frames": [],
+    }
+
+
+def append_frame_annos_for_kradar_eval(
+        state,
+        batch,
+        batch_index,
+        frame_predictions,
+        device,
+        num_classes,
+        scope_mode,
+    ):
+    full_rae_shape = batch["full_rae_shape"][batch_index]
+    frame_predictions = filter_predictions_to_scope(
+        frame_predictions=frame_predictions,
+        scope_mode=scope_mode,
+        full_rae_shape=full_rae_shape,
+    )
+
+    gt_boxes_all = batch["gt_boxes"][batch_index].to(device)
+    gt_labels_all = batch["gt_labels"][batch_index].to(device)
+    valid_gt = gt_labels_all < num_classes
+    gt_boxes = gt_boxes_all[valid_gt]
+    gt_labels = gt_labels_all[valid_gt]
+
+    gt_metric_boxes = normalized_rae_boxes_to_cartesian_metric_boxes(
+        gt_boxes,
+        scope_mode=scope_mode,
+        rae_shape=full_rae_shape,
+    )
+    pred_metric_boxes = normalized_rae_boxes_to_cartesian_metric_boxes(
+        frame_predictions["boxes"],
+        scope_mode=scope_mode,
+        rae_shape=full_rae_shape,
+    )
+
+    state["official_gt_annos"].append(
+        metric_boxes_to_kitti_anno(
+            boxes=gt_metric_boxes.detach().cpu(),
+            labels=gt_labels.detach().cpu(),
+            is_prediction=False,
+        )
+    )
+    state["official_dt_annos"].append(
+        metric_boxes_to_kitti_anno(
+            boxes=pred_metric_boxes.detach().cpu(),
+            labels=frame_predictions["labels"].detach().cpu(),
+            scores=frame_predictions["scores"].detach().cpu(),
+            is_prediction=True,
+        )
+    )
+    state["metric_frames"].append(
+        {
+            "gt_boxes": gt_metric_boxes.detach().cpu().numpy(),
+            "gt_labels": gt_labels.detach().cpu().numpy(),
+            "dt_boxes": pred_metric_boxes.detach().cpu().numpy(),
+            "dt_labels": frame_predictions["labels"].detach().cpu().numpy(),
+            "dt_scores": frame_predictions["scores"].detach().cpu().numpy(),
+        }
+    )
 
 
 @torch.no_grad()
-def evaluate_precision_recall(
+def collect_kradar_annos(
         model,
         dataloader,
         device,
         num_classes,
         prepare_model_inputs,
-        score_thresh=0.2, 
-        iou_thresh=0.5,
         max_detections=64,
         heatmap_nms_kernel=3,
         yolox_nms_iou=0.65,
         scope_mode=SCOPE_FULL,
-        official_eval_enabled=False,
-        official_eval_version="revised",
-        official_eval_iou_backend="auto",
-        official_eval_iou_mode="easy",
-        official_eval_include_empty_gt_frames=False,
     ):
     model.eval()
-
-    total_tp = 0
-    total_fp = 0
-    total_fn = 0
-    total_iou = 0.0
-    total_iou_count = 0
-    
-    predictions_by_class = {class_id: [] for class_id in range(num_classes)}
-    gt_by_class = {class_id: {} for class_id in range(num_classes)}
-    sequence_counter = 0
-    official_gt_annos = []
-    official_dt_annos = []
-    official_skipped_empty_gt_frames = 0
+    state = init_kradar_eval_state()
 
     for batch in tqdm.tqdm(dataloader, desc="Evaluation", ncols=120, leave=False):
         rad, rae = prepare_model_inputs(batch, device)
         outputs = model(rad, rae)
+        batch_predictions = decode_batch_predictions(
+            outputs=outputs,
+            num_classes=num_classes,
+            max_detections=max_detections,
+            heatmap_nms_kernel=heatmap_nms_kernel,
+            yolox_nms_iou=yolox_nms_iou,
+            scope_modes=batch["scope_mode"],
+            full_rae_shapes=batch["full_rae_shape"],
+        )
 
-        use_yolox_decode = "objectness_logits" in outputs
-        if use_yolox_decode:
-            map_yolox_detections = yolox_outputs_to_detections(
-                outputs=outputs,
+        for batch_index, frame_predictions in enumerate(batch_predictions):
+            append_frame_annos_for_kradar_eval(
+                state=state,
+                batch=batch,
+                batch_index=batch_index,
+                frame_predictions=frame_predictions,
+                device=device,
                 num_classes=num_classes,
-                score_thresh=None,
-                max_detections=max_detections,
-                nms_iou_thresh=yolox_nms_iou,
-            )
-            point_yolox_detections = yolox_outputs_to_detections(
-                outputs=outputs,
-                num_classes=num_classes,
-                score_thresh=score_thresh,
-                max_detections=max_detections,
-                nms_iou_thresh=yolox_nms_iou,
-            )
-            batch_size = len(map_yolox_detections)
-        else:
-            pred_boxes, pred_scores, pred_labels = outputs_to_detections(
-                outputs=outputs,
-                num_classes=num_classes,
-                max_detections=max_detections,
-                heatmap_nms_kernel=heatmap_nms_kernel
-            )
-            batch_size = pred_boxes.shape[0]
-
-        for b in range(batch_size):
-            # 1. Setup ID
-            if "sequence_id" in batch:
-                sequence_id = batch["sequence_id"][b]
-            elif "file_idx" in batch:
-                sequence_id = batch["file_idx"][b]
-            else:
-                sequence_id = sequence_counter
-                sequence_counter += 1
-
-            if use_yolox_decode:
-                map_boxes_b = map_yolox_detections[b]["boxes"]
-                map_scores_b = map_yolox_detections[b]["scores"]
-                map_labels_b = map_yolox_detections[b]["labels"]
-                point_boxes_b = point_yolox_detections[b]["boxes"]
-                point_scores_b = point_yolox_detections[b]["scores"]
-                point_labels_b = point_yolox_detections[b]["labels"]
-            else:
-                map_scores_b = pred_scores[b]
-                map_labels_b = pred_labels[b]
-                map_boxes_b = pred_boxes[b]
-                point_keep = map_scores_b > score_thresh
-                point_boxes_b = map_boxes_b[point_keep]
-                point_scores_b = map_scores_b[point_keep]
-                point_labels_b = map_labels_b[point_keep]
-            if scope_mode == SCOPE_NARROW:
-                map_roi_keep = normalized_rae_box_centers_in_cartesian_roi(
-                    map_boxes_b,
-                    scope_mode=scope_mode,
-                    rae_shape=batch["full_rae_shape"][b],
-                )
-                map_scores_b = map_scores_b[map_roi_keep]
-                map_labels_b = map_labels_b[map_roi_keep]
-                map_boxes_b = map_boxes_b[map_roi_keep]
-
-                point_roi_keep = normalized_rae_box_centers_in_cartesian_roi(
-                    point_boxes_b,
-                    scope_mode=scope_mode,
-                    rae_shape=batch["full_rae_shape"][b],
-                )
-                point_scores_b = point_scores_b[point_roi_keep]
-                point_labels_b = point_labels_b[point_roi_keep]
-                point_boxes_b = point_boxes_b[point_roi_keep]
-
-            # 2. Extract Ground Truth
-            gt_boxes_all = batch["gt_boxes"][b].to(device)
-            gt_labels_all = batch["gt_labels"][b].to(device)
-            valid_gt = gt_labels_all < num_classes
-            gt_boxes = gt_boxes_all[valid_gt]
-            gt_labels = gt_labels_all[valid_gt]
-            full_rae_shape = batch["full_rae_shape"][b]
-            map_metric_boxes_b = normalized_rae_boxes_to_cartesian_metric_boxes(
-                map_boxes_b,
                 scope_mode=scope_mode,
-                rae_shape=full_rae_shape,
-            )
-            point_metric_boxes_b = normalized_rae_boxes_to_cartesian_metric_boxes(
-                point_boxes_b,
-                scope_mode=scope_mode,
-                rae_shape=full_rae_shape,
-            )
-            gt_metric_boxes = normalized_rae_boxes_to_cartesian_metric_boxes(
-                gt_boxes,
-                scope_mode=scope_mode,
-                rae_shape=full_rae_shape,
             )
 
-            if official_eval_enabled:
-                if gt_metric_boxes.shape[0] == 0 and not official_eval_include_empty_gt_frames:
-                    official_skipped_empty_gt_frames += 1
-                else:
-                    official_gt_annos.append(metric_boxes_to_kitti_anno(
-                        boxes=gt_metric_boxes.detach().cpu(),
-                        labels=gt_labels.detach().cpu(),
-                        is_prediction=False,
-                    ))
-                    official_dt_annos.append(metric_boxes_to_kitti_anno(
-                        boxes=map_metric_boxes_b.detach().cpu(),
-                        labels=map_labels_b.detach().cpu(),
-                        scores=map_scores_b.detach().cpu(),
-                        is_prediction=True,
-                    ))
+    return state
 
-            # Register GT for AP calculation
-            for class_id in range(num_classes):
-                class_gt_boxes = gt_metric_boxes[gt_labels == class_id].detach().cpu()
-                gt_by_class[class_id][sequence_id] = {"boxes": class_gt_boxes}
 
-            # Populate predictions for K-Radar-style mAP calculation
-            for pred_box, pred_label, pred_score in zip(map_metric_boxes_b, map_labels_b, map_scores_b):
-                predictions_by_class[int(pred_label.item())].append({
-                    "sequence_id": sequence_id,
-                    "score": float(pred_score.item()),
-                    "box": pred_box.detach().cpu(),
-                })
+def run_kradar_eval_revised(
+        kradar_eval_state,
+        official_eval_version="revised",
+        official_eval_iou_backend="auto",
+        official_eval_iou_mode="easy",
+        custom_iou_range_eval_enabled=False,
+        custom_iou_thresholds=None,
+        coco_style_eval_enabled=False,
+        nuscenes_style_eval_enabled=False,
+        detection_score_thresh=0.3,
+    ):
+    if official_eval_version not in ("revised", "kradar"):
+        raise ValueError(
+            f"evaluation.py only supports K-Radar revised evaluation, got {official_eval_version!r}."
+        )
 
-            if point_boxes_b.shape[0] == 0:
-                total_fn += gt_boxes.shape[0]
-                continue
-
-            if gt_boxes.shape[0] == 0:
-                total_fp += point_boxes_b.shape[0]
-                continue
-
-            # Calculate strict-point TP/FP
-            ious = pairwise_metric_iou(
-                point_metric_boxes_b.detach().cpu(),
-                gt_metric_boxes.detach().cpu(),
-                metric="2d",
-            )
-
-            matched_gt = set()
-            order = point_scores_b.argsort(descending=True)
-
-            for pred_idx_tensor in order:
-                pred_idx = pred_idx_tensor.item()
-                best_iou = -1.0
-                best_gt_idx = -1
-
-                for gt_idx in range(gt_boxes.shape[0]):
-                    if gt_idx in matched_gt:
-                        continue
-                    if point_labels_b[pred_idx].item() != gt_labels[gt_idx].item():
-                        continue
-
-                    iou_value = ious[pred_idx, gt_idx].item()
-                    if iou_value > best_iou:
-                        best_iou = iou_value
-                        best_gt_idx = gt_idx
-
-                if best_gt_idx >= 0 and best_iou >= iou_thresh:
-                    total_tp += 1
-                    total_iou += best_iou
-                    total_iou_count += 1
-                    matched_gt.add(best_gt_idx)
-                else:
-                    total_fp += 1
-
-            total_fn += gt_boxes.shape[0] - len(matched_gt)
-
-    # Calculate final metrics
-    precision = total_tp / (total_tp + total_fp + 1e-6)
-    recall = total_tp / (total_tp + total_fn + 1e-6)
-    mean_iou = total_iou / max(total_iou_count, 1)
-    
-    map_metrics = compute_k_radar_map(
-        predictions_by_class=predictions_by_class,
-        gt_by_class=gt_by_class,
-        num_classes=num_classes,
-        iou_thresh=iou_thresh
+    print(
+        "Finished model inference. "
+        f"Collected {len(kradar_eval_state['official_gt_annos'])} eval frames. "
+        "Running official K-Radar metrics now...",
+        flush=True,
     )
-    map_2d = map_metrics["map_2d"]
-    map_3d = map_metrics["map_3d"]
-
-    official_eval_metrics = {}
-    if official_eval_enabled:
-        if len(official_gt_annos) == 0:
-            raise ValueError("No frames with GT were collected for official K-Radar evaluation.")
-
-        official_eval_fn, official_iou_backend_used = load_official_eval_function(
-            official_eval_version,
-            official_eval_iou_backend,
+    official_metrics = compute_official_kradar_style_metrics(
+        state=kradar_eval_state,
+        official_eval_enabled=True,
+        official_eval_version="revised",
+        official_eval_iou_backend=official_eval_iou_backend,
+        official_eval_iou_mode=official_eval_iou_mode,
+        detection_score_thresh=detection_score_thresh,
+    )
+    if custom_iou_range_eval_enabled:
+        official_metrics.update(
+            compute_custom_iou_range_metrics(
+                state=kradar_eval_state,
+                iou_backend=official_eval_iou_backend,
+                iou_thresholds=custom_iou_thresholds,
+            )
         )
-        official_result_text, official_per_class = official_metrics_for_classes(
-            eval_fn=official_eval_fn,
-            gt_annos=official_gt_annos,
-            dt_annos=official_dt_annos,
-            classes=sorted(OFFICIAL_CLASS_NAMES.keys()),
-            iou_mode=official_eval_iou_mode,
+    if coco_style_eval_enabled:
+        official_metrics.update(
+            compute_coco_style_metrics(
+                state=kradar_eval_state,
+                iou_backend=official_eval_iou_backend,
+            )
         )
-        official_flat_metrics = flatten_official_metrics(official_per_class)
-        main_iou_suffix = {
-            "easy": "0.3",
-            "mod": "0.5",
-            "hard": "0.7",
-            "all": "0.3",
-        }[official_eval_iou_mode]
-        main_metric_key = f"official_bev_mAP_{main_iou_suffix}"
+    if nuscenes_style_eval_enabled:
+        official_metrics.update(
+            compute_nuscenes_style_metrics(
+                state=kradar_eval_state,
+            )
+        )
+    print("Official K-Radar metric computation finished.", flush=True)
+    official_metrics["mAP"] = float(
+        official_metrics.get("official_main_metric_value", 0.0)
+    )
+    return official_metrics
 
-        official_eval_metrics = {
-            "official_eval_version": official_eval_version,
-            "official_iou_mode": official_eval_iou_mode,
-            "official_iou_backend_used": official_iou_backend_used,
-            "official_num_eval_frames": len(official_gt_annos),
-            "official_skipped_empty_gt_frames": official_skipped_empty_gt_frames,
-            "official_result_text": official_result_text,
-            "official_per_class": official_per_class,
-            "official_main_metric_key": main_metric_key,
-            "official_main_metric_value": official_flat_metrics.get(main_metric_key, 0.0),
-        }
-        official_eval_metrics.update(official_flat_metrics)
 
-    metrics = {
-        "precision": precision,
-        "recall": recall,
-        "mAP": map_metrics["mAP"],
-        "2d_mAP_0.3": metric_at_iou(map_2d, 0.3),
-        "2d_mAP_0.5": metric_at_iou(map_2d, 0.5),
-        "2d_mAP_0.7": metric_at_iou(map_2d, 0.7),
-        "3d_mAP_0.3": metric_at_iou(map_3d, 0.3),
-        "3d_mAP_0.5": metric_at_iou(map_3d, 0.5),
-        "3d_mAP_0.7": metric_at_iou(map_3d, 0.7),
-        "ap_per_class": map_metrics["ap_per_class"],
-        "map_2d": map_2d,
-        "map_3d": map_3d,
-        "ap_2d_per_class": map_metrics["ap_2d_per_class"],
-        "ap_3d_per_class": map_metrics["ap_3d_per_class"],
-        "main_map_metric": "2d",
-        "main_iou_thresh": map_metrics["main_iou_thresh"],
-        "mean_iou": mean_iou,
-        "iou_thresh": iou_thresh,
-        "tp": total_tp,
-        "fp": total_fp,
-        "fn": total_fn,
-    }
-    metrics.update(official_eval_metrics)
-    return metrics
+@torch.no_grad()
+def evaluate_checkpoint_with_kradar_revised(
+        model,
+        dataloader,
+        device,
+        num_classes,
+        prepare_model_inputs,
+        max_detections=64,
+        heatmap_nms_kernel=3,
+        yolox_nms_iou=0.65,
+        scope_mode=SCOPE_FULL,
+        official_eval_enabled=True,
+        official_eval_version="revised",
+        official_eval_iou_backend="auto",
+        official_eval_iou_mode="easy",
+        custom_iou_range_eval_enabled=False,
+        custom_iou_thresholds=None,
+        coco_style_eval_enabled=False,
+        nuscenes_style_eval_enabled=False,
+        detection_score_thresh=0.3,
+    ):
+    if not official_eval_enabled:
+        return {"mAP": 0.0}
+
+    kradar_eval_state = collect_kradar_annos(
+        model=model,
+        dataloader=dataloader,
+        device=device,
+        num_classes=num_classes,
+        prepare_model_inputs=prepare_model_inputs,
+        max_detections=max_detections,
+        heatmap_nms_kernel=heatmap_nms_kernel,
+        yolox_nms_iou=yolox_nms_iou,
+        scope_mode=scope_mode,
+    )
+    return run_kradar_eval_revised(
+        kradar_eval_state=kradar_eval_state,
+        official_eval_version=official_eval_version,
+        official_eval_iou_backend=official_eval_iou_backend,
+        official_eval_iou_mode=official_eval_iou_mode,
+        custom_iou_range_eval_enabled=custom_iou_range_eval_enabled,
+        custom_iou_thresholds=custom_iou_thresholds,
+        coco_style_eval_enabled=coco_style_eval_enabled,
+        nuscenes_style_eval_enabled=nuscenes_style_eval_enabled,
+        detection_score_thresh=detection_score_thresh,
+    )
 
 
 @torch.no_grad()
@@ -1266,42 +807,30 @@ def evaluate_train_val_iou(
         device,
         num_classes,
         prepare_model_inputs,
-        score_thresh=0.5,
-        iou_thresh=0.5,
-        max_detections=20,
+        max_detections=64,
         heatmap_nms_kernel=3,
         yolox_nms_iou=0.65,
         scope_mode=SCOPE_FULL,
         evaluate_train=False,
-        official_eval_enabled=False,
+        official_eval_enabled=True,
         official_eval_version="revised",
         official_eval_iou_backend="auto",
         official_eval_iou_mode="easy",
-        official_eval_include_empty_gt_frames=False,
+        custom_iou_range_eval_enabled=False,
+        custom_iou_thresholds=None,
+        coco_style_eval_enabled=False,
+        nuscenes_style_eval_enabled=False,
+        detection_score_thresh=0.3,
     ):
-    train_eval_metrics = None
-    if evaluate_train:
-        train_eval_metrics = evaluate_precision_recall(
-            model=model,
-            dataloader=train_dataloader,
-            device=device,
-            num_classes=num_classes,
-            prepare_model_inputs=prepare_model_inputs,
-            score_thresh=score_thresh,
-            iou_thresh=iou_thresh,
-            max_detections=max_detections,
-            heatmap_nms_kernel=heatmap_nms_kernel,
-            yolox_nms_iou=yolox_nms_iou,
-            scope_mode=scope_mode,
-        )
-    val_eval_metrics = evaluate_precision_recall(
+    del train_dataloader
+    del evaluate_train
+
+    val_eval_metrics = evaluate_checkpoint_with_kradar_revised(
         model=model,
         dataloader=val_dataloader,
         device=device,
         num_classes=num_classes,
         prepare_model_inputs=prepare_model_inputs,
-        score_thresh=score_thresh,
-        iou_thresh=iou_thresh,
         max_detections=max_detections,
         heatmap_nms_kernel=heatmap_nms_kernel,
         yolox_nms_iou=yolox_nms_iou,
@@ -1310,13 +839,15 @@ def evaluate_train_val_iou(
         official_eval_version=official_eval_version,
         official_eval_iou_backend=official_eval_iou_backend,
         official_eval_iou_mode=official_eval_iou_mode,
-        official_eval_include_empty_gt_frames=official_eval_include_empty_gt_frames,
+        custom_iou_range_eval_enabled=custom_iou_range_eval_enabled,
+        custom_iou_thresholds=custom_iou_thresholds,
+        coco_style_eval_enabled=coco_style_eval_enabled,
+        nuscenes_style_eval_enabled=nuscenes_style_eval_enabled,
+        detection_score_thresh=detection_score_thresh,
     )
 
     return {
-        "train_eval_iou": train_eval_metrics["mean_iou"] if train_eval_metrics is not None else 0.0,
-        "val_eval_iou": val_eval_metrics["mean_iou"],
-        "train_eval_metrics": train_eval_metrics,
+        "train_eval_metrics": None,
         "val_eval_metrics": val_eval_metrics,
     }
 
@@ -1336,7 +867,7 @@ def find_epoch_checkpoints(checkpoint_root, epoch_step):
     if os.path.isfile(checkpoint_root):
         epoch = checkpoint_epoch(checkpoint_root)
         if epoch is None:
-            checkpoint = torch.load(checkpoint_root, map_location="cpu")
+            checkpoint = load_torch_checkpoint(checkpoint_root, map_location="cpu")
             epoch = checkpoint.get("epoch", 0) if isinstance(checkpoint, dict) else 0
         return [(epoch, checkpoint_root)]
 
@@ -1361,7 +892,6 @@ def find_epoch_checkpoints(checkpoint_root, epoch_step):
         epoch = checkpoint_epoch(checkpoint_path)
         if epoch is None:
             continue
-
         if not is_global_best and epoch % epoch_step != 0:
             continue
 
@@ -1381,7 +911,7 @@ def get_checkpoint_state_dict(checkpoint):
 
 
 def infer_model_type_from_checkpoint(checkpoint_path):
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    checkpoint = load_torch_checkpoint(checkpoint_path, map_location="cpu")
     state_dict = get_checkpoint_state_dict(checkpoint)
     if isinstance(checkpoint, dict):
         model_type = checkpoint.get("config", {}).get("model_type")
@@ -1390,10 +920,14 @@ def infer_model_type_from_checkpoint(checkpoint_path):
 
     if "_qfl_model_marker" in state_dict:
         return "model11"
-
+    if "_model14_swin_yolox_marker" in state_dict:
+        return "model14"
+    if "_model15_radenet_official_marker" in state_dict:
+        return "model15"
+    if "_model13_radenet_marker" in state_dict:
+        return "model13"
     if "_model12_yolox_marker" in state_dict:
         return "model12"
-
     if any(".cls_feature_mixer." in key or ".reg_feature_mixer." in key for key in state_dict.keys()):
         return "model10"
 
@@ -1401,16 +935,12 @@ def infer_model_type_from_checkpoint(checkpoint_path):
     has_cfe = any(".cfe1." in key or ".cfe2." in key or ".cfe3." in key for key in state_dict.keys())
     if has_bifpn and has_cfe:
         return "model9"
-
     if has_bifpn:
         return "model2"
-
     if has_cfe:
         return "model8"
-
     if any(".attn.relative_position_bias_table" in key for key in state_dict.keys()):
         return "model7"
-
     if any(".quality_decoder." in key for key in state_dict.keys()):
         return "model6"
 
@@ -1424,10 +954,8 @@ def infer_model_type_from_checkpoint(checkpoint_path):
     )
     if has_fpn_lateral:
         return "model5" if has_deform_conv else "model3"
-
     if has_deform_conv:
         return "model4"
-
     if any(key.startswith("backbone.encoder.") for key in state_dict.keys()):
         return "model1"
 
@@ -1446,7 +974,7 @@ def resolve_model_type(args, checkpoint_paths):
 
 def apply_checkpoint_config_defaults(args, checkpoint_paths):
     _, first_checkpoint_path = checkpoint_paths[0]
-    checkpoint = torch.load(first_checkpoint_path, map_location="cpu")
+    checkpoint = load_torch_checkpoint(first_checkpoint_path, map_location="cpu")
     if not isinstance(checkpoint, dict):
         return
 
@@ -1457,6 +985,17 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         args.max_detections = int(config["num_boxes"])
     if config.get("train_ratio") is not None:
         args.train_ratio = float(config["train_ratio"])
+    if config.get("custom_iou_range_eval_enabled") is not None:
+        args.custom_iou_range_eval_enabled = bool(config["custom_iou_range_eval_enabled"])
+    if config.get("custom_iou_thresholds") is not None:
+        args.custom_iou_thresholds = normalize_float_thresholds(
+            config["custom_iou_thresholds"],
+            name="checkpoint.config.custom_iou_thresholds",
+        )
+    if config.get("coco_style_eval_enabled") is not None:
+        args.coco_style_eval_enabled = bool(config["coco_style_eval_enabled"])
+    if config.get("nuscenes_style_eval_enabled") is not None:
+        args.nuscenes_style_eval_enabled = bool(config["nuscenes_style_eval_enabled"])
     if config.get("split_mode") is not None:
         args.split_mode = config["split_mode"]
     if config.get("split_dir") is not None:
@@ -1475,181 +1014,782 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         )
 
 
-def class_ap_from_name(ap_per_class, class_names, target_name):
-    for class_id, class_name in class_names.items():
-        if class_name == target_name:
-            return ap_per_class.get(class_id, 0.0)
-    return 0.0
+def metric_text(value):
+    if value is None:
+        return "-"
+    numeric_value = float(value)
+    if np.isnan(numeric_value):
+        return "-"
+    return f"{numeric_value:.4f}"
 
 
-def metric_at_iou(metric_by_iou, target_iou):
-    if not metric_by_iou:
-        return 0.0
-    best_key = min(metric_by_iou.keys(), key=lambda key: abs(float(key) - target_iou))
-    return metric_by_iou.get(best_key, 0.0)
+def official_ap_value(value):
+    if value is None:
+        return None
+    numeric_value = float(value)
+    if np.isnan(numeric_value):
+        return np.nan
+    return numeric_value / 100.0
 
 
-def format_score_thresh_label(score_thresh):
-    return f"{score_thresh:g}"
+def official_ap_text(value):
+    return metric_text(official_ap_value(value))
 
 
-def metrics_for_graph(metrics, class_names):
-    precision = metrics["precision"] 
-    recall = metrics["recall"]
-    f1 = 2 * precision * recall / (precision + recall + 1e-6)
-    ap_per_class = metrics["ap_per_class"]
-    graph_metrics = {
-        "mAP": metrics["mAP"],
-        "2d_mAP_0.3": metric_at_iou(metrics.get("map_2d", {}), 0.3),
-        "2d_mAP_0.5": metric_at_iou(metrics.get("map_2d", {}), 0.5),
-        "2d_mAP_0.7": metric_at_iou(metrics.get("map_2d", {}), 0.7),
-        "3d_mAP_0.3": metric_at_iou(metrics.get("map_3d", {}), 0.3),
-        "3d_mAP_0.5": metric_at_iou(metrics.get("map_3d", {}), 0.5),
-        "3d_mAP_0.7": metric_at_iou(metrics.get("map_3d", {}), 0.7),
-        "bus_or_truck_ap": class_ap_from_name(ap_per_class, class_names, "Bus or Truck"),
-        "sedan_ap": class_ap_from_name(ap_per_class, class_names, "Sedan"),
-        "iou": metrics["mean_iou"],
-        "precision": precision,
-        "recall": recall,
-        "TP": metrics["tp"],
-        "FP": metrics["fp"],
-        "FN": metrics["fn"],
-        "f1": f1,
+def sequence_name_for_filename(sequences, empty_name):
+    sequences = normalize_sequence_list(sequences, name=empty_name)
+    if sequences is None or len(sequences) == 0:
+        return empty_name
+    return format_sequence_run_name(sequences)
+
+
+def build_plot_metadata(args, model_type):
+    return {
+        "model_type": str(model_type or "model_unknown"),
+        "split_mode": str(args.split_mode),
+        "train_sequences": sequence_name_for_filename(args.train_sequences, "train_unknown"),
+        "val_sequences": sequence_name_for_filename(args.val_sequences, "val_unknown"),
+        "eval_scope": str(args.eval_scope),
+        "detection_score_thresh": float(args.detection_score_thresh),
+        "official_iou_mode": str(args.official_eval_iou_mode),
+        "custom_iou_range_eval_enabled": bool(args.custom_iou_range_eval_enabled),
+        "custom_iou_thresholds": [float(value) for value in args.custom_iou_thresholds],
+        "coco_style_eval_enabled": bool(args.coco_style_eval_enabled),
+        "nuscenes_style_eval_enabled": bool(args.nuscenes_style_eval_enabled),
     }
-    return graph_metrics
 
 
-def print_evaluation_result(epoch, graph_metrics, score_thresh):
-    thresh_label = format_score_thresh_label(score_thresh)
-    print(
-        f"epoch={epoch}",
-        f"main_2d_mAP@0.3={graph_metrics['mAP']:.4f}",
-        f"2d_mAP@0.5={graph_metrics['2d_mAP_0.5']:.4f}",
-        f"2d_mAP@0.7={graph_metrics['2d_mAP_0.7']:.4f}",
-        f"3d_mAP@0.3={graph_metrics['3d_mAP_0.3']:.4f}",
-        f"3d_mAP@0.5={graph_metrics['3d_mAP_0.5']:.4f}",
-        f"3d_mAP@0.7={graph_metrics['3d_mAP_0.7']:.4f}",
-        f"bus_or_truck_ap={graph_metrics['bus_or_truck_ap']:.4f}",
-        f"sedan_ap={graph_metrics['sedan_ap']:.4f}",
-        f"iou={graph_metrics['iou']:.4f}",
-        f"P={graph_metrics['precision']:.4f}",
-        f"R={graph_metrics['recall']:.4f}",
-        f"f1={graph_metrics['f1']:.4f}",
-        f"TP_{thresh_label}={graph_metrics['TP']}",
-        f"FP_{thresh_label}={graph_metrics['FP']}",
-        f"FN_{thresh_label}={graph_metrics['FN']}",
-    )
+def resolve_plot_output_path(args, checkpoint_paths, model_type):
+    plot_output = args.plot_output
+    if plot_output is None:
+        return None
 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_tag = str(model_type or "model_unknown")
+    train_tag = sequence_name_for_filename(args.train_sequences, "train_unknown")
+    val_tag = sequence_name_for_filename(args.val_sequences, "val_unknown")
 
-def print_results_table(results, score_thresh):
-    """Print evaluation results as a formatted table."""
-    if not results:
-        print("No results to display.")
-        return
+    if isinstance(plot_output, str):
+        normalized = plot_output.strip()
+        if normalized == "":
+            return None
+        if normalized.lower() in {"no", "none", "false", "0", "null"}:
+            return None
+        if normalized.lower() in {"yes", "true", "1", "auto"}:
+            checkpoint_root = args.checkpoint_root
+            if os.path.isfile(checkpoint_root):
+                checkpoint_name = os.path.splitext(
+                    os.path.basename(checkpoint_root)
+                )[0]
+            else:
+                _, first_checkpoint_path = checkpoint_paths[0]
+                checkpoint_name = os.path.splitext(
+                    os.path.basename(first_checkpoint_path)
+                )[0]
+            filename = (
+                f"{timestamp}_{model_tag}_{train_tag}_{val_tag}_{checkpoint_name}_{args.official_eval_iou_mode}_"
+                f"{args.official_eval_iou_backend}.png"
+            )
+            return os.path.join("evaluation_plots", "png_photos", filename)
+        return normalized
 
-    thresh_label = format_score_thresh_label(score_thresh)
-    tp_name = f"TP_{thresh_label}"
-    fp_name = f"FP_{thresh_label}"
-    fn_name = f"FN_{thresh_label}"
-    
-    print("\n" + "="*88)
-    print(
-        f"{'Epoch':<6} {'2D@0.3':<8} {'3D@0.3':<8} {'bus_AP':<8} {'sedan_AP':<9} "
-        f"{'iou':<8} {'P':<8} {'R':<8} {'f1':<8} "
-        f"{tp_name:<8} {fp_name:<8} {fn_name:<8}"
-    )
-    print("="*88)
-    
-    for result in results:
-        print(
-            f"{result['epoch']:<6} "
-            f"{result['mAP']:<8.4f} "
-            f"{result.get('3d_mAP_0.3', 0.0):<8.4f} "
-            f"{result['bus_or_truck_ap']:<8.4f} "
-            f"{result['sedan_ap']:<9.4f} "
-            f"{result['iou']:<8.4f} "
-            f"{result['precision']:<8.4f} "
-            f"{result['recall']:<8.4f} "
-            f"{result['f1']:<8.4f} "
-            f"{result['TP']:<8} "
-            f"{result['FP']:<8} "
-            f"{result['FN']:<8}"
+    if bool(plot_output):
+        checkpoint_root = args.checkpoint_root
+        if os.path.isfile(checkpoint_root):
+            checkpoint_name = os.path.splitext(
+                os.path.basename(checkpoint_root)
+            )[0]
+        else:
+            _, first_checkpoint_path = checkpoint_paths[0]
+            checkpoint_name = os.path.splitext(
+                os.path.basename(first_checkpoint_path)
+            )[0]
+        filename = (
+            f"{timestamp}_{model_tag}_{train_tag}_{val_tag}_{checkpoint_name}_{args.official_eval_iou_mode}_"
+            f"{args.official_eval_iou_backend}.png"
         )
-    
-    print("="*88 + "\n")
+        return os.path.join("evaluation_plots", "png_photos", filename)
+
+    return None
 
 
-def print_terminal_metric_graph(results, metric_key, title, width=50):
-    if not results:
-        return
+def metric_label(metric_key):
+    if metric_key.startswith("official_bev_mAP_"):
+        return f"BEV mAP@{metric_key.rsplit('_', 1)[-1]}"
+    if metric_key.startswith("official_3d_mAP_"):
+        return f"3D mAP@{metric_key.rsplit('_', 1)[-1]}"
+    return metric_key
 
-    print(title)
+
+def display_class_name(class_name):
+    return {
+        "sed": "Sedan",
+        "bus": "Bus",
+    }.get(class_name, class_name)
+
+
+def pick_plot_metric_keys(results):
+    preferred_order = [
+        "official_bev_mAP_0.3",
+        "official_bev_mAP_0.5",
+        "official_bev_mAP_0.7",
+        "official_3d_mAP_0.3",
+        "official_3d_mAP_0.5",
+        "official_3d_mAP_0.7",
+    ]
+    metric_keys = []
+    for metric_key in preferred_order:
+        if any(result.get(metric_key) is not None for result in results):
+            metric_keys.append(metric_key)
+    return metric_keys
+
+
+def available_plot_iou_suffixes(results):
+    preferred_suffixes = ["0.3", "0.5"]
+    available_metric_keys = set(pick_plot_metric_keys(results))
+    suffixes = []
+    for suffix in preferred_suffixes:
+        bev_key = f"official_bev_mAP_{suffix}"
+        d3_key = f"official_3d_mAP_{suffix}"
+        if bev_key in available_metric_keys or d3_key in available_metric_keys:
+            suffixes.append(suffix)
+    return suffixes
+
+
+def main_plot_iou_suffix(results):
     for result in results:
-        value = max(0.0, min(1.0, float(result[metric_key])))
-        filled = int(round(value * width))
-        bar = "#" * filled + "." * (width - filled)
-        print(f"epoch {result['epoch']:>4}: |{bar}| {value:.4f}")
-    print()
+        main_key = result.get("official_main_metric_key")
+        if isinstance(main_key, str) and main_key.startswith("official_bev_mAP_"):
+            return main_key.rsplit("_", 1)[-1]
+    return "0.3"
 
 
-def print_terminal_graphs(results):
-    print_terminal_metric_graph(
-        results=results,
-        metric_key="mAP",
-        title="K-Radar-style mAP terminal graph"
-    )
+def detection_table_columns():
+    return [
+        ("Precision", "official_detection_precision", "metric"),
+        ("Recall", "official_detection_recall", "metric"),
+        ("F1", "official_detection_f1", "metric"),
+        ("TP", "official_detection_tp", "int"),
+        ("FP", "official_detection_fp", "int"),
+        ("FN", "official_detection_fn", "int"),
+    ]
 
 
-def save_metric_plot(results, output_path, metric_key, title, ylabel):
-    if not results:
-        return
+def result_row_label(result, object_name, multi_epoch):
+    if multi_epoch:
+        return f"Epoch {result['epoch']} / {object_name}"
+    return object_name
 
+
+def style_metric_table(table, row_meta, best_epoch, font_size=9.5):
+    table.auto_set_font_size(False)
+    table.set_fontsize(font_size)
+
+    for (row_idx, col_idx), cell in table.get_celld().items():
+        cell.set_linewidth(0.8)
+        cell.set_edgecolor("#9ca3af")
+        if row_idx == 0:
+            cell.set_facecolor("#e5e7eb")
+            cell.set_text_props(weight="bold", color="#111827")
+            continue
+
+        meta = row_meta[row_idx - 1]
+        is_best_overall = (
+            int(meta["epoch"]) == int(best_epoch)
+            and meta.get("row_kind") == "overall"
+        )
+        if meta.get("row_kind") == "overall":
+            cell.set_facecolor("#dbeafe" if is_best_overall else "#eef2ff")
+        else:
+            stripe_index = int(meta.get("stripe_index", row_idx - 1))
+            cell.set_facecolor("#f8fafc" if stripe_index % 2 == 0 else "#ffffff")
+
+        if col_idx == 0 and is_best_overall:
+            cell.set_text_props(weight="bold", color="#1d4ed8")
+
+
+def build_official_plot_section(results, iou_suffixes, multi_epoch):
+    columns = ["Object"]
+    for iou_suffix in iou_suffixes:
+        columns.extend([f"BEV AP@{iou_suffix}", f"3D AP@{iou_suffix}"])
+    columns.extend(label for label, _, _ in detection_table_columns())
+
+    rows = []
+    row_meta = []
+    stripe_index = 0
+    for result in results:
+        row = [result_row_label(result, "Overall", multi_epoch)]
+        for iou_suffix in iou_suffixes:
+            row.extend([
+                official_ap_text(result.get(f"official_bev_mAP_{iou_suffix}")),
+                official_ap_text(result.get(f"official_3d_mAP_{iou_suffix}")),
+            ])
+        for _, result_key, value_type in detection_table_columns():
+            value = result.get(result_key)
+            if value_type == "metric":
+                row.append(metric_text(value))
+            else:
+                row.append("-" if value is None else str(int(value)))
+        rows.append(row)
+        row_meta.append({
+            "epoch": int(result["epoch"]),
+            "row_kind": "overall",
+            "stripe_index": stripe_index,
+        })
+        stripe_index += 1
+
+        per_class = result.get("official_detection_per_class", {})
+        for class_name in ("sed", "bus"):
+            class_stats = per_class.get(class_name, {})
+            row = [result_row_label(result, display_class_name(class_name), multi_epoch)]
+            for iou_suffix in iou_suffixes:
+                row.extend([
+                    official_ap_text(result.get(f"official_{class_name}_bev_AP_{iou_suffix}")),
+                    official_ap_text(result.get(f"official_{class_name}_3d_AP_{iou_suffix}")),
+                ])
+            for label, _, value_type in detection_table_columns():
+                class_value = class_stats.get(label.lower())
+                if value_type == "metric":
+                    row.append(metric_text(class_value))
+                else:
+                    row.append("-" if class_value is None else str(int(class_value)))
+            rows.append(row)
+            row_meta.append({
+                "epoch": int(result["epoch"]),
+                "row_kind": class_name,
+                "stripe_index": stripe_index,
+            })
+            stripe_index += 1
+
+    return {
+        "title": "Official K-Radar",
+        "columns": columns,
+        "rows": rows,
+        "row_meta": row_meta,
+    }
+
+
+def build_coco_plot_section(results, multi_epoch):
+    if not any("coco_bev_mAP" in result for result in results):
+        return None
+
+    columns = [
+        "Object",
+        "BEV mAP",
+        "BEV AP@0.50",
+        "BEV AP@0.75",
+        "3D mAP",
+        "3D AP@0.50",
+        "3D AP@0.75",
+    ]
+
+    rows = []
+    row_meta = []
+    stripe_index = 0
+    include_per_class = not multi_epoch
+    for result in results:
+        rows.append([
+            result_row_label(result, "Overall", multi_epoch),
+            metric_text(result.get("coco_bev_mAP")),
+            metric_text(result.get("coco_bev_AP_0.50")),
+            metric_text(result.get("coco_bev_AP_0.75")),
+            metric_text(result.get("coco_3d_mAP")),
+            metric_text(result.get("coco_3d_AP_0.50")),
+            metric_text(result.get("coco_3d_AP_0.75")),
+        ])
+        row_meta.append({
+            "epoch": int(result["epoch"]),
+            "row_kind": "overall",
+            "stripe_index": stripe_index,
+        })
+        stripe_index += 1
+
+        if not include_per_class:
+            continue
+
+        for class_name in ("sed", "bus"):
+            rows.append([
+                result_row_label(result, display_class_name(class_name), multi_epoch),
+                metric_text(result.get(f"coco_{class_name}_bev_mAP")),
+                metric_text(result.get(f"coco_{class_name}_bev_AP_0.50")),
+                metric_text(result.get(f"coco_{class_name}_bev_AP_0.75")),
+                metric_text(result.get(f"coco_{class_name}_3d_mAP")),
+                metric_text(result.get(f"coco_{class_name}_3d_AP_0.50")),
+                metric_text(result.get(f"coco_{class_name}_3d_AP_0.75")),
+            ])
+            row_meta.append({
+                "epoch": int(result["epoch"]),
+                "row_kind": class_name,
+                "stripe_index": stripe_index,
+            })
+            stripe_index += 1
+
+    return {
+        "title": "COCO-Style",
+        "columns": columns,
+        "rows": rows,
+        "row_meta": row_meta,
+    }
+
+
+def build_custom_iou_plot_section(results, multi_epoch):
+    if not any("custom_iou_bev_mAP" in result for result in results):
+        return None
+
+    columns = ["Object", "BEV mAP", "3D mAP", "Precision", "Recall", "F1"]
+
+    rows = []
+    row_meta = []
+    stripe_index = 0
+    include_per_class = not multi_epoch
+    for result in results:
+        row = [
+            result_row_label(result, "Overall", multi_epoch),
+            metric_text(result.get("custom_iou_bev_mAP")),
+            metric_text(result.get("custom_iou_3d_mAP")),
+            metric_text(result.get("custom_iou_precision")),
+            metric_text(result.get("custom_iou_recall")),
+            metric_text(result.get("custom_iou_f1")),
+        ]
+        rows.append(row)
+        row_meta.append({
+            "epoch": int(result["epoch"]),
+            "row_kind": "overall",
+            "stripe_index": stripe_index,
+        })
+        stripe_index += 1
+
+        if not include_per_class:
+            continue
+
+        for class_name in ("sed", "bus"):
+            row = [
+                result_row_label(result, display_class_name(class_name), multi_epoch),
+                metric_text(result.get(f"custom_iou_{class_name}_bev_mAP")),
+                metric_text(result.get(f"custom_iou_{class_name}_3d_mAP")),
+                metric_text(result.get(f"custom_iou_{class_name}_precision")),
+                metric_text(result.get(f"custom_iou_{class_name}_recall")),
+                metric_text(result.get(f"custom_iou_{class_name}_f1")),
+            ]
+            rows.append(row)
+            row_meta.append({
+                "epoch": int(result["epoch"]),
+                "row_kind": class_name,
+                "stripe_index": stripe_index,
+            })
+            stripe_index += 1
+
+    return {
+        "title": "Custom IoU Range",
+        "columns": columns,
+        "rows": rows,
+        "row_meta": row_meta,
+    }
+
+
+def build_nuscenes_plot_section(results, multi_epoch):
+    if not any("nuscenes_mAP" in result for result in results):
+        return None
+
+    columns = [
+        "Object",
+        "mAP",
+        "AP@0.5m",
+        "AP@1.0m",
+        "AP@2.0m",
+        "AP@4.0m",
+        "ATE",
+        "ASE",
+        "AOE",
+    ]
+
+    rows = []
+    row_meta = []
+    stripe_index = 0
+    include_per_class = not multi_epoch
+    for result in results:
+        rows.append([
+            result_row_label(result, "Overall", multi_epoch),
+            metric_text(result.get("nuscenes_mAP")),
+            metric_text(result.get("nuscenes_AP_0.5m")),
+            metric_text(result.get("nuscenes_AP_1.0m")),
+            metric_text(result.get("nuscenes_AP_2.0m")),
+            metric_text(result.get("nuscenes_AP_4.0m")),
+            metric_text(result.get("nuscenes_mATE")),
+            metric_text(result.get("nuscenes_mASE")),
+            metric_text(result.get("nuscenes_mAOE")),
+        ])
+        row_meta.append({
+            "epoch": int(result["epoch"]),
+            "row_kind": "overall",
+            "stripe_index": stripe_index,
+        })
+        stripe_index += 1
+
+        if not include_per_class:
+            continue
+
+        for class_name in ("sed", "bus"):
+            rows.append([
+                result_row_label(result, display_class_name(class_name), multi_epoch),
+                metric_text(result.get(f"nuscenes_{class_name}_mAP")),
+                metric_text(result.get(f"nuscenes_{class_name}_AP_0.5m")),
+                metric_text(result.get(f"nuscenes_{class_name}_AP_1.0m")),
+                metric_text(result.get(f"nuscenes_{class_name}_AP_2.0m")),
+                metric_text(result.get(f"nuscenes_{class_name}_AP_4.0m")),
+                metric_text(result.get(f"nuscenes_{class_name}_ATE")),
+                metric_text(result.get(f"nuscenes_{class_name}_ASE")),
+                metric_text(result.get(f"nuscenes_{class_name}_AOE")),
+            ])
+            row_meta.append({
+                "epoch": int(result["epoch"]),
+                "row_kind": class_name,
+                "stripe_index": stripe_index,
+            })
+            stripe_index += 1
+
+    return {
+        "title": "nuScenes-Style",
+        "columns": columns,
+        "rows": rows,
+        "row_meta": row_meta,
+    }
+
+
+def save_evaluation_plot(results, plot_output_path, plot_metadata=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    epochs = [result["epoch"] for result in results]
-    values = [result[metric_key] for result in results]
+    iou_suffixes = available_plot_iou_suffixes(results)
+    if len(iou_suffixes) == 0:
+        iou_suffixes = [main_plot_iou_suffix(results)]
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(epochs, values, marker="o", linewidth=1.8)
-    ax.set_title(title)
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel(ylabel)
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=160)
+    best_result = max(
+        results,
+        key=lambda item: float(item.get("official_main_metric_value", 0.0)),
+    )
+    multi_epoch = len(results) > 1
+
+    sections = [
+        build_official_plot_section(results, iou_suffixes, multi_epoch),
+    ]
+    custom_iou_section = build_custom_iou_plot_section(results, multi_epoch)
+    if custom_iou_section is not None:
+        sections.append(custom_iou_section)
+    coco_section = build_coco_plot_section(results, multi_epoch)
+    if coco_section is not None:
+        sections.append(coco_section)
+    nuscenes_section = build_nuscenes_plot_section(results, multi_epoch)
+    if nuscenes_section is not None:
+        sections.append(nuscenes_section)
+
+    max_columns = max(len(section["columns"]) for section in sections)
+    total_rows = sum(len(section["rows"]) for section in sections)
+    fig_width = max(13.0, 1.15 * max_columns)
+    fig_height = max(7.0, 3.4 + 0.46 * total_rows + 0.8 * len(sections))
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    ax.axis("off")
+    fig.suptitle("Evaluation Results", fontsize=15, y=0.975)
+    summary_lines = [
+        (
+            f"Best epoch: {best_result['epoch']} | "
+            f"{best_result.get('official_main_metric_key', 'official_bev_mAP_0.3')} = "
+            f"{official_ap_text(best_result.get('official_main_metric_value'))}"
+        )
+    ]
+    if plot_metadata is not None:
+        summary_lines.append(
+            (
+                f"Model: {plot_metadata['model_type']} | "
+                f"Split: {plot_metadata['split_mode']} | "
+                f"Scope: {plot_metadata['eval_scope']}"
+            )
+        )
+        summary_lines.append(
+            (
+                f"Train: {plot_metadata['train_sequences']} | "
+                f"Val: {plot_metadata['val_sequences']}"
+            )
+        )
+        summary_lines.append(
+            (
+                f"Frames: {best_result.get('official_num_eval_frames', 0)} | "
+                f"Backend: {best_result.get('official_iou_backend_used', '-')} | "
+                f"Score threshold: {plot_metadata['detection_score_thresh']:.2f} | "
+                f"Det IoU: {best_result.get('official_detection_iou_threshold', 0.0):.2f} | "
+                f"Shown AP IoU: 0.3, 0.5"
+            )
+        )
+    if "custom_iou_bev_mAP" in best_result:
+        custom_iou_text = ", ".join(
+            format_custom_iou_suffix(value)
+            for value in best_result.get("custom_iou_thresholds", [])
+        )
+        summary_lines.append(
+            (
+                f"Custom IoU range: {custom_iou_text} | "
+                f"BEV mAP={metric_text(best_result.get('custom_iou_bev_mAP'))} | "
+                f"3D mAP={metric_text(best_result.get('custom_iou_3d_mAP'))} | "
+                f"P={metric_text(best_result.get('custom_iou_precision'))} | "
+                f"R={metric_text(best_result.get('custom_iou_recall'))} | "
+                f"F1={metric_text(best_result.get('custom_iou_f1'))}"
+            )
+        )
+    if "nuscenes_mAP" in best_result:
+        summary_lines.append(
+            (
+                f"nuScenes-style: mAP={metric_text(best_result.get('nuscenes_mAP'))} | "
+                f"AP@0.5m={metric_text(best_result.get('nuscenes_AP_0.5m'))} | "
+                f"AP@1.0m={metric_text(best_result.get('nuscenes_AP_1.0m'))} | "
+                f"AP@2.0m={metric_text(best_result.get('nuscenes_AP_2.0m'))} | "
+                f"AP@4.0m={metric_text(best_result.get('nuscenes_AP_4.0m'))} | "
+                f"mATE={metric_text(best_result.get('nuscenes_mATE'))} | "
+                f"mASE={metric_text(best_result.get('nuscenes_mASE'))} | "
+                f"mAOE={metric_text(best_result.get('nuscenes_mAOE'))}"
+            )
+        )
+    ax.text(
+        0.5,
+        0.93,
+        "\n".join(summary_lines),
+        transform=ax.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10.5,
+        color="#374151",
+        linespacing=1.55,
+    )
+
+    summary_bottom = 0.80
+    section_gap = 0.03
+    title_height = 0.028
+    raw_table_heights = [
+        0.030 + 0.027 * (len(section["rows"]) + 1)
+        for section in sections
+    ]
+    total_raw_height = sum(raw_table_heights) + len(sections) * title_height + (len(sections) - 1) * section_gap
+    available_height = summary_bottom - 0.05
+    scale = min(1.0, available_height / max(total_raw_height, 1e-6))
+    current_top = summary_bottom
+
+    for section, raw_table_height in zip(sections, raw_table_heights):
+        ax.text(
+            0.03,
+            current_top,
+            section["title"],
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=11,
+            fontweight="bold",
+            color="#111827",
+        )
+        scaled_title_height = title_height * scale
+        table_height = raw_table_height * scale
+        table_bottom = current_top - scaled_title_height - table_height
+        table = ax.table(
+            cellText=section["rows"],
+            colLabels=section["columns"],
+            bbox=[0.03, table_bottom, 0.94, table_height],
+            cellLoc="center",
+            colLoc="center",
+        )
+        style_metric_table(
+            table,
+            row_meta=section["row_meta"],
+            best_epoch=int(best_result["epoch"]),
+            font_size=max(7.8, 9.5 * scale),
+        )
+        table.scale(1.0, max(1.0, 1.2 * scale))
+        current_top = table_bottom - (section_gap * scale)
+
+    fig.tight_layout(rect=[0.02, 0.02, 0.98, 0.97])
+    fig.savefig(plot_output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
 
-def save_evaluation_plots(results, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
-    k_radar_map_path = os.path.join(output_dir, "k_radar_mAP.png")
+def yaml_safe_value(value):
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if torch.is_tensor(value):
+        return value.detach().cpu().tolist()
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return {
+            str(key): yaml_safe_value(child_value)
+            for key, child_value in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [yaml_safe_value(item) for item in value]
+    return str(value)
 
-    save_metric_plot(
-        results=results,
-        output_path=k_radar_map_path,
-        metric_key="mAP",
-        title="K-Radar-style mAP by Epoch",
-        ylabel="K-Radar mAP",
+
+def collect_method_summary(result):
+    summary = {
+        "official": {
+            "main_metric_key": result.get("official_main_metric_key"),
+            "main_metric_value": official_ap_value(result.get("official_main_metric_value")),
+            "bev_mAP_0.3": official_ap_value(result.get("official_bev_mAP_0.3")),
+            "bev_mAP_0.5": official_ap_value(result.get("official_bev_mAP_0.5")),
+            "bev_mAP_0.7": official_ap_value(result.get("official_bev_mAP_0.7")),
+            "3d_mAP_0.3": official_ap_value(result.get("official_3d_mAP_0.3")),
+            "3d_mAP_0.5": official_ap_value(result.get("official_3d_mAP_0.5")),
+            "3d_mAP_0.7": official_ap_value(result.get("official_3d_mAP_0.7")),
+        }
+    }
+    if "coco_bev_mAP" in result:
+        summary["coco_style"] = {
+            "bev_mAP": result.get("coco_bev_mAP"),
+            "bev_AP_0.50": result.get("coco_bev_AP_0.50"),
+            "bev_AP_0.75": result.get("coco_bev_AP_0.75"),
+            "3d_mAP": result.get("coco_3d_mAP"),
+            "3d_AP_0.50": result.get("coco_3d_AP_0.50"),
+            "3d_AP_0.75": result.get("coco_3d_AP_0.75"),
+        }
+    if "custom_iou_bev_mAP" in result:
+        summary["custom_iou_range"] = {
+            "iou_thresholds": result.get("custom_iou_thresholds"),
+            "bev_mAP": result.get("custom_iou_bev_mAP"),
+            "3d_mAP": result.get("custom_iou_3d_mAP"),
+            "precision": result.get("custom_iou_precision"),
+            "recall": result.get("custom_iou_recall"),
+            "f1": result.get("custom_iou_f1"),
+        }
+    if "nuscenes_mAP" in result:
+        summary["nuscenes_style"] = {
+            "mAP": result.get("nuscenes_mAP"),
+            "AP_0.5m": result.get("nuscenes_AP_0.5m"),
+            "AP_1.0m": result.get("nuscenes_AP_1.0m"),
+            "AP_2.0m": result.get("nuscenes_AP_2.0m"),
+            "AP_4.0m": result.get("nuscenes_AP_4.0m"),
+            "mATE": result.get("nuscenes_mATE"),
+            "mASE": result.get("nuscenes_mASE"),
+            "mAOE": result.get("nuscenes_mAOE"),
+        }
+    return summary
+
+
+def build_yaml_export(results, plot_metadata=None):
+    if len(results) == 0:
+        raise ValueError("Cannot export YAML because evaluation results are empty.")
+
+    best_result = max(
+        results,
+        key=lambda item: float(item.get("official_main_metric_value", 0.0)),
     )
 
-    print(f"Saved K-Radar-style mAP plot: {k_radar_map_path}")
+    checkpoint_entries = []
+    for result in results:
+        checkpoint_entries.append({
+            "epoch": int(result["epoch"]),
+            "checkpoint_path": str(result.get("checkpoint_path", "")),
+            "method_summary": collect_method_summary(result),
+            "all_metrics": yaml_safe_value(result),
+        })
+
+    export_data = {
+        "generated_at": datetime.now().isoformat(),
+        "plot_metadata": yaml_safe_value(plot_metadata or {}),
+        "best_result": {
+            "epoch": int(best_result["epoch"]),
+            "checkpoint_path": str(best_result.get("checkpoint_path", "")),
+            "method_summary": collect_method_summary(best_result),
+        },
+        "checkpoints": checkpoint_entries,
+    }
+    return export_data
 
 
-def main():
-    args = parse_args()
+def resolve_yaml_output_path(plot_output_path):
+    base, _ = os.path.splitext(plot_output_path)
+    return f"{base}.yml"
+
+
+def save_evaluation_yaml(results, yaml_output_path, plot_metadata=None):
+    export_data = yaml_safe_value(
+        build_yaml_export(results, plot_metadata=plot_metadata)
+    )
+    with open(yaml_output_path, "w", encoding="utf-8") as yaml_file:
+        yaml.safe_dump(
+            export_data,
+            yaml_file,
+            sort_keys=False,
+            allow_unicode=True,
+        )
+
+
+def print_checkpoint_metrics(epoch, metrics):
+    main_key = metrics.get("official_main_metric_key", "official_bev_mAP_0.3")
+    print(
+        f"epoch={epoch} "
+        f"{main_key}={official_ap_text(metrics.get('official_main_metric_value'))} "
+        f"bev@0.3={official_ap_text(metrics.get('official_bev_mAP_0.3'))} "
+        f"bev@0.5={official_ap_text(metrics.get('official_bev_mAP_0.5'))} "
+        f"bev@0.7={official_ap_text(metrics.get('official_bev_mAP_0.7'))} "
+        f"3d@0.3={official_ap_text(metrics.get('official_3d_mAP_0.3'))} "
+        f"3d@0.5={official_ap_text(metrics.get('official_3d_mAP_0.5'))} "
+        f"3d@0.7={official_ap_text(metrics.get('official_3d_mAP_0.7'))} "
+        f"score_thr={metric_text(metrics.get('official_detection_score_threshold'))} "
+        f"p={metric_text(metrics.get('official_detection_precision'))} "
+        f"r={metric_text(metrics.get('official_detection_recall'))} "
+        f"f1={metric_text(metrics.get('official_detection_f1'))} "
+        f"tp={metrics.get('official_detection_tp', 0)} "
+        f"fp={metrics.get('official_detection_fp', 0)} "
+        f"fn={metrics.get('official_detection_fn', 0)} "
+        f"frames={metrics.get('official_num_eval_frames', 0)}"
+    )
+    if "coco_bev_mAP" in metrics:
+        print(
+            f"  coco-style "
+            f"bev_mAP={metric_text(metrics.get('coco_bev_mAP'))} "
+            f"bev@0.50={metric_text(metrics.get('coco_bev_AP_0.50'))} "
+            f"bev@0.75={metric_text(metrics.get('coco_bev_AP_0.75'))} "
+            f"3d_mAP={metric_text(metrics.get('coco_3d_mAP'))} "
+            f"3d@0.50={metric_text(metrics.get('coco_3d_AP_0.50'))} "
+            f"3d@0.75={metric_text(metrics.get('coco_3d_AP_0.75'))}"
+        )
+    if "custom_iou_bev_mAP" in metrics:
+        custom_iou_text = ", ".join(
+            format_custom_iou_suffix(value)
+            for value in metrics.get("custom_iou_thresholds", [])
+        )
+        print(
+            f"  custom-iou-range "
+            f"iou=[{custom_iou_text}] "
+            f"bev_mAP={metric_text(metrics.get('custom_iou_bev_mAP'))} "
+            f"3d_mAP={metric_text(metrics.get('custom_iou_3d_mAP'))} "
+            f"p={metric_text(metrics.get('custom_iou_precision'))} "
+            f"r={metric_text(metrics.get('custom_iou_recall'))} "
+            f"f1={metric_text(metrics.get('custom_iou_f1'))}"
+        )
+    if "nuscenes_mAP" in metrics:
+        print(
+            f"  nuscenes-style "
+            f"mAP={metric_text(metrics.get('nuscenes_mAP'))} "
+            f"AP@0.5m={metric_text(metrics.get('nuscenes_AP_0.5m'))} "
+            f"AP@1.0m={metric_text(metrics.get('nuscenes_AP_1.0m'))} "
+            f"AP@2.0m={metric_text(metrics.get('nuscenes_AP_2.0m'))} "
+            f"AP@4.0m={metric_text(metrics.get('nuscenes_AP_4.0m'))} "
+            f"mATE={metric_text(metrics.get('nuscenes_mATE'))} "
+            f"mASE={metric_text(metrics.get('nuscenes_mASE'))} "
+            f"mAOE={metric_text(metrics.get('nuscenes_mAOE'))}"
+        )
+
+
+def build_eval_context(args):
     device = select_evaluation_device(args.cuda, args.gpu_ids)
     cfg = DataConfig()
     checkpoint_paths = find_epoch_checkpoints(args.checkpoint_root, args.epoch_step)
     if len(checkpoint_paths) == 0:
         raise ValueError(f"No epoch checkpoints found in {args.checkpoint_root}")
+
     apply_checkpoint_config_defaults(args, checkpoint_paths)
     model_type = resolve_model_type(args, checkpoint_paths)
-
-    print(f"Evaluation classes: {CLASS_NAMES}")
-    print(f"Using evaluation device: {device}")
-    print(f"Evaluation scope: {args.eval_scope}")
+    plot_output_path = resolve_plot_output_path(args, checkpoint_paths, model_type)
 
     _, validation_dataset, _, validation_loader = build_train_val_dataloaders(
         cfg=cfg,
@@ -1666,50 +1806,105 @@ def main():
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
     )
-
     if len(validation_dataset) == 0:
-        raise ValueError("Validation split is empty. Adjust --train-ratio or --limit-samples.")
+        raise ValueError("Validation split is empty.")
 
     model = build_model(
+        model_type=model_type,
         device=device,
         num_classes=NUM_CLASSES,
-        model_type=model_type
     )
 
-    def evaluate_checkpoint(checkpoint_path):
-        load_checkpoint(
-            model=model,
-            checkpoint_path=checkpoint_path,
-            device=device
-        )
-        metrics = evaluate_precision_recall(
+    return {
+        "device": device,
+        "checkpoint_paths": checkpoint_paths,
+        "model_type": model_type,
+        "plot_output_path": plot_output_path,
+        "plot_metadata": build_plot_metadata(args, model_type),
+        "validation_loader": validation_loader,
+        "model": model,
+    }
+
+
+def main():
+    args = parse_args()
+    context = build_eval_context(args)
+    device = context["device"]
+    checkpoint_paths = context["checkpoint_paths"]
+    model_type = context["model_type"]
+    plot_output_path = context["plot_output_path"]
+    plot_metadata = context["plot_metadata"]
+    validation_loader = context["validation_loader"]
+    model = context["model"]
+
+    print(f"Evaluation classes: {CLASS_NAMES}")
+    print(f"Using evaluation device: {device}")
+    print(f"Evaluation scope: {args.eval_scope}")
+    print(f"Official evaluator: {args.official_eval_version}")
+    print(
+        f"Evaluating {len(checkpoint_paths)} checkpoint(s) from {args.checkpoint_root}",
+        flush=True,
+    )
+    if plot_output_path is not None:
+        print(f"Plot output path: {plot_output_path}", flush=True)
+
+    results = []
+    for epoch, checkpoint_path in tqdm.tqdm(
+        checkpoint_paths,
+        desc="Checkpoints",
+        ncols=120,
+    ):
+        load_model_checkpoint(model=model, checkpoint_path=checkpoint_path, device=device)
+        metrics = evaluate_checkpoint_with_kradar_revised(
             model=model,
             dataloader=validation_loader,
             device=device,
             num_classes=NUM_CLASSES,
             prepare_model_inputs=prepare_model_inputs,
-            score_thresh=args.score_thresh,
-            iou_thresh=args.eval_iou_thresh,
             max_detections=args.max_detections,
             heatmap_nms_kernel=args.heatmap_nms_kernel,
             yolox_nms_iou=args.yolox_nms_iou,
             scope_mode=args.eval_scope,
+            official_eval_enabled=True,
+            official_eval_version=args.official_eval_version,
+            official_eval_iou_backend=args.official_eval_iou_backend,
+            official_eval_iou_mode=args.official_eval_iou_mode,
+            custom_iou_range_eval_enabled=args.custom_iou_range_eval_enabled,
+            custom_iou_thresholds=args.custom_iou_thresholds,
+            coco_style_eval_enabled=args.coco_style_eval_enabled,
+            nuscenes_style_eval_enabled=args.nuscenes_style_eval_enabled,
+            detection_score_thresh=args.detection_score_thresh,
         )
-        return metrics
+        result = {
+            "epoch": epoch,
+            "checkpoint_path": checkpoint_path,
+            **metrics,
+        }
+        results.append(result)
+        print_checkpoint_metrics(epoch, metrics)
 
-    results = []
-    print(f"Evaluating {len(checkpoint_paths)} checkpoints from {args.checkpoint_root}")
-    for epoch, checkpoint_path in tqdm.tqdm(checkpoint_paths, desc="Checkpoints", ncols=120):
-        metrics = evaluate_checkpoint(checkpoint_path)
-        graph_metrics = metrics_for_graph(metrics, CLASS_NAMES)
-        graph_metrics["epoch"] = epoch
-        results.append(graph_metrics)
-        print_evaluation_result(epoch, graph_metrics, args.score_thresh)
+    if len(results) > 0:
+        best_result = max(
+            results,
+            key=lambda item: float(item.get("official_main_metric_value", 0.0)),
+        )
+        print(
+            "best_epoch:",
+            f"epoch={best_result['epoch']}",
+            f"{best_result.get('official_main_metric_key', 'official_bev_mAP_0.3')}="
+            f"{official_ap_text(best_result.get('official_main_metric_value'))}",
+        )
 
-    print_results_table(results, args.score_thresh)
-    print_terminal_graphs(results)
-    if args.save_plots:
-        save_evaluation_plots(results, args.plot_dir)
+    if plot_output_path is not None:
+        output_dir = os.path.dirname(plot_output_path)
+        if output_dir != "":
+            os.makedirs(output_dir, exist_ok=True)
+        save_evaluation_plot(results, plot_output_path, plot_metadata=plot_metadata)
+        yaml_output_path = resolve_yaml_output_path(plot_output_path)
+        save_evaluation_yaml(results, yaml_output_path, plot_metadata=plot_metadata)
+        print(f"Saved evaluation plot: {plot_output_path}")
+        print(f"Saved evaluation YAML: {yaml_output_path}")
+
 
 if __name__ == "__main__":
     main()

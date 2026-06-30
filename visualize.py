@@ -26,6 +26,8 @@ from dataset import (
     detection_collate,
 )
 from models import *
+from training_utils.radenet_utils import regression_cell_to_normalized_rae_box
+from training_utils.torch_load import load_torch_checkpoint
 from training_utils.yolox_utils import yolox_outputs_to_detections
 from zxy_config import DataConfig
 
@@ -77,7 +79,7 @@ def parse_args():
     parser.add_argument("--pred-mode", default=cfg_defaults["pred_mode"], choices=["raw", "final"])
     parser.add_argument("--heatmap-nms-kernel", type=int, default=cfg_defaults["heatmap_nms_kernel"])
     parser.add_argument("--yolox-nms-iou", type=float, default=cfg_defaults["yolox_nms_iou"])
-    parser.add_argument("--model-type", default=cfg_defaults["model_type"], choices=["auto", "model1", "model2", "model3", "model4", "model5", "model6", "model7", "model8", "model9", "model10", "model11", "model12"])
+    parser.add_argument("--model-type", default=cfg_defaults["model_type"], choices=["auto", "model1", "model2", "model3", "model4", "model5", "model6", "model7", "model8", "model9", "model10", "model11", "model12", "model13", "model14", "model15"])
     parser.add_argument("--save-images", action="store_true", default=cfg_defaults["save_images"], help="Save visualizations to disk.")
     parser.add_argument("--no-display", action="store_true", default=cfg_defaults["no_display"], help="Do not display images to the screen (useful for background saving).")
     parser.add_argument("--save-dir", default=cfg_defaults["save_dir"])
@@ -85,7 +87,7 @@ def parse_args():
 
 
 def load_checkpoint(model, checkpoint_path, device):
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = load_torch_checkpoint(checkpoint_path, map_location=device)
     if "model_state_dict" in checkpoint:
         model.load_state_dict(checkpoint["model_state_dict"])
     else:
@@ -109,6 +111,12 @@ def infer_model_type_from_checkpoint(checkpoint):
     state_dict = get_checkpoint_state_dict(checkpoint)
     if "_qfl_model_marker" in state_dict:
         return "model11"
+    if "_model14_swin_yolox_marker" in state_dict:
+        return "model14"
+    if "_model15_radenet_official_marker" in state_dict:
+        return "model15"
+    if "_model13_radenet_marker" in state_dict:
+        return "model13"
     if "_model12_yolox_marker" in state_dict:
         return "model12"
 
@@ -142,7 +150,7 @@ def infer_model_type_from_checkpoint(checkpoint):
     if any(key.startswith("backbone.encoder.") for key in state_dict.keys()):
         return "model1"
 
-    raise ValueError("Unsupported old model checkpoint: expected model1, model2, model3, model4, model5, model6, model7, model8, model9, model10, model11, or model12.")
+    raise ValueError("Unsupported old model checkpoint: expected model1, model2, model3, model4, model5, model6, model7, model8, model9, model10, model11, model12, model13, model14, or model15.")
 
 
 def resolve_model_type(args, checkpoint):
@@ -314,6 +322,51 @@ def dense_centerpoint_outputs_to_detections(
     return pred_boxes_norm.squeeze(0), pred_labels.squeeze(0), pred_scores.squeeze(0)
 
 
+def official_radenet_outputs_to_detections(
+        outputs,
+        num_classes,
+        max_detections,
+        pred_mode,
+        heatmap_nms_kernel,
+        scope_mode,
+        full_rae_shape,
+    ):
+    heatmap = outputs["heatmap"][:, :num_classes]
+    batch_size, _, heatmap_h, heatmap_w = heatmap.shape
+    if batch_size != 1:
+        raise ValueError(f"Visualization expects batch size 1, got {batch_size}")
+
+    heatmap_scores = heatmap
+    if pred_mode == "final":
+        heatmap_scores = centerpoint_heatmap_nms(
+            heatmap=heatmap_scores,
+            kernel_size=heatmap_nms_kernel,
+        )
+    elif pred_mode != "raw":
+        raise ValueError(f"Unknown prediction mode: {pred_mode}")
+
+    flat_scores = heatmap_scores.flatten(start_dim=1)
+    topk_count = min(max_detections, flat_scores.shape[1])
+    pred_scores, flat_indices = flat_scores.topk(topk_count, dim=1)
+
+    spatial_size = heatmap_h * heatmap_w
+    pred_labels = flat_indices // spatial_size
+    spatial_indices = flat_indices % spatial_size
+    y_idx = spatial_indices // heatmap_w
+    x_idx = spatial_indices % heatmap_w
+    pred_reg = gather_dense_feature(outputs["regression"], spatial_indices)
+
+    pred_boxes_norm = regression_cell_to_normalized_rae_box(
+        pred_reg=pred_reg[0],
+        y_idx=y_idx[0].to(pred_reg.dtype),
+        x_idx=x_idx[0].to(pred_reg.dtype),
+        feature_shape=(heatmap_h, heatmap_w),
+        scope_mode=scope_mode,
+        full_rae_shape=full_rae_shape,
+    )
+    return pred_boxes_norm, pred_labels.squeeze(0), pred_scores.squeeze(0)
+
+
 def filter_predictions(
         outputs,
         scope_mode,
@@ -335,6 +388,16 @@ def filter_predictions(
         pred_boxes_norm = detections[0]["boxes"]
         pred_labels = detections[0]["labels"]
         pred_scores = detections[0]["scores"]
+    elif "heatmap" in outputs and "regression" in outputs:
+        pred_boxes_norm, pred_labels, pred_scores = official_radenet_outputs_to_detections(
+            outputs=outputs,
+            num_classes=NUM_CLASSES,
+            max_detections=max_detections,
+            pred_mode=pred_mode,
+            heatmap_nms_kernel=heatmap_nms_kernel,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+        )
     else:
         pred_boxes_norm, pred_labels, pred_scores = dense_centerpoint_outputs_to_detections(
             outputs=outputs,
@@ -508,7 +571,7 @@ def main():
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = load_torch_checkpoint(checkpoint_path, map_location=device)
     checkpoint_config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
     if args.vis_scope is None:
         args.vis_scope = checkpoint_config.get("train_scope", SCOPE_FULL)

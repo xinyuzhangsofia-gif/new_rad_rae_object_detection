@@ -150,6 +150,12 @@ def build_train_val_dataloaders(
             seed=seed,
             limit_samples=limit_samples,
         )
+    elif split_mode == "order":
+        train_indices, val_indices = build_order_split_indices(
+            full_dataset=full_dataset,
+            train_ratio=train_ratio,
+            limit_samples=limit_samples,
+        )
     elif split_mode == "file":
         train_indices, val_indices = build_file_split_indices(
             full_dataset=full_dataset,
@@ -222,6 +228,32 @@ def build_random_split_indices(full_dataset, train_ratio, seed, limit_samples):
             generator=split_generator
         ).tolist()
         sequence_indices = [sequence_indices[idx] for idx in random_order]
+
+        train_size = int(len(sequence_indices) * train_ratio)
+        train_indices.extend(sequence_indices[:train_size])
+        val_indices.extend(sequence_indices[train_size:])
+
+    return train_indices, val_indices
+
+
+def build_order_split_indices(full_dataset, train_ratio, limit_samples):
+    train_indices = []
+    val_indices = []
+    remaining_limit = limit_samples
+
+    for sequence_range in full_dataset.get_sequence_ranges():
+        start = sequence_range["start"]
+        end = sequence_range["end"]
+        sequence_indices = list(range(start, end))
+
+        if remaining_limit is not None:
+            if remaining_limit <= 0:
+                break
+            sequence_indices = sequence_indices[:remaining_limit]
+            remaining_limit -= len(sequence_indices)
+
+        if len(sequence_indices) == 0:
+            continue
 
         train_size = int(len(sequence_indices) * train_ratio)
         train_indices.extend(sequence_indices[:train_size])

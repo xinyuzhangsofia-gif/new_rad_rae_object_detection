@@ -1,0 +1,104 @@
+batch_ts=20260629_152815
+mode=all backend=cuda score_thresh=0.3 cuda=0
+
+START model1
+checkpoint=checkpoints/mvrss_detection_resume/con2d_heatmap_model1__seq1-11_20260612_102520_123870/global_best_epoch_072_20260612_102520_mAP_0p2923.pth
+log=evaluation_plots/run_logs/20260629_152815_model1.log
+status=OK
+epoch=72 official_bev_mAP_0.3=16.0320 bev@0.3=16.0320 bev@0.5=6.1536 bev@0.7=0.7291 3d@0.3=8.7092 3d@0.5=1.3571 3d@0.7=0.0609 score_thr=0.3000 p=0.3588 r=0.2728 f1=0.3099 tp=2423 fp=4330 fn=6460 frames=3884
+best_epoch: epoch=72 official_bev_mAP_0.3=16.0320
+Saved evaluation plot: evaluation_plots/png_photos/20260629_152818_model1_train_unknown_val_unknown_global_best_epoch_072_20260612_102520_mAP_0p2923_all_cuda.png
+
+START model2
+checkpoint=checkpoints/mvrss_detection/bifpn_heatmap_model2__seq1-11_20260612_223948_314584/global_best_epoch_004_20260612_231218_mAP_0p4477.pth
+log=evaluation_plots/run_logs/20260629_152959_model2.log
+status=OK
+epoch=4 official_bev_mAP_0.3=17.8552 bev@0.3=17.8552 bev@0.5=6.6671 bev@0.7=0.6547 3d@0.3=6.8987 3d@0.5=0.6560 3d@0.7=0.3238 score_thr=0.3000 p=0.3769 r=0.3143 f1=0.3428 tp=2792 fp=4615 fn=6091 frames=3884
+best_epoch: epoch=4 official_bev_mAP_0.3=17.8552
+Saved evaluation plot: evaluation_plots/png_photos/20260629_153001_model2_train_unknown_val_unknown_global_best_epoch_004_20260612_231218_mAP_0p4477_all_cuda.png
+
+START model4
+checkpoint=checkpoints/mvrss_detection_resume/deform_heatmap_model4__seq1-11_20260615_104814_797166/global_best_epoch_099_20260615_104815_mAP_0p0174.pth
+log=evaluation_plots/run_logs/20260629_153147_model4.log
+status=FAIL(1)
+Traceback (most recent call last):
+  File "/home/local/xinyu/MVRSS/mvrss/evaluation.py", line 1242, in <module>
+    main()
+  File "/home/local/xinyu/MVRSS/mvrss/evaluation.py", line 1171, in main
+    context = build_eval_context(args)
+  File "/home/local/xinyu/MVRSS/mvrss/evaluation.py", line 1134, in build_eval_context
+    _, validation_dataset, _, validation_loader = build_train_val_dataloaders(
+  File "/home/local/xinyu/MVRSS/mvrss/dataloader.py", line 168, in build_train_val_dataloaders
+    raise ValueError(f"Unknown split_mode: {split_mode}")
+ValueError: Unknown split_mode: order
+ERROR conda.cli.main_run:execute(142): `conda run python -u evaluation.py --checkpoint-root checkpoints/mvrss_detection_resume/deform_heatmap_model4__seq1-11_20260615_104814_797166/global_best_epoch_099_20260615_104815_mAP_0p0174.pth --cuda 0 --official-eval-iou-backend cuda --official-eval-iou-mode all --detection-score-thresh 0.3 --plot-output yes` failed. (See above for error)
+Auto-detected model type: model4
+
+START model5
+checkpoint=checkpoints/object_detection/20260620_104648_755934__model_5__seq1_4-6_11_14_20_3_18/20260620_161435_mAP_0p5034_model_5_global_best_epoch_084_seq1-11.pth
+log=evaluation_plots/run_logs/20260629_153151_model5.log
+status=OK
+epoch=84 official_bev_mAP_0.3=30.3192 bev@0.3=30.3192 bev@0.5=10.8980 bev@0.7=1.6680 3d@0.3=15.3976 3d@0.5=2.2040 3d@0.7=0.2063 score_thr=0.3000 p=0.5703 r=0.3173 f1=0.4077 tp=665 fp=501 fn=1431 frames=1193
+best_epoch: epoch=84 official_bev_mAP_0.3=30.3192
+Saved evaluation plot: evaluation_plots/png_photos/20260629_153153_model5_seq1_4-6_11_14_20_seq3_18_20260620_161435_mAP_0p5034_model_5_global_best_epoch_084_seq1-11_all_cuda.png
+
+START model6
+checkpoint=checkpoints/mvrss_detection/fpn_quality_heatmap_model6__seq1-11_20260616_141245_228518/global_best_epoch_013_20260616_145536_mAP_0p5850.pth
+log=evaluation_plots/run_logs/20260629_153226_model6.log
+status=OK
+epoch=13 official_bev_mAP_0.3=26.9450 bev@0.3=26.9450 bev@0.5=8.3447 bev@0.7=2.3385 3d@0.3=9.2493 3d@0.5=2.2176 3d@0.7=0.6297 score_thr=0.3000 p=0.4753 r=0.3974 f1=0.4329 tp=2286 fp=2524 fn=3466 frames=3884
+best_epoch: epoch=13 official_bev_mAP_0.3=26.9450
+Saved evaluation plot: evaluation_plots/png_photos/20260629_153229_model6_train_unknown_val_unknown_global_best_epoch_013_20260616_145536_mAP_0p5850_all_cuda.png
+
+START model7
+checkpoint=checkpoints/object_detection/20260622_230417_735384__model_7__seq1_4-6_11_14_20_3_18/20260623_004340_mAP_38p1098_model_7_global_best_epoch_014_seq1-11.pth
+log=evaluation_plots/run_logs/20260629_153349_model7.log
+status=OK
+epoch=14 official_bev_mAP_0.3=37.9529 bev@0.3=37.9529 bev@0.5=16.7007 bev@0.7=2.6626 3d@0.3=18.8533 3d@0.5=2.9485 3d@0.7=0.0861 score_thr=0.3000 p=0.6463 r=0.3173 f1=0.4256 tp=665 fp=364 fn=1431 frames=1193
+best_epoch: epoch=14 official_bev_mAP_0.3=37.9529
+Saved evaluation plot: evaluation_plots/png_photos/20260629_153352_model7_seq1_4-6_11_14_20_seq3_18_20260623_004340_mAP_38p1098_model_7_global_best_epoch_014_seq1-11_all_cuda.png
+
+START model8
+checkpoint=checkpoints/object_detection/20260625_002607_379659__model_8__seq1_4-6_11_14_20_3_18/20260625_045800_mAP_35p3469_model_8_global_best_epoch_037_seq1-11.pth
+log=evaluation_plots/run_logs/20260629_153431_model8.log
+status=OK
+epoch=37 official_bev_mAP_0.3=35.1094 bev@0.3=35.1094 bev@0.5=14.3955 bev@0.7=3.2104 3d@0.3=18.7922 3d@0.5=3.8964 3d@0.7=1.2616 score_thr=0.3000 p=0.5336 r=0.3860 f1=0.4480 tp=809 fp=707 fn=1287 frames=1193
+best_epoch: epoch=37 official_bev_mAP_0.3=35.1094
+Saved evaluation plot: evaluation_plots/png_photos/20260629_153433_model8_seq1_4-6_11_14_20_seq3_18_20260625_045800_mAP_35p3469_model_8_global_best_epoch_037_seq1-11_all_cuda.png
+
+START model9
+checkpoint=checkpoints/object_detection/20260624_080957_178360__model_9__seq1_4-6_11_14_20_3_18/20260624_114203_mAP_31p8736_model_9_global_best_epoch_031_seq1-11.pth
+log=evaluation_plots/run_logs/20260629_153510_model9.log
+status=OK
+epoch=31 official_bev_mAP_0.3=31.9097 bev@0.3=31.9097 bev@0.5=11.4776 bev@0.7=1.7313 3d@0.3=17.1933 3d@0.5=2.4320 3d@0.7=0.0675 score_thr=0.3000 p=0.5015 r=0.3879 f1=0.4374 tp=813 fp=808 fn=1283 frames=1193
+best_epoch: epoch=31 official_bev_mAP_0.3=31.9097
+Saved evaluation plot: evaluation_plots/png_photos/20260629_153512_model9_seq1_4-6_11_14_20_seq3_18_20260624_114203_mAP_31p8736_model_9_global_best_epoch_031_seq1-11_all_cuda.png
+
+START model11
+checkpoint=checkpoints/mvrss_detection/model11__seq1-11_20260617_032403_638231/global_best_epoch_028_20260617_051825_mAP_0p4082.pth
+log=evaluation_plots/run_logs/20260629_153549_model11.log
+status=OK
+epoch=28 official_bev_mAP_0.3=17.3399 bev@0.3=17.3399 bev@0.5=7.1938 bev@0.7=0.9014 3d@0.3=8.7230 3d@0.5=1.4886 3d@0.7=0.0671 score_thr=0.3000 p=0.5102 r=0.2149 f1=0.3024 tp=1909 fp=1833 fn=6974 frames=3884
+best_epoch: epoch=28 official_bev_mAP_0.3=17.3399
+Saved evaluation plot: evaluation_plots/png_photos/20260629_153551_model11_train_unknown_val_unknown_global_best_epoch_028_20260617_051825_mAP_0p4082_all_cuda.png
+
+START model12
+checkpoint=checkpoints/object_detection/20260619_155520_209652__model_12__seq1_4-6_11_14_20_3_18/20260620_040729_mAP_0p4741_model_12_global_best_epoch_059_seq1-11.pth
+log=evaluation_plots/run_logs/20260629_153735_model12.log
+status=OK
+epoch=59 official_bev_mAP_0.3=36.7660 bev@0.3=36.7660 bev@0.5=18.3782 bev@0.7=3.3377 3d@0.3=23.7567 3d@0.5=5.3609 3d@0.7=0.2286 score_thr=0.3000 p=0.5624 r=0.3139 f1=0.4029 tp=658 fp=512 fn=1438 frames=1193
+best_epoch: epoch=59 official_bev_mAP_0.3=36.7660
+Saved evaluation plot: evaluation_plots/png_photos/20260629_153738_model12_seq1_4-6_11_14_20_seq3_18_20260620_040729_mAP_0p4741_model_12_global_best_epoch_059_seq1-11_all_cuda.png
+
+START model14
+checkpoint=checkpoints/object_detection/20260623_124906_769401__model_14__seq1_4-6_11_14_20_3_18/20260624_015317_mAP_34p9511_model_14_global_best_epoch_043_seq1-11.pth
+log=evaluation_plots/run_logs/20260629_154542_model14.log
+status=OK
+epoch=43 official_bev_mAP_0.3=34.9321 bev@0.3=34.9321 bev@0.5=19.9007 bev@0.7=5.3092 3d@0.3=24.7691 3d@0.5=6.2270 3d@0.7=0.6645 score_thr=0.3000 p=0.3733 r=0.3683 f1=0.3708 tp=772 fp=1296 fn=1324 frames=1193
+best_epoch: epoch=43 official_bev_mAP_0.3=34.9321
+Saved evaluation plot: evaluation_plots/png_photos/20260629_154544_model14_seq1_4-6_11_14_20_seq3_18_20260624_015317_mAP_34p9511_model_14_global_best_epoch_043_seq1-11_all_cuda.png
+
+POSTCHECK model4
+After adding legacy order split support, model4 still fails to load.
+Reason: checkpoint architecture keys are legacy (encoder/... + decoder.box_head/cls_head) and do not match current model4 implementation (backbone/... + CenterPoint decoder heads).
+Rerun log: evaluation_plots/run_logs/20260629_155601_model4_rerun.log

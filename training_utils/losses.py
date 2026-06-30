@@ -1,11 +1,16 @@
 import torch
 import torch.nn.functional as F
 
+from cfg_model import get_rae_scope_start_and_shape
 from training_utils.yolox_utils import (
     box_giou_2d,
     decode_yolox_boxes,
     simota_assign,
     yolox_grid_centers,
+)
+from training_utils.radenet_utils import (
+    raw_local_rae_boxes_to_metric_boxes,
+    regression_cell_to_metric_box,
 )
 
 
@@ -126,6 +131,232 @@ def heatmap_focal_loss(logits, targets, alpha=2.0, beta=4.0):
     num_pos = pos_inds.sum()
     loss = -(pos_loss.sum() + neg_loss.sum())
     return loss / torch.clamp(num_pos, min=1.0)
+
+
+def build_radenet_gaussian_heatmap(
+        gt_boxes_raw_list,
+        gt_labels_list,
+        scope_modes,
+        full_rae_shapes,
+        batch_size,
+        num_classes,
+        height,
+        width,
+        device,
+        sigma=3.0,
+    ):
+    heatmap = torch.zeros((batch_size, num_classes, height, width), device=device)
+    y_grid = torch.arange(0, height, device=device, dtype=torch.float32).view(height, 1).expand(height, width)
+    x_grid = torch.arange(0, width, device=device, dtype=torch.float32).view(1, width).expand(height, width)
+    default_factor = 2.0 * (sigma ** 2)
+
+    for batch_idx in range(batch_size):
+        raw_boxes = gt_boxes_raw_list[batch_idx].to(device)
+        labels = gt_labels_list[batch_idx].to(device)
+        if raw_boxes.numel() == 0 or labels.numel() == 0:
+            continue
+
+        valid = (labels >= 0) & (labels < num_classes)
+        raw_boxes = raw_boxes[valid]
+        labels = labels[valid]
+        if raw_boxes.numel() == 0:
+            continue
+
+        _, scope_shape = get_rae_scope_start_and_shape(scope_modes[batch_idx], full_rae_shapes[batch_idx])
+        scope_h = int(scope_shape[0])
+        scope_w = int(scope_shape[1])
+        scale_y = 0.0 if height <= 1 or scope_h <= 1 else float(height - 1) / float(scope_h - 1)
+        scale_x = 0.0 if width <= 1 or scope_w <= 1 else float(width - 1) / float(scope_w - 1)
+
+        for raw_box, cls_id in zip(raw_boxes, labels):
+            cls_id = int(cls_id.item())
+            center_y = torch.round(raw_box[0] * scale_y).clamp(min=0.0, max=float(height - 1))
+            center_x = torch.round(raw_box[1] * scale_x).clamp(min=0.0, max=float(width - 1))
+            gaussian = torch.exp(-((x_grid - center_x) ** 2 + (y_grid - center_y) ** 2) / default_factor)
+            heatmap[batch_idx, cls_id] = torch.clamp(heatmap[batch_idx, cls_id] + gaussian, 0.0, 1.0)
+
+    return heatmap
+
+
+def radenet_continuous_focal_loss(heatmap, gaussian_map, alpha=2.0, gamma=4.0):
+    eps = 1e-6
+    pos_weights = gaussian_map.eq(1.0)
+    neg_weights = torch.pow(1.0 - gaussian_map, gamma)
+
+    heatmap = torch.clamp(heatmap, min=eps, max=1.0 - eps)
+    heatmap_complement = torch.clamp(1.0 - heatmap, min=eps, max=1.0 - eps)
+
+    pos_loss = -torch.log(heatmap) * torch.pow(heatmap_complement, alpha) * pos_weights
+    neg_loss = -torch.log(heatmap_complement) * torch.pow(heatmap, alpha) * neg_weights
+    loss = pos_loss + neg_loss
+
+    num_pos = pos_weights.sum()
+    if num_pos > 0:
+        return torch.sum(loss) / (num_pos + eps)
+    return torch.mean(neg_loss)
+
+
+def _box_to_gaussian_batch(boxes):
+    x, y, _, length, width, _, yaw_sin, yaw_cos = torch.unbind(boxes, dim=-1)
+    width_half = width / 2.0
+    length_half = length / 2.0
+    cos_sq = yaw_cos ** 2
+    sin_sq = yaw_sin ** 2
+    cos_sin = yaw_cos * yaw_sin
+
+    sigma_11 = width_half * cos_sq + length_half * sin_sq
+    sigma_12 = (width_half - length_half) * cos_sin
+    sigma_21 = sigma_12
+    sigma_22 = width_half * sin_sq + length_half * cos_sq
+
+    sigma = torch.stack(
+        [
+            torch.stack([sigma_11, sigma_12], dim=-1),
+            torch.stack([sigma_21, sigma_22], dim=-1),
+        ],
+        dim=-2,
+    )
+    mu = torch.stack([x, y], dim=-1)
+    return mu, sigma
+
+
+def _matrix_sqrt_batch(matrix):
+    eigenvalues, eigenvectors = torch.linalg.eigh(matrix)
+    sqrt_eigenvalues = torch.sqrt(torch.clamp(eigenvalues, min=1e-12))
+    eigen_diag = torch.diag_embed(sqrt_eigenvalues)
+    return eigenvectors @ eigen_diag @ eigenvectors.transpose(-1, -2)
+
+
+def gaussian_wasserstein_distance_batch(pred_boxes, gt_boxes, tau=1.65):
+    pred_mu, pred_sigma = _box_to_gaussian_batch(pred_boxes)
+    gt_mu, gt_sigma = _box_to_gaussian_batch(gt_boxes)
+
+    first_term = (pred_mu - gt_mu).pow(2).sum(dim=-1)
+    pred_sigma_sq = pred_sigma @ pred_sigma
+    gt_sigma_sq = gt_sigma @ gt_sigma
+    intermediate = (-2.0) * _matrix_sqrt_batch(pred_sigma @ gt_sigma_sq @ pred_sigma)
+    matrix_add = pred_sigma_sq + gt_sigma_sq + intermediate
+    second_term = torch.diagonal(matrix_add, dim1=-2, dim2=-1).sum(dim=-1)
+    gwd = first_term + second_term
+    iou_like = 1.0 / (tau + torch.sqrt(torch.clamp(gwd, min=1e-12)))
+    return iou_like, 1.0 - iou_like
+
+
+def _normalize_radenet_loss_term(loss_term):
+    return loss_term / torch.clamp(loss_term.detach(), min=1e-6)
+
+
+def _gather_regression_at_centers(regression_map, center_indices):
+    if center_indices.numel() == 0:
+        return regression_map.new_zeros((0, regression_map.shape[0]))
+    y_idx = center_indices[:, 0].long()
+    x_idx = center_indices[:, 1].long()
+    return regression_map[:, y_idx, x_idx].transpose(0, 1)
+
+
+def radenet_detection_loss(
+        outputs,
+        gt_boxes_raw_list,
+        gt_labels_list,
+        scope_modes,
+        full_rae_shapes,
+        num_classes=DEFAULT_NUM_CLASSES,
+        gaussian_sigma=3.0,
+    ):
+    if "heatmap" not in outputs or "regression" not in outputs:
+        raise KeyError("RADE-Net loss requires model outputs to contain 'heatmap' and 'regression'.")
+
+    heatmap = outputs["heatmap"][:, :num_classes]
+    regression = outputs["regression"]
+    batch_size, _, height, width = heatmap.shape
+    device = heatmap.device
+
+    gaussian_targets = build_radenet_gaussian_heatmap(
+        gt_boxes_raw_list=gt_boxes_raw_list,
+        gt_labels_list=gt_labels_list,
+        scope_modes=scope_modes,
+        full_rae_shapes=full_rae_shapes,
+        batch_size=batch_size,
+        num_classes=num_classes,
+        height=height,
+        width=width,
+        device=device,
+        sigma=gaussian_sigma,
+    )
+    heatmap_loss = radenet_continuous_focal_loss(heatmap=heatmap, gaussian_map=gaussian_targets)
+
+    gwd_losses = []
+    smooth_l1_losses = []
+    for batch_idx in range(batch_size):
+        raw_boxes = gt_boxes_raw_list[batch_idx].to(device)
+        labels = gt_labels_list[batch_idx].to(device)
+        valid = (labels >= 0) & (labels < num_classes)
+        raw_boxes = raw_boxes[valid]
+        if raw_boxes.numel() == 0:
+            zero = regression.new_tensor(0.0)
+            gwd_losses.append(zero)
+            smooth_l1_losses.append(zero)
+            continue
+
+        gt_metric_boxes = raw_local_rae_boxes_to_metric_boxes(
+            raw_boxes=raw_boxes,
+            scope_mode=scope_modes[batch_idx],
+            full_rae_shape=full_rae_shapes[batch_idx],
+        )
+
+        _, scope_shape = get_rae_scope_start_and_shape(scope_modes[batch_idx], full_rae_shapes[batch_idx])
+        scope_h = int(scope_shape[0])
+        scope_w = int(scope_shape[1])
+        scale_y = 0.0 if height <= 1 or scope_h <= 1 else float(height - 1) / float(scope_h - 1)
+        scale_x = 0.0 if width <= 1 or scope_w <= 1 else float(width - 1) / float(scope_w - 1)
+
+        center_y = torch.round(raw_boxes[:, 0] * scale_y).clamp(min=0.0, max=float(height - 1))
+        center_x = torch.round(raw_boxes[:, 1] * scale_x).clamp(min=0.0, max=float(width - 1))
+        center_indices = torch.stack([center_y, center_x], dim=-1)
+
+        pred_reg = _gather_regression_at_centers(regression[batch_idx], center_indices)
+        pred_metric_boxes = regression_cell_to_metric_box(
+            pred_reg=pred_reg,
+            y_idx=center_y,
+            x_idx=center_x,
+            feature_shape=(height, width),
+            scope_mode=scope_modes[batch_idx],
+            full_rae_shape=full_rae_shapes[batch_idx],
+        )
+
+        pred_gwd_boxes = torch.cat(
+            [
+                pred_metric_boxes[:, :6],
+                F.normalize(pred_reg[:, 6:8], dim=-1),
+            ],
+            dim=-1,
+        )
+        gt_gwd_boxes = gt_metric_boxes
+        _, gwd_loss = gaussian_wasserstein_distance_batch(pred_gwd_boxes, gt_gwd_boxes)
+        gwd_losses.append(gwd_loss.mean())
+        smooth_l1_losses.append(F.smooth_l1_loss(pred_gwd_boxes, gt_gwd_boxes, reduction="mean"))
+
+    gwd_loss = torch.mean(torch.stack(gwd_losses)) if gwd_losses else regression.new_tensor(0.0)
+    smooth_l1_loss = (
+        torch.mean(torch.stack(smooth_l1_losses))
+        if smooth_l1_losses else regression.new_tensor(0.0)
+    )
+
+    backprop_loss = (
+        2.0 * _normalize_radenet_loss_term(heatmap_loss)
+        + _normalize_radenet_loss_term(gwd_loss)
+        + _normalize_radenet_loss_term(smooth_l1_loss)
+    )
+    total_loss = heatmap_loss + gwd_loss + smooth_l1_loss
+
+    return backprop_loss, {
+        "total_loss": total_loss.item(),
+        "box_loss": (gwd_loss + smooth_l1_loss).item(),
+        "cls_loss": heatmap_loss.item(),
+        "heatmap_loss": heatmap_loss.item(),
+        "gwd_loss": gwd_loss.item(),
+        "l1_loss": smooth_l1_loss.item(),
+    }
 
 
 def normalized_boxes_to_centerpoint_targets(box, H, W):
@@ -476,6 +707,12 @@ def yolox_detection_loss(
     objectness_logits_map = outputs["objectness_logits"]
     pred_boxes = decode_yolox_boxes(outputs, clamp=True)
     grid_centers, grid_h, grid_w = yolox_grid_centers(outputs)
+    # model12 was tuned around an 8x8 output grid. Scale the assignment window and
+    # candidate budget with the actual grid size so denser YOLOX-style heads, such as
+    # the Swin-based model14, keep a comparable normalized matching region.
+    grid_scale = max(grid_h, grid_w) / 8.0
+    center_radius = 2.5 * grid_scale
+    candidate_topk = max(10, int(round(10 * grid_scale)))
 
     batch_size, num_preds, _ = pred_boxes.shape
     cls_logits = cls_logits_map.flatten(start_dim=2).transpose(1, 2)
@@ -502,6 +739,8 @@ def yolox_detection_loss(
             num_classes=num_classes,
             height=grid_h,
             width=grid_w,
+            center_radius=center_radius,
+            candidate_topk=candidate_topk,
         )
 
         num_fg = int(matched_pred_idx.numel())
@@ -552,8 +791,6 @@ def yolox_detection_loss(
         "total_loss": total_loss.item(),
         "box_loss": box_loss.item(),
         "cls_loss": cls_loss.item(),
-        "heatmap_loss": cls_loss.item(),
-        "quality_loss": obj_loss.item(),
         "obj_loss": obj_loss.item(),
         "l1_loss": l1_loss.item(),
         "num_center_targets": total_fg,

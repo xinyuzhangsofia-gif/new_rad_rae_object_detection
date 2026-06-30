@@ -4,12 +4,12 @@ from cfg_model import SCOPE_NARROW
 # Edit this file, then run:
 #   python visualize.py
 VISUALIZE_CONFIG = {
-    "checkpoint_path": "checkpoints/object_detection/20260620_104648_755934__model_5__seq1_4-6_11_14_20_3_18/20260620_161435_mAP_0p5034_model_5_global_best_epoch_084_seq1-11.pth",
+    "checkpoint_path": "checkpoints/object_detection/20260629_160640_362196__model_13__seq1_4-6_11_14_20_3_18/20260629_170553_mAP_36p2852_model_13_candidate_epoch_020_seq1-11.pth",
 
     # Set this to the K-Radar sequence you want to watch, e.g. 3, 18, or 20.
     # When this is not None, visualization loads this sequence directly instead
     # of using the checkpoint's validation split.
-    "sequence": 18,
+    "sequence": 1,
 
     "start_file_idx": 0,
     "frame_step": 5,
@@ -20,7 +20,7 @@ VISUALIZE_CONFIG = {
     "pred_mode": "final",         # "raw" or "final"
     "heatmap_nms_kernel": 3,
     "yolox_nms_iou": 0.5,
-    "model_type": "auto",         # "auto" or model1 ... model12
+    "model_type": "auto",         # "auto" or model1 ... model15
 
     "save_images": False,
     "no_display": False,

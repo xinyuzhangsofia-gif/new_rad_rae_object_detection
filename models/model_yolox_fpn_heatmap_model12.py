@@ -109,5 +109,4 @@ class RADRAEYOLOXFPNCenterPointModel(nn.Module):
         return {
             **features,
             **decoded,
-            "heatmap_logits": decoded["cls_logits"],
         }
