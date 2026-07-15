@@ -11,6 +11,7 @@ from .model_qfl_fpn_heatmap_model11 import RADRAEQFLFPNCenterPointModel
 from .model_radenet_cbam_model13 import RADRAERADENetCenterPointModel
 from .model_radenet_official_model15 import RADRAERADENetOfficialModel
 from .model_swin_heatmap_model7 import RADRAESwinFPNCenterPointModel
+from .model_swin_radenet_official_model16 import RADRAESwinRADENetOfficialModel
 from .model_swin_yolox_model14 import RADRAESwinYOLOXCenterPointModel
 from .model_yolox_fpn_heatmap_model12 import RADRAEYOLOXFPNCenterPointModel
 from .factory import MODEL_TYPES, build_model
@@ -31,6 +32,7 @@ __all__ = [
     "RADRAERADENetCenterPointModel",
     "RADRAERADENetOfficialModel",
     "RADRAESwinFPNCenterPointModel",
+    "RADRAESwinRADENetOfficialModel",
     "RADRAESwinYOLOXCenterPointModel",
     "RADRAEYOLOXFPNCenterPointModel",
 ]

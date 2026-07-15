@@ -726,7 +726,7 @@ def get_official_eval_result_revised(gt_annos,
                                     difficultys=[0, 1, 2],
                                     z_axis=1,
                                     z_center=0.5,
-                                    iou_mode='all', # 'hard', 'mod', 'easy', 'all'
+                                    iou_mode='all', # 'hard', 'mod', 'easy', 'all(0.5+0.3)'
                                     is_return_with_dict=False):
     """
         gt_annos and dt_annos must contains following keys:
@@ -744,7 +744,7 @@ def get_official_eval_result_revised(gt_annos,
                              [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3]])
 
     dict_ious = {
-        'all': [overlap_hard, overlap_mod, overlap_easy],
+        'all': [overlap_easy, overlap_mod],
         'hard': [overlap_hard],
         'mod': [overlap_mod],
         'easy': [overlap_easy]

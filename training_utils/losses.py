@@ -1,7 +1,9 @@
+import math
+
 import torch
 import torch.nn.functional as F
 
-from cfg_model import get_rae_scope_start_and_shape
+from cfg_model import denormalize_rae_boxes_to_local_scope, get_rae_scope_start_and_shape
 from training_utils.yolox_utils import (
     box_giou_2d,
     decode_yolox_boxes,
@@ -29,6 +31,38 @@ def boxes_3d_to_ra_xyxy(boxes):
     a_max = a + a_w / 2.0
 
     return torch.stack([r_min, a_min, r_max, a_max], dim=-1)
+
+
+def normalized_rae_boxes_to_gwd_boxes(boxes, scope_mode=None, full_rae_shape=None):
+    if boxes.numel() == 0:
+        return boxes.new_zeros((0, 8))
+
+    if scope_mode is not None and full_rae_shape is not None:
+        raw_boxes = denormalize_rae_boxes_to_local_scope(
+            boxes=boxes,
+            scope_mode=scope_mode,
+            rae_shape=full_rae_shape,
+        )
+        return raw_local_rae_boxes_to_metric_boxes(
+            raw_boxes=raw_boxes,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+        )
+
+    yaw = (boxes[:, 6] * 2.0 * torch.pi) - torch.pi
+    return torch.stack(
+        [
+            boxes[:, 0],
+            boxes[:, 1],
+            boxes[:, 2],
+            boxes[:, 3].abs().clamp(min=1e-4),
+            boxes[:, 4].abs().clamp(min=1e-4),
+            boxes[:, 5].abs().clamp(min=1e-4),
+            torch.sin(yaw),
+            torch.cos(yaw),
+        ],
+        dim=-1,
+    )
 
 
 def pairwise_box_giou_2d(boxes1, boxes2):
@@ -114,10 +148,110 @@ def draw_gaussian(heatmap, center_y, center_x, radius):
     torch.maximum(masked_heatmap, masked_gaussian, out=masked_heatmap)
 
 
-def heatmap_focal_loss(logits, targets, alpha=2.0, beta=4.0):
+def build_normalized_ignore_mask(
+        gt_ignore_boxes_list,
+        height,
+        width,
+        device,
+        ignore_margin=1.0,
+        ignore_expand_ratio=1.0,
+    ):
+    mask = torch.zeros((len(gt_ignore_boxes_list), 1, height, width), device=device)
+
+    for batch_idx, ignore_boxes in enumerate(gt_ignore_boxes_list):
+        ignore_boxes = ignore_boxes.to(device)
+        if ignore_boxes.numel() == 0:
+            continue
+
+        for box in ignore_boxes:
+            center_y = float(box[0].clamp(0.0, 1.0).item()) * float(height)
+            center_x = float(box[1].clamp(0.0, 1.0).item()) * float(width)
+            half_h = (
+                float(box[3].abs().clamp(min=1e-4).item())
+                * float(height)
+                * 0.5
+                * float(ignore_expand_ratio)
+            ) + float(ignore_margin)
+            half_w = (
+                float(box[4].abs().clamp(min=1e-4).item())
+                * float(width)
+                * 0.5
+                * float(ignore_expand_ratio)
+            ) + float(ignore_margin)
+
+            y0 = max(0, int(math.floor(center_y - half_h)))
+            y1 = min(height - 1, int(math.ceil(center_y + half_h)))
+            x0 = max(0, int(math.floor(center_x - half_w)))
+            x1 = min(width - 1, int(math.ceil(center_x + half_w)))
+            if y0 > y1 or x0 > x1:
+                continue
+            mask[batch_idx, 0, y0:y1 + 1, x0:x1 + 1] = 1.0
+
+    return mask
+
+
+def build_raw_ignore_mask(
+        gt_ignore_boxes_raw_list,
+        scope_modes,
+        full_rae_shapes,
+        height,
+        width,
+        device,
+        ignore_margin=1.0,
+        ignore_expand_ratio=1.0,
+    ):
+    mask = torch.zeros((len(gt_ignore_boxes_raw_list), 1, height, width), device=device)
+
+    for batch_idx, ignore_boxes in enumerate(gt_ignore_boxes_raw_list):
+        ignore_boxes = ignore_boxes.to(device)
+        if ignore_boxes.numel() == 0:
+            continue
+
+        _, scope_shape = get_rae_scope_start_and_shape(
+            scope_modes[batch_idx],
+            full_rae_shapes[batch_idx],
+        )
+        scope_h = int(scope_shape[0])
+        scope_w = int(scope_shape[1])
+        scale_y = 0.0 if height <= 1 or scope_h <= 1 else float(height - 1) / float(scope_h - 1)
+        scale_x = 0.0 if width <= 1 or scope_w <= 1 else float(width - 1) / float(scope_w - 1)
+
+        for box in ignore_boxes:
+            center_y = float(box[0].item()) * scale_y
+            center_x = float(box[1].item()) * scale_x
+            half_h = (
+                float(box[3].abs().clamp(min=1e-4).item())
+                * scale_y
+                * 0.5
+                * float(ignore_expand_ratio)
+            ) + float(ignore_margin)
+            half_w = (
+                float(box[4].abs().clamp(min=1e-4).item())
+                * scale_x
+                * 0.5
+                * float(ignore_expand_ratio)
+            ) + float(ignore_margin)
+
+            y0 = max(0, int(math.floor(center_y - half_h)))
+            y1 = min(height - 1, int(math.ceil(center_y + half_h)))
+            x0 = max(0, int(math.floor(center_x - half_w)))
+            x1 = min(width - 1, int(math.ceil(center_x + half_w)))
+            if y0 > y1 or x0 > x1:
+                continue
+            mask[batch_idx, 0, y0:y1 + 1, x0:x1 + 1] = 1.0
+
+    return mask
+
+
+def heatmap_focal_loss(logits, targets, valid_mask=None, alpha=2.0, beta=4.0):
     pred = logits.sigmoid().clamp(min=1e-4, max=1.0 - 1e-4)
+    if valid_mask is None:
+        valid_mask = 1.0
+    else:
+        valid_mask = valid_mask.to(dtype=targets.dtype)
     pos_inds = targets.eq(1.0).float()
-    neg_inds = targets.lt(1.0).float()
+    neg_inds = targets.lt(1.0).float() * valid_mask
+    pos_inds = pos_inds * valid_mask
     neg_weights = torch.pow(1.0 - targets, beta)
 
     pos_loss = torch.log(pred) * torch.pow(1.0 - pred, alpha) * pos_inds
@@ -178,10 +312,14 @@ def build_radenet_gaussian_heatmap(
     return heatmap
 
 
-def radenet_continuous_focal_loss(heatmap, gaussian_map, alpha=2.0, gamma=4.0):
+def radenet_continuous_focal_loss(heatmap, gaussian_map, valid_mask=None, alpha=2.0, gamma=4.0):
     eps = 1e-6
-    pos_weights = gaussian_map.eq(1.0)
-    neg_weights = torch.pow(1.0 - gaussian_map, gamma)
+    if valid_mask is None:
+        valid_mask = 1.0
+    else:
+        valid_mask = valid_mask.to(dtype=gaussian_map.dtype)
+    pos_weights = gaussian_map.eq(1.0).to(dtype=gaussian_map.dtype) * valid_mask
+    neg_weights = torch.pow(1.0 - gaussian_map, gamma) * valid_mask
 
     heatmap = torch.clamp(heatmap, min=eps, max=1.0 - eps)
     heatmap_complement = torch.clamp(1.0 - heatmap, min=eps, max=1.0 - eps)
@@ -193,6 +331,10 @@ def radenet_continuous_focal_loss(heatmap, gaussian_map, alpha=2.0, gamma=4.0):
     num_pos = pos_weights.sum()
     if num_pos > 0:
         return torch.sum(loss) / (num_pos + eps)
+    if torch.is_tensor(valid_mask):
+        valid_count = valid_mask.sum()
+        if valid_count > 0:
+            return neg_loss.sum() / (valid_count + eps)
     return torch.mean(neg_loss)
 
 
@@ -260,8 +402,11 @@ def radenet_detection_loss(
         gt_labels_list,
         scope_modes,
         full_rae_shapes,
+        gt_ignore_boxes_raw_list=None,
         num_classes=DEFAULT_NUM_CLASSES,
         gaussian_sigma=3.0,
+        ignore_mask_margin=1.0,
+        ignore_mask_expand_ratio=1.0,
     ):
     if "heatmap" not in outputs or "regression" not in outputs:
         raise KeyError("RADE-Net loss requires model outputs to contain 'heatmap' and 'regression'.")
@@ -283,7 +428,26 @@ def radenet_detection_loss(
         device=device,
         sigma=gaussian_sigma,
     )
-    heatmap_loss = radenet_continuous_focal_loss(heatmap=heatmap, gaussian_map=gaussian_targets)
+    if gt_ignore_boxes_raw_list is None:
+        ignore_mask = torch.zeros((batch_size, 1, height, width), device=device)
+    else:
+        ignore_mask = build_raw_ignore_mask(
+            gt_ignore_boxes_raw_list=gt_ignore_boxes_raw_list,
+            scope_modes=scope_modes,
+            full_rae_shapes=full_rae_shapes,
+            height=height,
+            width=width,
+            device=device,
+            ignore_margin=ignore_mask_margin,
+            ignore_expand_ratio=ignore_mask_expand_ratio,
+        )
+    valid_mask = 1.0 - ignore_mask
+    valid_mask = torch.maximum(valid_mask, gaussian_targets.amax(dim=1, keepdim=True).gt(0.0).float())
+    heatmap_loss = radenet_continuous_focal_loss(
+        heatmap=heatmap,
+        gaussian_map=gaussian_targets,
+        valid_mask=valid_mask,
+    )
 
     gwd_losses = []
     smooth_l1_losses = []
@@ -356,6 +520,7 @@ def radenet_detection_loss(
         "heatmap_loss": heatmap_loss.item(),
         "gwd_loss": gwd_loss.item(),
         "l1_loss": smooth_l1_loss.item(),
+        "ignore_pixels": int(ignore_mask.sum().item()),
     }
 
 
@@ -511,6 +676,42 @@ def centerpoint_giou_loss(outputs, target_boxes, mask):
     return (1.0 - gious).mean()
 
 
+def centerpoint_gwd_loss(outputs, target_boxes, mask, scope_modes=None, full_rae_shapes=None):
+    positive_mask = mask.squeeze(1).bool()
+    if positive_mask.sum() == 0:
+        return outputs["cls_logits"].new_tensor(0.0)
+
+    pred_box_map = dense_centerpoint_outputs_to_boxes(outputs)
+    losses = []
+    batch_size = pred_box_map.shape[0]
+    for batch_idx in range(batch_size):
+        positive_b = positive_mask[batch_idx]
+        if positive_b.sum() == 0:
+            continue
+
+        pred_boxes = pred_box_map[batch_idx].permute(1, 2, 0)[positive_b]
+        gt_boxes = target_boxes[batch_idx].permute(1, 2, 0)[positive_b]
+        scope_mode = None if scope_modes is None else scope_modes[batch_idx]
+        full_rae_shape = None if full_rae_shapes is None else full_rae_shapes[batch_idx]
+
+        pred_gwd_boxes = normalized_rae_boxes_to_gwd_boxes(
+            boxes=pred_boxes,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+        )
+        gt_gwd_boxes = normalized_rae_boxes_to_gwd_boxes(
+            boxes=gt_boxes,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+        )
+        _, gwd_loss = gaussian_wasserstein_distance_batch(pred_gwd_boxes, gt_gwd_boxes)
+        losses.append(gwd_loss.mean())
+
+    if len(losses) == 0:
+        return outputs["cls_logits"].new_tensor(0.0)
+    return torch.stack(losses).mean()
+
+
 def centerpoint_quality_loss(outputs, target_boxes, mask):
     if "objectness_logits" in outputs:
         objectness_logits = outputs["objectness_logits"]
@@ -556,10 +757,21 @@ def centerpoint_quality_loss(outputs, target_boxes, mask):
     )
 
 
-def centerpoint_quality_focal_loss(outputs, target_boxes, target_labels, mask, beta=2.0):
+def centerpoint_quality_focal_loss(
+        outputs,
+        target_boxes,
+        target_labels,
+        mask,
+        valid_mask=None,
+        beta=2.0,
+    ):
     cls_logits = outputs["cls_logits"]
     pred_scores = cls_logits.sigmoid()
     qfl_targets = torch.zeros_like(cls_logits)
+    if valid_mask is None:
+        valid_mask = torch.ones_like(cls_logits)
+    else:
+        valid_mask = valid_mask.to(dtype=cls_logits.dtype).expand_as(cls_logits)
 
     positive_mask = mask.squeeze(1).bool()
     if positive_mask.sum() > 0:
@@ -590,19 +802,24 @@ def centerpoint_quality_focal_loss(outputs, target_boxes, target_labels, mask, b
     )
     modulating_factor = (qfl_targets - pred_scores).abs().pow(beta)
     num_pos = positive_mask.sum().to(cls_logits.dtype)
-    return (bce_loss * modulating_factor).sum() / torch.clamp(num_pos, min=1.0)
+    return (bce_loss * modulating_factor * valid_mask).sum() / torch.clamp(num_pos, min=1.0)
 
 
 def centerpoint_detection_loss(
         outputs,
         gt_boxes_list,
         gt_labels_list,
+        gt_ignore_boxes_list=None,
+        scope_modes=None,
+        full_rae_shapes=None,
         box_loss_weight=1.0,
         cls_loss_weight=1.0,
         giou_loss_weight=2.0,
         quality_loss_weight=0.25,
         heatmap_radius=3,
-        num_classes=DEFAULT_NUM_CLASSES
+        num_classes=DEFAULT_NUM_CLASSES,
+        ignore_mask_margin=1.0,
+        ignore_mask_expand_ratio=1.0,
     ):
     cls_logits = outputs["cls_logits"]
     heatmap_targets, reg_targets, reg_mask = build_centerpoint_targets(
@@ -613,6 +830,25 @@ def centerpoint_detection_loss(
         radius=heatmap_radius,
         reg_reference=outputs["center_offset"],
     )
+    if gt_ignore_boxes_list is None:
+        ignore_mask = torch.zeros(
+            (cls_logits.shape[0], 1, cls_logits.shape[-2], cls_logits.shape[-1]),
+            device=cls_logits.device,
+        )
+    else:
+        ignore_mask = build_normalized_ignore_mask(
+            gt_ignore_boxes_list=gt_ignore_boxes_list,
+            height=cls_logits.shape[-2],
+            width=cls_logits.shape[-1],
+            device=cls_logits.device,
+            ignore_margin=ignore_mask_margin,
+            ignore_expand_ratio=ignore_mask_expand_ratio,
+        )
+    cls_valid_mask = 1.0 - ignore_mask
+    cls_valid_mask = torch.maximum(
+        cls_valid_mask,
+        heatmap_targets.amax(dim=1, keepdim=True).gt(0.0).float(),
+    )
 
     if "qfl_cls_logits" in outputs:
         cls_loss = centerpoint_quality_focal_loss(
@@ -620,11 +856,13 @@ def centerpoint_detection_loss(
             target_boxes=reg_targets["box"],
             target_labels=reg_targets["label"],
             mask=reg_mask,
+            valid_mask=cls_valid_mask,
         )
     else:
         cls_loss = heatmap_focal_loss(
             logits=cls_logits,
-            targets=heatmap_targets
+            targets=heatmap_targets,
+            valid_mask=cls_valid_mask,
         )
 
     pred_center_offset = outputs["center_offset"].sigmoid()
@@ -652,10 +890,18 @@ def centerpoint_detection_loss(
         target=reg_targets["yaw"],
         mask=reg_mask
     )
-    giou_loss = centerpoint_giou_loss(
+    # Old axis-aligned GIoU path, kept for quick rollback:
+    # giou_loss = centerpoint_giou_loss(
+    #     outputs=outputs,
+    #     target_boxes=reg_targets["box"],
+    #     mask=reg_mask
+    # )
+    giou_loss = centerpoint_gwd_loss(
         outputs=outputs,
         target_boxes=reg_targets["box"],
-        mask=reg_mask
+        mask=reg_mask,
+        scope_modes=scope_modes,
+        full_rae_shapes=full_rae_shapes,
     )
     quality_loss = centerpoint_quality_loss(
         outputs=outputs,
@@ -687,7 +933,9 @@ def centerpoint_detection_loss(
         "size_loss": size_loss.item(),
         "yaw_loss": yaw_loss.item(),
         "giou_loss": giou_loss.item(),
+        "gwd_loss": giou_loss.item(),
         "num_center_targets": int(reg_mask.sum().item()),
+        "ignore_pixels": int(ignore_mask.sum().item()),
     }
 
     return total_loss, loss_dict
@@ -697,11 +945,16 @@ def yolox_detection_loss(
         outputs,
         gt_boxes_list,
         gt_labels_list,
+        gt_ignore_boxes_list=None,
+        scope_modes=None,
+        full_rae_shapes=None,
         num_classes=DEFAULT_NUM_CLASSES,
         box_loss_weight=5.0,
         obj_loss_weight=1.0,
         cls_loss_weight=1.0,
         l1_loss_weight=1.0,
+        ignore_mask_margin=1.0,
+        ignore_mask_expand_ratio=1.0,
     ):
     cls_logits_map = outputs["cls_logits"][:, :num_classes]
     objectness_logits_map = outputs["objectness_logits"]
@@ -723,6 +976,21 @@ def yolox_detection_loss(
     total_cls_loss = pred_boxes.new_tensor(0.0)
     total_l1_loss = pred_boxes.new_tensor(0.0)
     total_fg = 0
+    total_ignore_pixels = 0
+
+    if gt_ignore_boxes_list is None:
+        obj_valid_masks = torch.ones((batch_size, num_preds), device=pred_boxes.device)
+    else:
+        ignore_mask = build_normalized_ignore_mask(
+            gt_ignore_boxes_list=gt_ignore_boxes_list,
+            height=grid_h,
+            width=grid_w,
+            device=pred_boxes.device,
+            ignore_margin=ignore_mask_margin,
+            ignore_expand_ratio=ignore_mask_expand_ratio,
+        )
+        total_ignore_pixels = int(ignore_mask.sum().item())
+        obj_valid_masks = 1.0 - ignore_mask.flatten(start_dim=2).squeeze(1)
 
     for batch_idx in range(batch_size):
         gt_boxes = gt_boxes_list[batch_idx].to(pred_boxes.device)
@@ -747,14 +1015,30 @@ def yolox_detection_loss(
         if num_fg > 0:
             total_fg += num_fg
             obj_targets[matched_pred_idx] = 1.0
+            obj_valid_masks[batch_idx, matched_pred_idx] = 1.0
 
             matched_gt_boxes = gt_boxes[matched_gt_idx]
             pred_pos_boxes = pred_boxes[batch_idx, matched_pred_idx]
-            giou = box_giou_2d(
-                boxes_3d_to_ra_xyxy(pred_pos_boxes),
-                boxes_3d_to_ra_xyxy(matched_gt_boxes),
+            # Old axis-aligned GIoU path, kept for quick rollback:
+            # giou = box_giou_2d(
+            #     boxes_3d_to_ra_xyxy(pred_pos_boxes),
+            #     boxes_3d_to_ra_xyxy(matched_gt_boxes),
+            # )
+            # total_box_loss = total_box_loss + (1.0 - giou).sum()
+            scope_mode = None if scope_modes is None else scope_modes[batch_idx]
+            full_rae_shape = None if full_rae_shapes is None else full_rae_shapes[batch_idx]
+            pred_gwd_boxes = normalized_rae_boxes_to_gwd_boxes(
+                boxes=pred_pos_boxes,
+                scope_mode=scope_mode,
+                full_rae_shape=full_rae_shape,
             )
-            total_box_loss = total_box_loss + (1.0 - giou).sum()
+            gt_gwd_boxes = normalized_rae_boxes_to_gwd_boxes(
+                boxes=matched_gt_boxes,
+                scope_mode=scope_mode,
+                full_rae_shape=full_rae_shape,
+            )
+            _, gwd_loss = gaussian_wasserstein_distance_batch(pred_gwd_boxes, gt_gwd_boxes)
+            total_box_loss = total_box_loss + gwd_loss.sum()
 
             cls_targets = F.one_hot(matched_labels, num_classes=num_classes).float()
             cls_targets = cls_targets * matched_ious.detach().unsqueeze(1)
@@ -769,11 +1053,12 @@ def yolox_detection_loss(
                 reduction="sum",
             )
 
-        total_obj_loss = total_obj_loss + F.binary_cross_entropy_with_logits(
+        obj_loss = F.binary_cross_entropy_with_logits(
             objectness_logits[batch_idx],
             obj_targets,
-            reduction="sum",
+            reduction="none",
         )
+        total_obj_loss = total_obj_loss + (obj_loss * obj_valid_masks[batch_idx]).sum()
 
     normalizer = max(total_fg, 1)
     box_loss = total_box_loss / normalizer
@@ -793,5 +1078,7 @@ def yolox_detection_loss(
         "cls_loss": cls_loss.item(),
         "obj_loss": obj_loss.item(),
         "l1_loss": l1_loss.item(),
+        "gwd_loss": box_loss.item(),
         "num_center_targets": total_fg,
+        "ignore_pixels": total_ignore_pixels,
     }

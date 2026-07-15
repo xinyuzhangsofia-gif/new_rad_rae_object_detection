@@ -24,7 +24,7 @@ class SwinFPNEncoder(nn.Module):
             num_heads=(2, 4, 8),
             window_size=4,
             patch_size=2,
-            mlp_ratio=4.0,
+            mlp_ratio=4.0, 
             dropout=0.0,
             attention_dropout=0.0,
             stochastic_depth_prob=0.1,

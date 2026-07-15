@@ -1,15 +1,19 @@
-from types import SimpleNamespace
 import sys
+from types import SimpleNamespace
+
 import torch
+
 from cfg_model import SCOPE_CHOICES
 from dataloader import (
     build_train_val_dataloaders,
     get_dataset_sequences_for_split,
     prepare_model_inputs,
 )
-from dataset import CLASS_NAMES, CLASS_TO_IDX
-from evaluation import evaluate_train_val_iou
-from models import *
+from evaluation import (
+    evaluate_train_val_iou,
+    resolve_official_eval_class_name_map,
+)
+from models import MODEL_TYPES, build_model
 from training_utils.checkpoints import (
     create_checkpoint_run_dirs,
     EXPERIMENT_NAME,
@@ -28,12 +32,22 @@ from training_utils.other_helping_functions import (
     save_global_best_checkpoint,
     set_seed,
 )
-from training_utils.runtime import NUM_CLASSES, select_device_and_gpus
+from training_utils.runtime import select_device_and_gpus
 from training_utils.training_loop import (
     train_one_epoch,
     validate_loss,
 )
 from train_cfg import TRAIN_CONFIG
+from train_mode_utils import (
+    apply_task_configuration,
+    apply_model15_lr_defaults,
+    build_model15_lr_scheduler,
+    initialize_model_from_checkpoint,
+    prepare_controlled_train_data,
+    resolve_loss_mode,
+    resolve_run_model_type,
+    use_official_model15_lr_mode,
+)
 from zxy_config import DataConfig
 
 
@@ -57,6 +71,12 @@ def main():
     args = build_train_args()
     if args.checkpoint_epoch_step <= 0:
         raise ValueError("checkpoint_epoch_step must be greater than 0")
+    if (
+        getattr(args, "training_eval_enabled", True)
+        and getattr(args, "official_eval_enabled", False)
+        and getattr(args, "official_eval_iou_backend", "auto") == "auto"
+    ):
+        args.official_eval_iou_backend = "cpu"
 
     set_seed(args.seed)
     cfg = DataConfig()
@@ -66,11 +86,29 @@ def main():
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
     )
-    args.num_classes = NUM_CLASSES
-    args.class_names = CLASS_NAMES.copy()
-    args.class_to_idx = CLASS_TO_IDX.copy()
+    args = apply_task_configuration(args)
+    args = prepare_controlled_train_data(args)
+    args = apply_model15_lr_defaults(args)
+    args.official_class_name_map, _ = resolve_official_eval_class_name_map(
+        args.class_names
+    )
+    args.run_model_type = resolve_run_model_type(
+        model_type=args.model_type,
+        include_bus_as_target=args.include_bus_as_target,
+    )
 
-    print(f"Training classes: {CLASS_NAMES}")
+    print(f"Training classes: {args.class_names}")
+    print(f"Bus target enabled: {args.include_bus_as_target}")
+    print(f"Ignore-mask classes: {args.ignore_class_names}")
+    print(
+        f"Ignore-mask region: GT box * {args.ignore_mask_expand_ratio} + margin {args.ignore_mask_margin}"
+    )
+    if args.train_control_split_enabled:
+        print(f"Train control split: {args.train_control_split_dir}")
+    if args.gt_object_ignore_override_path is not None:
+        print(f"GT object ignore override: {args.gt_object_ignore_override_path}")
+    if use_official_model15_lr_mode(args.model_type):
+        print("Model15 LR mode: official RADE-Net CosineAnnealingLR")
 
     device, gpu_ids = select_device_and_gpus(args.gpu_ids)
 
@@ -81,17 +119,31 @@ def main():
         seed=args.seed,
         num_workers=args.num_workers,
         limit_samples=args.limit_samples,
-        class_to_idx=CLASS_TO_IDX,
+        class_to_idx=args.class_to_idx,
+        ignore_class_names=args.ignore_class_names,
+        gt_object_ignore_override_path=args.gt_object_ignore_override_path,
         split_mode=args.split_mode,
         split_dir=getattr(args, "split_dir", "split"),
         scope_mode=args.train_scope,
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
+        train_control_split_enabled=args.train_control_split_enabled,
+        train_control_split_dir=args.train_control_split_dir,
     )
     if len(val_dataset) == 0:
         raise ValueError("Validation split is empty.")
 
-    model = build_model(model_type=args.model_type, device=device)
+    model = build_model(
+        model_type=args.model_type,
+        device=device,
+        num_classes=args.num_classes,
+    )
+    initialize_model_from_checkpoint(
+        model=model,
+        checkpoint_path=getattr(args, "init_from_checkpoint", ""),
+        map_location=device,
+        include_bus_as_target=args.include_bus_as_target,
+    )
 
     if len(gpu_ids) > 1:
         model = torch.nn.DataParallel(
@@ -104,6 +156,11 @@ def main():
         print(f"Using device: {device}")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    scheduler = build_model15_lr_scheduler(
+        args=args,
+        optimizer=optimizer,
+        num_train_samples=len(train_dataset),
+    )
     history = []
     best_state = BestCheckpointState()
 
@@ -111,7 +168,7 @@ def main():
         base_dir=args.checkpoint_base_dir,
         experiment_name=EXPERIMENT_NAME,
         sequences=configured_sequences,
-        model_type=args.model_type
+        model_type=args.run_model_type,
     )
     checkpoint_key = next(iter(checkpoint_dirs))
     checkpoint_dir = checkpoint_dirs[checkpoint_key]
@@ -120,7 +177,7 @@ def main():
         base_dir=args.log_base_dir,
         experiment_name=EXPERIMENT_NAME,
         sequence=configured_sequences,
-        model_type=args.model_type
+        model_type=args.run_model_type,
     )
     
     write_tensorboard_run_config(
@@ -132,13 +189,14 @@ def main():
         val_size=len(val_dataset),
         learning_rate=args.lr,
         max_detections=args.max_detections,
-        num_classes=NUM_CLASSES,
-        class_names=CLASS_NAMES,
-        model_type=args.model_type,
+        num_classes=args.num_classes,
+        class_names=args.class_names,
+        model_type=args.run_model_type,
         train_scope=args.train_scope,
         split_mode=args.split_mode,
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
+        training_eval_enabled=getattr(args, "training_eval_enabled", True),
         best_metric_key=getattr(args, "best_metric_key", "auto"),
         official_eval_enabled=getattr(args, "official_eval_enabled", False),
         official_eval_version=getattr(args, "official_eval_version", "revised"),
@@ -146,19 +204,18 @@ def main():
         official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
         coco_style_eval_enabled=getattr(args, "coco_style_eval_enabled", False),
         nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
+        gt_object_ignore_override_path=getattr(args, "gt_object_ignore_override_path", None),
+        train_control_split_enabled=getattr(args, "train_control_split_enabled", False),
+        train_control_split_dir=getattr(args, "train_control_split_dir", None),
     )
 
     for epoch in range(args.epochs):
-        if args.model_type in {"model12", "model14"}:
-            loss_mode = "yolox"
-        elif args.model_type == "model15":
-            loss_mode = "radenet"
-        else:
-            loss_mode = "centerpoint"
+        loss_mode = resolve_loss_mode(args.model_type)
         train_metrics = train_one_epoch(
             model=model,
             dataloader=train_loader,
             optimizer=optimizer,
+            scheduler=scheduler,
             device=device,
             epoch=epoch,
             num_epochs=args.epochs,
@@ -167,8 +224,10 @@ def main():
             heatmap_radius=args.heatmap_radius,
             centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
             quality_loss_weight=args.quality_loss_weight,
+            ignore_mask_margin=args.ignore_mask_margin,
+            ignore_mask_expand_ratio=args.ignore_mask_expand_ratio,
             loss_mode=loss_mode,
-            num_classes=NUM_CLASSES,
+            num_classes=args.num_classes,
         )
         
         val_loss_metrics = validate_loss(
@@ -180,33 +239,40 @@ def main():
             heatmap_radius=args.heatmap_radius,
             centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
             quality_loss_weight=args.quality_loss_weight,
+            ignore_mask_margin=args.ignore_mask_margin,
+            ignore_mask_expand_ratio=args.ignore_mask_expand_ratio,
             loss_mode=loss_mode,
-            num_classes=NUM_CLASSES,
+            num_classes=args.num_classes,
         )
 
+        eval_metrics = None
+        if getattr(args, "training_eval_enabled", True):
+            eval_metrics = evaluate_train_val_iou(
+                model=model,
+                train_dataloader=train_loader,
+                val_dataloader=val_loader,
+                device=device,
+                num_classes=args.num_classes,
+                official_class_name_map=args.official_class_name_map,
+                prepare_model_inputs=prepare_model_inputs,
+                max_detections=args.max_detections,
+                scope_mode=args.train_scope,
+                evaluate_train=args.eval_train,
+                official_eval_enabled=getattr(args, "official_eval_enabled", False),
+                official_eval_version=getattr(args, "official_eval_version", "revised"),
+                official_eval_iou_backend=getattr(args, "official_eval_iou_backend", "auto"),
+                official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
+                coco_style_eval_enabled=getattr(args, "coco_style_eval_enabled", False),
+                nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
+                ap_score_thresh=getattr(args, "ap_score_thresh", 0.01),
+                detection_score_thresh=getattr(args, "score_thresh", 0.3),
+            )
 
-        eval_metrics = evaluate_train_val_iou(
-            model=model,
-            train_dataloader=train_loader,
-            val_dataloader=val_loader,
-            device=device,
-            num_classes=NUM_CLASSES,
-            prepare_model_inputs=prepare_model_inputs,
-            max_detections=args.max_detections,
-            scope_mode=args.train_scope,
-            evaluate_train=args.eval_train,
-            official_eval_enabled=getattr(args, "official_eval_enabled", False),
-            official_eval_version=getattr(args, "official_eval_version", "revised"),
-            official_eval_iou_backend=getattr(args, "official_eval_iou_backend", "auto"),
-            official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
-            coco_style_eval_enabled=getattr(args, "coco_style_eval_enabled", False),
-            nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
-        )
-        
         val_metrics, f1 = build_epoch_eval_metrics(
             train_metrics=train_metrics,
             eval_metrics=eval_metrics,
             val_loss_metrics=val_loss_metrics,
+            training_eval_enabled=getattr(args, "training_eval_enabled", True),
             best_metric_key=getattr(args, "best_metric_key", "auto"),
             official_eval_enabled=getattr(args, "official_eval_enabled", False),
             official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
@@ -221,7 +287,7 @@ def main():
 
         save_epoch_and_update_best_checkpoint(
             best_state=best_state, checkpoint_dir=checkpoint_dir, model=model,
-            optimizer=optimizer, args=args, cfg=cfg, epoch=epoch + 1,
+            optimizer=optimizer, scheduler=scheduler, args=args, cfg=cfg, epoch=epoch + 1,
             train_metrics=train_metrics, val_metrics=val_metrics, f1=f1,
             learning_rate=learning_rate,
             total_epochs=args.epochs,

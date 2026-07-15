@@ -3,10 +3,10 @@
 import numpy as np
 
 from .adapter import (
-    OFFICIAL_CLASS_NAMES,
     load_official_overlap_functions,
     metric_boxes_to_official_3d_boxes,
     metric_boxes_to_official_bev_rbbox,
+    normalize_official_class_name_map,
 )
 
 
@@ -222,6 +222,8 @@ def compute_coco_style_metrics(
         iou_backend="auto",
         iou_thresholds=None,
         recall_thresholds=None,
+        class_ids=None,
+        class_name_map=None,
     ):
     metric_frames = state.get("metric_frames", [])
     if len(metric_frames) == 0:
@@ -232,12 +234,17 @@ def compute_coco_style_metrics(
     if recall_thresholds is None:
         recall_thresholds = COCO_RECALL_THRESHOLDS
 
+    class_name_map = normalize_official_class_name_map(
+        class_name_map=class_name_map,
+        class_ids=class_ids,
+    )
+
     bev_overlap_fn, d3_overlap_fn, backend_used = load_official_overlap_functions(
         iou_backend
     )
 
     per_class = {}
-    for class_id, class_name in sorted(OFFICIAL_CLASS_NAMES.items()):
+    for class_id, class_name in sorted(class_name_map.items()):
         bev_ap_by_iou, bev_num_gt = evaluate_coco_style_class(
             metric_frames=metric_frames,
             class_id=class_id,

@@ -108,7 +108,8 @@ def _configured_sequences(cfg):
 
 def _payload_model_type(payload):
     if isinstance(payload, dict):
-        return payload.get("config", {}).get("model_type")
+        config = payload.get("config", {})
+        return config.get("run_model_type", config.get("model_type"))
     return None
 
 
@@ -132,17 +133,22 @@ def format_checkpoint_filename(
         name_prefix,
         epoch,
         saved_at,
-        map_score,
+        metric_key,
+        metric_value,
         model_type,
         sequences,
     ):
-    map_text = metric_for_filename(map_score)
     model_name = get_model_run_name_prefix(model_type) or "model_unknown"
     sequence_name = format_sequence_run_name(sequences)
-    return (
-        f"{saved_at}_mAP_{map_text}_{model_name}_"
-        f"{name_prefix}_epoch_{epoch:03d}_{sequence_name}.pth"
-    )
+    date_text = str(saved_at).replace("-", "").replace("/", "")
+    if len(date_text) >= 8 and date_text[:8].isdigit():
+        date_text = date_text[4:8]
+
+    filename_parts = [date_text, model_name]
+    if name_prefix not in (None, "", "candidate"):
+        filename_parts.append(str(name_prefix))
+    filename_parts.extend([f"epoch_{epoch:03d}", sequence_name])
+    return "_".join(filename_parts) + ".pth"
 
 
 def create_checkpoint_run_dir(base_dir, experiment_name, sequence, model_type=None):
@@ -164,9 +170,19 @@ def metric_for_filename(value):
     return f"{value:.4f}".replace(".", "p")
 
 
+def metric_key_for_filename(metric_key):
+    key_text = str(metric_key or "metric")
+    key_text = key_text.replace(".", "p")
+    return "".join(
+        character if (character.isalnum() or character in {"_", "-"}) else "_"
+        for character in key_text
+    )
+
+
 def build_checkpoint_payload(
         model,
         optimizer,
+        scheduler,
         args,
         cfg,
         epoch,
@@ -184,12 +200,13 @@ def build_checkpoint_payload(
         "saved_at": saved_at,
         "model_state_dict": model_for_state_dict.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": None if scheduler is None else scheduler.state_dict(),
         "train_metrics": train_metrics,
         "val_metrics": val_metrics,
         "f1": f1,
-        "mAP": val_metrics["mAP"],
+        "mAP": val_metrics.get("mAP", 0.0),
         "selection_metric_key": val_metrics.get("selection_metric_key", "mAP"),
-        "selection_metric_value": val_metrics.get("selection_metric_value", val_metrics["mAP"]),
+        "selection_metric_value": val_metrics.get("selection_metric_value", val_metrics.get("mAP", 0.0)),
         "learning_rate": learning_rate,
         "is_best": is_best,
         "config": {
@@ -199,12 +216,29 @@ def build_checkpoint_payload(
             "batch_size": args.batch_size,
             "lr": args.lr,
             "max_detections": args.max_detections,
+            "heatmap_radius": getattr(args, "heatmap_radius", None),
+            "centerpoint_giou_loss_weight": getattr(
+                args,
+                "centerpoint_giou_loss_weight",
+                None,
+            ),
+            "quality_loss_weight": getattr(args, "quality_loss_weight", None),
             "num_classes": args.num_classes,
             "model_type": getattr(args, "model_type", None),
+            "run_model_type": getattr(args, "run_model_type", getattr(args, "model_type", None)),
             "class_names": getattr(args, "class_names", None),
             "class_to_idx": getattr(args, "class_to_idx", None),
+            "include_bus_as_target": getattr(args, "include_bus_as_target", None),
+            "ignore_class_names": getattr(args, "ignore_class_names", None),
+            "ignore_mask_margin": getattr(args, "ignore_mask_margin", None),
+            "ignore_mask_expand_ratio": getattr(args, "ignore_mask_expand_ratio", None),
+            "gt_object_ignore_override_path": getattr(args, "gt_object_ignore_override_path", None),
+            "train_control_split_enabled": getattr(args, "train_control_split_enabled", False),
+            "train_control_split_dir": getattr(args, "train_control_split_dir", None),
+            "init_from_checkpoint": getattr(args, "init_from_checkpoint", None),
             "train_ratio": args.train_ratio,
             "train_scope": getattr(args, "train_scope", "full"),
+            "training_eval_enabled": getattr(args, "training_eval_enabled", True),
             "best_metric_key": getattr(args, "best_metric_key", "auto"),
             "official_eval_enabled": getattr(args, "official_eval_enabled", False),
             "official_eval_version": getattr(args, "official_eval_version", "revised"),
@@ -216,6 +250,12 @@ def build_checkpoint_payload(
             "split_dir": getattr(args, "split_dir", None),
             "train_sequences": getattr(args, "train_sequences", None),
             "val_sequences": getattr(args, "val_sequences", None),
+            "controled_sequences": getattr(args, "controled_sequences", None),
+            "reference_sequences": getattr(args, "reference_sequences", None),
+            "controlled_split_base_dir": getattr(args, "controlled_split_base_dir", None),
+            "control_window_position": getattr(args, "control_window_position", None),
+            "control_ridx_bins": getattr(args, "control_ridx_bins", None),
+            "control_num_trials": getattr(args, "control_num_trials", None),
             "seed": args.seed,
             "limit_samples": args.limit_samples,
         },
@@ -252,6 +292,7 @@ def save_epoch_checkpoint(
         checkpoint_dir,
         model,
         optimizer,
+        scheduler,
         args,
         cfg,
         epoch,
@@ -262,12 +303,18 @@ def save_epoch_checkpoint(
         is_best
     ):
     saved_at = datetime.now().strftime("%Y%m%d_%H%M%S")
+    metric_key = val_metrics.get("selection_metric_key", "mAP")
+    metric_value = val_metrics.get(
+        "selection_metric_value",
+        val_metrics.get("mAP", 0.0),
+    )
     filename = format_checkpoint_filename(
-        name_prefix="candidate",
+        name_prefix=None,
         epoch=epoch,
         saved_at=saved_at,
-        map_score=val_metrics.get("selection_metric_value", val_metrics["mAP"]),
-        model_type=getattr(args, "model_type", None),
+        metric_key=metric_key,
+        metric_value=metric_value,
+        model_type=getattr(args, "run_model_type", getattr(args, "model_type", None)),
         sequences=_configured_sequences(cfg),
     )
     checkpoint_path = os.path.join(checkpoint_dir, filename)
@@ -275,6 +322,7 @@ def save_epoch_checkpoint(
     payload = build_checkpoint_payload(
         model=model,
         optimizer=optimizer,
+        scheduler=scheduler,
         args=args,
         cfg=cfg,
         epoch=epoch,
@@ -299,6 +347,7 @@ def save_named_checkpoint_copy(
         name_prefix,
         model_type=None,
         sequences=None,
+        metric_key=None,
     ):
     saved_at = datetime.now().strftime("%Y%m%d_%H%M%S")
     if model_type is None or sequences is None:
@@ -307,14 +356,19 @@ def save_named_checkpoint_copy(
             model_type = _payload_model_type(source_checkpoint)
         if sequences is None:
             sequences = _payload_sequences(source_checkpoint)
+        if metric_key is None and isinstance(source_checkpoint, dict):
+            metric_key = source_checkpoint.get("selection_metric_key")
     if sequences is None:
         sequences = ("unknown",)
+    if metric_key is None:
+        metric_key = "mAP"
 
     best_filename = format_checkpoint_filename(
         name_prefix=name_prefix,
         epoch=best_epoch,
         saved_at=saved_at,
-        map_score=best_map,
+        metric_key=metric_key,
+        metric_value=best_map,
         model_type=model_type,
         sequences=sequences,
     )
@@ -331,20 +385,26 @@ def save_named_checkpoint_payload(
         name_prefix,
         model_type=None,
         sequences=None,
+        metric_key=None,
     ):
     saved_at = datetime.now().strftime("%Y%m%d_%H%M%S")
     if model_type is None:
         model_type = _payload_model_type(payload)
     if sequences is None:
         sequences = _payload_sequences(payload)
+    if metric_key is None and isinstance(payload, dict):
+        metric_key = payload.get("selection_metric_key")
     if sequences is None:
         sequences = ("unknown",)
+    if metric_key is None:
+        metric_key = "mAP"
 
     best_filename = format_checkpoint_filename(
         name_prefix=name_prefix,
         epoch=best_epoch,
         saved_at=saved_at,
-        map_score=best_map,
+        metric_key=metric_key,
+        metric_value=best_map,
         model_type=model_type,
         sequences=sequences,
     )
@@ -372,6 +432,7 @@ def save_replacing_named_checkpoint_copy(
         name_prefix,
         model_type=None,
         sequences=None,
+        metric_key=None,
     ):
     remove_named_checkpoints(checkpoint_dir, name_prefix)
     return save_named_checkpoint_copy(
@@ -382,6 +443,7 @@ def save_replacing_named_checkpoint_copy(
         name_prefix=name_prefix,
         model_type=model_type,
         sequences=sequences,
+        metric_key=metric_key,
     )
 
 
@@ -393,6 +455,7 @@ def save_replacing_named_checkpoint_payload(
         name_prefix,
         model_type=None,
         sequences=None,
+        metric_key=None,
     ):
     remove_named_checkpoints(checkpoint_dir, name_prefix)
     return save_named_checkpoint_payload(
@@ -403,6 +466,7 @@ def save_replacing_named_checkpoint_payload(
         name_prefix=name_prefix,
         model_type=model_type,
         sequences=sequences,
+        metric_key=metric_key,
     )
 
 
@@ -413,6 +477,7 @@ def save_best_checkpoint_copy(
         best_map,
         model_type=None,
         sequences=None,
+        metric_key=None,
     ):
     return save_named_checkpoint_copy(
         checkpoint_dir=checkpoint_dir,
@@ -422,4 +487,5 @@ def save_best_checkpoint_copy(
         name_prefix="best",
         model_type=model_type,
         sequences=sequences,
+        metric_key=metric_key,
     )

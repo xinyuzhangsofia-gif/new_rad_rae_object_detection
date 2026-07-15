@@ -19,12 +19,43 @@ def format_iou_suffix(iou_value):
     return f"{float(iou_value):.1f}"
 
 
+def normalize_official_class_name_map(class_name_map=None, class_ids=None):
+    if class_name_map is None:
+        class_name_map = OFFICIAL_CLASS_NAMES
+
+    normalized = {
+        int(class_id): str(class_name)
+        for class_id, class_name in dict(class_name_map).items()
+    }
+    if class_ids is None:
+        class_ids = sorted(normalized.keys())
+
+    resolved = {}
+    for class_id in class_ids:
+        class_id = int(class_id)
+        if class_id not in normalized:
+            raise KeyError(
+                f"Missing official class-name mapping for class_id={class_id}."
+            )
+        resolved[class_id] = normalized[class_id]
+    return resolved
+
+
 def main_eval_iou_threshold(iou_mode):
     return {
         "easy": 0.3,
         "mod": 0.5,
         "hard": 0.7,
         "all": 0.3,
+    }[iou_mode]
+
+
+def official_eval_iou_values(iou_mode):
+    return {
+        "easy": (0.3,),
+        "mod": (0.5,),
+        "hard": (0.7,),
+        "all": (0.3, 0.5),
     }[iou_mode]
 
 
@@ -199,13 +230,21 @@ def empty_kitti_anno():
     }
 
 
-def metric_boxes_to_kitti_anno(boxes, labels, scores=None, is_prediction=False):
+def metric_boxes_to_kitti_anno(
+        boxes,
+        labels,
+        scores=None,
+        is_prediction=False,
+        class_name_map=None,
+    ):
     if torch.is_tensor(boxes):
         boxes = boxes.detach().cpu().numpy()
     if torch.is_tensor(labels):
         labels = labels.detach().cpu().numpy()
     if scores is not None and torch.is_tensor(scores):
         scores = scores.detach().cpu().numpy()
+
+    class_name_map = normalize_official_class_name_map(class_name_map)
 
     boxes = np.asarray(boxes, dtype=np.float64).reshape(-1, 7)
     labels = np.asarray(labels, dtype=np.int64).reshape(-1)
@@ -217,7 +256,7 @@ def metric_boxes_to_kitti_anno(boxes, labels, scores=None, is_prediction=False):
     if boxes.shape[0] == 0:
         return empty_kitti_anno()
 
-    names = np.array([OFFICIAL_CLASS_NAMES[int(label)] for label in labels])
+    names = np.array([class_name_map[int(label)] for label in labels])
     x = boxes[:, 0]
     y = boxes[:, 1]
     z = boxes[:, 2]
@@ -295,8 +334,10 @@ def official_metrics_for_classes(
         iou_mode,
         class_name_map=None,
     ):
-    if class_name_map is None:
-        class_name_map = OFFICIAL_CLASS_NAMES
+    class_name_map = normalize_official_class_name_map(
+        class_name_map=class_name_map,
+        class_ids=classes,
+    )
 
     result_text = eval_fn(
         gt_annos,
@@ -327,25 +368,51 @@ def filter_official_result_text(result_text):
     return "\n".join(kept_lines)
 
 
-def filter_official_per_class(per_class):
+def filter_official_per_class(per_class, allowed_iou_values=None):
+    allowed_iou_values = None if allowed_iou_values is None else tuple(
+        float(value) for value in allowed_iou_values
+    )
     filtered = {}
     for class_name, class_metrics in per_class.items():
-        filtered[class_name] = {
+        filtered_metrics = {
             key: value
             for key, value in class_metrics.items()
             if key in {"cls", "iou", "bev", "3d"}
         }
+        if allowed_iou_values is not None:
+            iou_values = [
+                float(value)
+                for value in filtered_metrics.get("iou", [])
+            ]
+            keep_indices = [
+                index
+                for index, iou_value in enumerate(iou_values)
+                if any(abs(iou_value - allowed_value) <= 1e-6 for allowed_value in allowed_iou_values)
+            ]
+            filtered_metrics["iou"] = [
+                iou_values[index]
+                for index in keep_indices
+            ]
+            for metric_name in ("bev", "3d"):
+                metric_values = list(filtered_metrics.get(metric_name, []))
+                filtered_metrics[metric_name] = [
+                    metric_values[index]
+                    for index in keep_indices
+                    if index < len(metric_values)
+                ]
+        filtered[class_name] = filtered_metrics
     return filtered
 
 
-def flatten_official_metrics(per_class):
+def flatten_official_metrics(per_class, class_name_map=None):
     if len(per_class) == 0:
         return {}
 
+    class_name_map = normalize_official_class_name_map(class_name_map)
     class_order = [
-        class_name
-        for _, class_name in sorted(OFFICIAL_CLASS_NAMES.items())
-        if class_name in per_class
+        class_name_map[class_id]
+        for class_id in sorted(class_name_map.keys())
+        if class_name_map[class_id] in per_class
     ]
     if len(class_order) == 0:
         class_order = sorted(per_class.keys())
@@ -385,6 +452,7 @@ def match_frame_detections(
         min_overlap,
         detection_score_thresh,
         rotate_iou_eval_fn,
+        class_name_map=None,
     ):
     gt_boxes = np.asarray(gt_boxes, dtype=np.float64).reshape(-1, 7)
     gt_labels = np.asarray(gt_labels, dtype=np.int64).reshape(-1)
@@ -392,6 +460,7 @@ def match_frame_detections(
     dt_labels = np.asarray(dt_labels, dtype=np.int64).reshape(-1)
     dt_scores = np.asarray(dt_scores, dtype=np.float64).reshape(-1)
 
+    class_name_map = normalize_official_class_name_map(class_name_map)
     totals = {"tp": 0, "fp": 0, "fn": 0}
     per_class = {}
     class_ids = sorted(set(gt_labels.tolist()) | set(dt_labels.tolist()))
@@ -441,7 +510,7 @@ def match_frame_detections(
 
             class_totals["fn"] += int((~assigned_gt).sum())
 
-        class_name = OFFICIAL_CLASS_NAMES.get(int(class_id), str(class_id))
+        class_name = class_name_map.get(int(class_id), str(class_id))
         per_class[class_name] = class_totals
         for key in totals:
             totals[key] += int(class_totals[key])
@@ -454,6 +523,7 @@ def compute_supplementary_detection_metrics(
         official_eval_iou_backend,
         official_eval_iou_mode,
         detection_score_thresh=0.3,
+        class_name_map=None,
     ):
     rotate_iou_eval_fn, matching_backend_used = load_rotate_iou_eval_function(
         official_eval_iou_backend
@@ -472,6 +542,7 @@ def compute_supplementary_detection_metrics(
             min_overlap=min_overlap,
             detection_score_thresh=detection_score_thresh,
             rotate_iou_eval_fn=rotate_iou_eval_fn,
+            class_name_map=class_name_map,
         )
         for key in totals:
             totals[key] += int(frame_totals[key])
@@ -527,7 +598,10 @@ def compute_official_kradar_style_metrics(
         official_eval_version,
         official_eval_iou_backend,
         official_eval_iou_mode,
+        official_detection_metrics_enabled=True,
         detection_score_thresh=0.3,
+        official_eval_class_ids=None,
+        official_class_name_map=None,
     ):
     if not official_eval_enabled:
         return {}
@@ -535,6 +609,11 @@ def compute_official_kradar_style_metrics(
     if len(state["official_gt_annos"]) == 0:
         raise ValueError("No frames with GT were collected for official K-Radar evaluation.")
 
+    official_class_name_map = normalize_official_class_name_map(
+        class_name_map=official_class_name_map,
+        class_ids=official_eval_class_ids,
+    )
+    official_eval_class_ids = sorted(official_class_name_map.keys())
     official_eval_fn, official_iou_backend_used = load_official_eval_function(
         official_eval_version,
         official_eval_iou_backend,
@@ -543,12 +622,19 @@ def compute_official_kradar_style_metrics(
         eval_fn=official_eval_fn,
         gt_annos=state["official_gt_annos"],
         dt_annos=state["official_dt_annos"],
-        classes=sorted(OFFICIAL_CLASS_NAMES.keys()),
+        classes=official_eval_class_ids,
         iou_mode=official_eval_iou_mode,
+        class_name_map=official_class_name_map,
     )
     official_result_text = filter_official_result_text(official_result_text)
-    official_per_class = filter_official_per_class(official_per_class)
-    official_flat_metrics = flatten_official_metrics(official_per_class)
+    official_per_class = filter_official_per_class(
+        official_per_class,
+        allowed_iou_values=official_eval_iou_values(official_eval_iou_mode),
+    )
+    official_flat_metrics = flatten_official_metrics(
+        official_per_class,
+        class_name_map=official_class_name_map,
+    )
     main_iou_suffix = {
         "easy": "0.3",
         "mod": "0.5",
@@ -568,12 +654,14 @@ def compute_official_kradar_style_metrics(
         "official_main_metric_value": official_flat_metrics.get(main_metric_key, 0.0),
     }
     official_eval_metrics.update(official_flat_metrics)
-    official_eval_metrics.update(
-        compute_supplementary_detection_metrics(
-            state=state,
-            official_eval_iou_backend=official_eval_iou_backend,
-            official_eval_iou_mode=official_eval_iou_mode,
-            detection_score_thresh=detection_score_thresh,
+    if official_detection_metrics_enabled:
+        official_eval_metrics.update(
+            compute_supplementary_detection_metrics(
+                state=state,
+                official_eval_iou_backend=official_eval_iou_backend,
+                official_eval_iou_mode=official_eval_iou_mode,
+                detection_score_thresh=detection_score_thresh,
+                class_name_map=official_class_name_map,
+            )
         )
-    )
     return official_eval_metrics

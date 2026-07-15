@@ -27,7 +27,13 @@ def set_seed(seed=42):
     torch.backends.cudnn.benchmark = False
 
 
-def default_best_metric_key(official_eval_enabled=False, official_eval_iou_mode="easy"):
+def default_best_metric_key(
+        training_eval_enabled=True,
+        official_eval_enabled=False,
+        official_eval_iou_mode="easy",
+    ):
+    if not training_eval_enabled:
+        return "val_loss"
     if official_eval_enabled:
         iou_suffix = {
             "easy": "0.3",
@@ -42,18 +48,23 @@ def default_best_metric_key(official_eval_enabled=False, official_eval_iou_mode=
 def resolve_best_metric_key(
         requested_key,
         val_metrics,
+        training_eval_enabled=True,
         official_eval_enabled=False,
         official_eval_iou_mode="easy",
     ):
     metric_key = requested_key
     if metric_key is None or metric_key == "" or metric_key == "auto":
         metric_key = default_best_metric_key(
+            training_eval_enabled=training_eval_enabled,
             official_eval_enabled=official_eval_enabled,
             official_eval_iou_mode=official_eval_iou_mode,
         )
 
     if metric_key in val_metrics:
         return metric_key
+
+    if "val_loss" in val_metrics:
+        return "val_loss"
 
     if "mAP" in val_metrics:
         return "mAP"
@@ -66,6 +77,10 @@ def selection_metric_value(val_metrics):
     metric_key = val_metrics.get("selection_metric_key", "mAP")
     metric_value = val_metrics.get("selection_metric_value", val_metrics.get("mAP", 0.0))
     return metric_key, float(metric_value)
+
+
+def metric_prefers_lower(metric_key):
+    return str(metric_key).endswith("_loss") or str(metric_key) == "val_loss"
 
 
 def append_training_history(history, epoch, train_metrics, val_metrics, f1):
@@ -85,11 +100,10 @@ def append_training_history(history, epoch, train_metrics, val_metrics, f1):
         "val_l1_loss": val_metrics.get("val_l1_loss", 0.0),
         "val_mAP": val_metrics["mAP"],
         "val_bev_mAP_0.3": val_metrics.get("official_bev_mAP_0.3", val_metrics["mAP"]),
-        "val_bev_mAP_0.5": val_metrics.get("official_bev_mAP_0.5", 0.0),
-        "val_bev_mAP_0.7": val_metrics.get("official_bev_mAP_0.7", 0.0),
         "val_3d_mAP_0.3": val_metrics.get("official_3d_mAP_0.3", 0.0),
-        "val_3d_mAP_0.5": val_metrics.get("official_3d_mAP_0.5", 0.0),
-        "val_3d_mAP_0.7": val_metrics.get("official_3d_mAP_0.7", 0.0),
+        "val_detection_tp": val_metrics.get("official_detection_tp", 0),
+        "val_detection_fp": val_metrics.get("official_detection_fp", 0),
+        "val_detection_fn": val_metrics.get("official_detection_fn", 0),
         "selection_metric_key": val_metrics.get("selection_metric_key", "mAP"),
         "selection_metric_value": val_metrics.get("selection_metric_value", val_metrics["mAP"]),
     }
@@ -116,17 +130,23 @@ def build_epoch_eval_metrics(
         train_metrics,
         eval_metrics,
         val_loss_metrics,
+        training_eval_enabled=True,
         best_metric_key="auto",
         official_eval_enabled=False,
         official_eval_iou_mode="easy",
     ):
-    val_metrics = eval_metrics["val_eval_metrics"].copy()
-    val_metrics.update(val_loss_metrics)
-    f1 = 0.0
+    del train_metrics
+
+    val_metrics = val_loss_metrics.copy()
+    val_metrics.setdefault("mAP", 0.0)
+    if training_eval_enabled and eval_metrics is not None:
+        val_metrics.update(eval_metrics["val_eval_metrics"])
+    f1 = float(val_metrics.get("official_detection_f1", 0.0))
 
     resolved_metric_key = resolve_best_metric_key(
         requested_key=best_metric_key,
         val_metrics=val_metrics,
+        training_eval_enabled=training_eval_enabled,
         official_eval_enabled=official_eval_enabled,
         official_eval_iou_mode=official_eval_iou_mode,
     )
@@ -181,7 +201,11 @@ class BestCheckpointState:
         self.global_best_path = global_best_path
 
     def is_better(self, val_metrics):
-        _, metric_value = selection_metric_value(val_metrics)
+        metric_key, metric_value = selection_metric_value(val_metrics)
+        if self.epoch < 0:
+            return True
+        if metric_prefers_lower(metric_key):
+            return metric_value < self.map_score
         return metric_value > self.map_score
 
 
@@ -190,6 +214,7 @@ def save_epoch_and_update_best_checkpoint(
         checkpoint_dir,
         model,
         optimizer,
+        scheduler,
         args,
         cfg,
         epoch,
@@ -214,6 +239,7 @@ def save_epoch_and_update_best_checkpoint(
             checkpoint_dir=checkpoint_dir,
             model=model,
             optimizer=optimizer,
+            scheduler=scheduler,
             args=args,
             cfg=cfg,
             epoch=epoch,
@@ -229,6 +255,7 @@ def save_epoch_and_update_best_checkpoint(
         checkpoint_payload = build_checkpoint_payload(
             model=model,
             optimizer=optimizer,
+            scheduler=scheduler,
             args=args,
             cfg=cfg,
             epoch=epoch,
@@ -242,7 +269,7 @@ def save_epoch_and_update_best_checkpoint(
         )
 
     if is_best:
-        _, best_metric_value = selection_metric_value(val_metrics)
+        best_metric_key, best_metric_value = selection_metric_value(val_metrics)
         if checkpoint_path is not None:
             global_best_path = save_replacing_named_checkpoint_copy(
                 checkpoint_dir=checkpoint_dir,
@@ -252,6 +279,7 @@ def save_epoch_and_update_best_checkpoint(
                 name_prefix="global_best",
                 model_type=getattr(args, "model_type", None),
                 sequences=getattr(cfg, "sequences", None) or (cfg.sequence,),
+                metric_key=best_metric_key,
             )
         else:
             global_best_path = save_replacing_named_checkpoint_payload(
@@ -262,6 +290,7 @@ def save_epoch_and_update_best_checkpoint(
                 name_prefix="global_best",
                 model_type=getattr(args, "model_type", None),
                 sequences=getattr(cfg, "sequences", None) or (cfg.sequence,),
+                metric_key=best_metric_key,
             )
 
         best_state.update(
@@ -316,6 +345,7 @@ def save_window_best_checkpoint_if_ready(
             best_epoch=window_best_state.epoch,
             best_map=window_best_state.map_score,
             sequences=sequence,
+            metric_key=window_best_state.metric_key,
         )
     best_checkpoint_path = best_checkpoint_paths[checkpoint_key]
     window_best_state.reset()
@@ -340,6 +370,7 @@ def save_global_best_checkpoint(best_state, checkpoint_dirs, checkpoint_key):
                 best_map=best_state.map_score,
                 name_prefix="global_best",
                 sequences=sequence,
+                metric_key=best_state.metric_key,
             )
         else:
             global_best_checkpoint_paths[sequence] = save_named_checkpoint_payload(
@@ -349,6 +380,7 @@ def save_global_best_checkpoint(best_state, checkpoint_dirs, checkpoint_key):
                 best_map=best_state.map_score,
                 name_prefix="global_best",
                 sequences=sequence,
+                metric_key=best_state.metric_key,
             )
     global_best_checkpoint_path = global_best_checkpoint_paths[checkpoint_key]
 

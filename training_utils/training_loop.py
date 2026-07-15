@@ -14,6 +14,7 @@ def train_one_epoch(
         dataloader,
         optimizer,
         device,
+        scheduler=None,
         epoch=None,
         num_epochs=None,
         box_loss_weight=1.0,
@@ -21,6 +22,8 @@ def train_one_epoch(
         heatmap_radius=3,
         centerpoint_giou_loss_weight=2.0,
         quality_loss_weight=0.25,
+        ignore_mask_margin=1.0,
+        ignore_mask_expand_ratio=1.0,
         loss_mode="centerpoint",
         num_classes=2,
     ):
@@ -34,6 +37,7 @@ def train_one_epoch(
     gwd_loss_sum = 0.0
     obj_loss_sum = 0.0
     l1_loss_sum = 0.0
+    ignore_pixels_sum = 0.0
     num_batches = 0
 
     desc = f"Epoch {epoch + 1}/{num_epochs}" if epoch is not None else "Training"
@@ -48,7 +52,12 @@ def train_one_epoch(
                 outputs=outputs,
                 gt_boxes_list=batch["gt_boxes"],
                 gt_labels_list=batch["gt_labels"],
+                gt_ignore_boxes_list=batch.get("gt_ignore_boxes"),
+                scope_modes=batch["scope_mode"],
+                full_rae_shapes=batch["full_rae_shape"],
                 num_classes=num_classes,
+                ignore_mask_margin=ignore_mask_margin,
+                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
             )
         elif loss_mode == "radenet":
             loss, loss_dict = radenet_detection_loss(
@@ -57,7 +66,10 @@ def train_one_epoch(
                 gt_labels_list=batch["gt_labels"],
                 scope_modes=batch["scope_mode"],
                 full_rae_shapes=batch["full_rae_shape"],
+                gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
                 num_classes=num_classes,
+                ignore_mask_margin=ignore_mask_margin,
+                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
             )
         else:
             loss, loss_dict = centerpoint_detection_loss(
@@ -69,12 +81,19 @@ def train_one_epoch(
                 giou_loss_weight=centerpoint_giou_loss_weight,
                 quality_loss_weight=quality_loss_weight,
                 heatmap_radius=heatmap_radius,
-                num_classes=num_classes
+                num_classes=num_classes,
+                gt_ignore_boxes_list=batch.get("gt_ignore_boxes"),
+                scope_modes=batch["scope_mode"],
+                full_rae_shapes=batch["full_rae_shape"],
+                ignore_mask_margin=ignore_mask_margin,
+                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
             )
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
 
         total_loss_sum += loss_dict["total_loss"]
         box_loss_sum += loss_dict["box_loss"]
@@ -84,6 +103,7 @@ def train_one_epoch(
         gwd_loss_sum += loss_dict.get("gwd_loss", 0.0)
         obj_loss_sum += loss_dict.get("obj_loss", 0.0)
         l1_loss_sum += loss_dict.get("l1_loss", 0.0)
+        ignore_pixels_sum += loss_dict.get("ignore_pixels", 0.0)
         num_batches += 1
 
         postfix = {
@@ -99,8 +119,11 @@ def train_one_epoch(
             postfix["obj"] = f"{(obj_loss_sum / num_batches):.4f}"
             postfix["l1"] = f"{(l1_loss_sum / num_batches):.4f}"
         elif loss_mode == "radenet":
-            postfix["gwd"] = f"{(gwd_loss_sum / num_batches):.4f}"
             postfix["l1"] = f"{(l1_loss_sum / num_batches):.4f}"
+        if "gwd_loss" in loss_dict:
+            postfix["gwd"] = f"{(gwd_loss_sum / num_batches):.4f}"
+        if ignore_pixels_sum > 0:
+            postfix["ign"] = f"{(ignore_pixels_sum / num_batches):.1f}"
         pbar.set_postfix(postfix)
 
     metrics = {
@@ -110,6 +133,7 @@ def train_one_epoch(
         "train_gwd_loss": gwd_loss_sum / max(num_batches, 1),
         "train_obj_loss": obj_loss_sum / max(num_batches, 1),
         "train_l1_loss": l1_loss_sum / max(num_batches, 1),
+        "train_ignore_pixels": ignore_pixels_sum / max(num_batches, 1),
     }
     if loss_mode != "yolox":
         metrics["train_heatmap_loss"] = heatmap_loss_sum / max(num_batches, 1)
@@ -127,6 +151,8 @@ def validate_loss(
         heatmap_radius=3,
         centerpoint_giou_loss_weight=2.0,
         quality_loss_weight=0.25,
+        ignore_mask_margin=1.0,
+        ignore_mask_expand_ratio=1.0,
         loss_mode="centerpoint",
         num_classes=2,
     ):
@@ -140,6 +166,7 @@ def validate_loss(
     gwd_loss_sum = 0.0
     obj_loss_sum = 0.0
     l1_loss_sum = 0.0
+    ignore_pixels_sum = 0.0
     num_batches = 0
 
     for batch in tqdm(dataloader, desc="Validation loss", ncols=120, leave=False):
@@ -151,7 +178,12 @@ def validate_loss(
                 outputs=outputs,
                 gt_boxes_list=batch["gt_boxes"],
                 gt_labels_list=batch["gt_labels"],
+                gt_ignore_boxes_list=batch.get("gt_ignore_boxes"),
+                scope_modes=batch["scope_mode"],
+                full_rae_shapes=batch["full_rae_shape"],
                 num_classes=num_classes,
+                ignore_mask_margin=ignore_mask_margin,
+                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
             )
         elif loss_mode == "radenet":
             _, loss_dict = radenet_detection_loss(
@@ -160,7 +192,10 @@ def validate_loss(
                 gt_labels_list=batch["gt_labels"],
                 scope_modes=batch["scope_mode"],
                 full_rae_shapes=batch["full_rae_shape"],
+                gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
                 num_classes=num_classes,
+                ignore_mask_margin=ignore_mask_margin,
+                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
             )
         else:
             _, loss_dict = centerpoint_detection_loss(
@@ -172,7 +207,12 @@ def validate_loss(
                 giou_loss_weight=centerpoint_giou_loss_weight,
                 quality_loss_weight=quality_loss_weight,
                 heatmap_radius=heatmap_radius,
-                num_classes=num_classes
+                num_classes=num_classes,
+                gt_ignore_boxes_list=batch.get("gt_ignore_boxes"),
+                scope_modes=batch["scope_mode"],
+                full_rae_shapes=batch["full_rae_shape"],
+                ignore_mask_margin=ignore_mask_margin,
+                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
             )
 
         total_loss_sum += loss_dict["total_loss"]
@@ -183,6 +223,7 @@ def validate_loss(
         gwd_loss_sum += loss_dict.get("gwd_loss", 0.0)
         obj_loss_sum += loss_dict.get("obj_loss", 0.0)
         l1_loss_sum += loss_dict.get("l1_loss", 0.0)
+        ignore_pixels_sum += loss_dict.get("ignore_pixels", 0.0)
         num_batches += 1
 
     metrics = {
@@ -192,6 +233,7 @@ def validate_loss(
         "val_gwd_loss": gwd_loss_sum / max(num_batches, 1),
         "val_obj_loss": obj_loss_sum / max(num_batches, 1),
         "val_l1_loss": l1_loss_sum / max(num_batches, 1),
+        "val_ignore_pixels": ignore_pixels_sum / max(num_batches, 1),
     }
     if loss_mode != "yolox":
         metrics["val_heatmap_loss"] = heatmap_loss_sum / max(num_batches, 1)

@@ -12,6 +12,7 @@ from cfg_model import (
     normalize_rae_boxes_for_scope,
     validate_scope_mode,
 )
+from object_ignore_overrides import load_object_ignore_override_map
 from zxy_label_utils import read_gt_txt
 
 
@@ -86,6 +87,8 @@ class KRadarGTDetectionDataset(Dataset):
             class_to_idx=None,
             sequence=None,
             ignore_unmapped_classes=True,
+            ignore_class_names=None,
+            gt_object_ignore_override_path=None,
             scope_mode=SCOPE_FULL,
             ):
         super().__init__()
@@ -100,10 +103,19 @@ class KRadarGTDetectionDataset(Dataset):
             }
         self.sequence = sequence
         self.ignore_unmapped_classes = ignore_unmapped_classes
+        self.ignore_class_names = set(ignore_class_names or [])
         if self.sequence is None:
             self.sequence = getattr(radar_dataset, "sequence", None)
         if self.class_to_idx is None:
             self.class_to_idx = CLASS_TO_IDX.copy()
+        (
+            self.object_ignore_override_map,
+            self.object_ignore_override_summary,
+        ) = load_object_ignore_override_map(
+            override_path=gt_object_ignore_override_path,
+            sequence=self.sequence,
+            frame_names=getattr(self.radar_dataset, "frame_names", ()),
+        )
 
     def __len__(self):
         return len(self.radar_dataset)
@@ -112,11 +124,30 @@ class KRadarGTDetectionDataset(Dataset):
         radar_data = self.radar_dataset[index]
         file_idx = radar_data["file_idx"]
         gt_frame_idx = radar_data["gt_frame_idx"]
-        objects = self.gt_by_file_idx.get(file_idx, [])
-        objects = [
-            obj for obj in objects
-            if obj["cls"] in self.class_to_idx or not self.ignore_unmapped_classes
-        ]
+        all_objects = self.gt_by_file_idx.get(file_idx, [])
+        override_ignore_object_labels = self.object_ignore_override_map.get(
+            file_idx,
+            set(),
+        )
+        objects = []
+        ignore_objects = []
+        num_override_ignored = 0
+        for obj in all_objects:
+            cls = obj["cls"]
+            is_override_ignored = (
+                int(obj["object_label"]) in override_ignore_object_labels
+            )
+            if is_override_ignored:
+                ignore_objects.append(obj)
+                num_override_ignored += 1
+                continue
+
+            if cls in self.class_to_idx or not self.ignore_unmapped_classes:
+                objects.append(obj)
+                continue
+
+            if cls in self.ignore_class_names and cls not in self.class_to_idx:
+                ignore_objects.append(obj)
 
         rad = torch.from_numpy(radar_data["rad"]).float()
         rae = torch.from_numpy(radar_data["rae"]).float()
@@ -126,29 +157,38 @@ class KRadarGTDetectionDataset(Dataset):
             if self._object_center_in_rae_fov(obj, full_rae_shape)
             and self._object_center_in_scope(obj)
         ]
+        ignore_objects_in_fov = [
+            obj for obj in ignore_objects
+            if self._object_center_in_rae_fov(obj, full_rae_shape)
+            and self._object_center_in_scope(obj)
+        ]
+
+        gt_boxes, gt_boxes_raw = self._build_box_tensors(objects_in_fov, full_rae_shape)
+        gt_ignore_boxes, gt_ignore_boxes_raw = self._build_box_tensors(
+            ignore_objects_in_fov,
+            full_rae_shape,
+        )
 
         if len(objects_in_fov) > 0:
-            gt_boxes_global = torch.stack([obj["box_rae"] for obj in objects_in_fov], dim=0)
-            gt_boxes_raw = global_rae_boxes_to_local_scope(
-                boxes=gt_boxes_global,
-                scope_mode=self.scope_mode,
-                rae_shape=full_rae_shape,
-            )
-            gt_boxes = self._normalize_boxes_rae(gt_boxes_global, full_rae_shape)
             gt_labels = torch.tensor(
                 [self.class_to_idx[obj["cls"]] for obj in objects_in_fov],
                 dtype=torch.long
             )
         else:
-            gt_boxes_raw = torch.zeros((0, 7), dtype=torch.float32)
-            gt_boxes = torch.zeros((0, 7), dtype=torch.float32)
             gt_labels = torch.zeros((0,), dtype=torch.long)
+        gt_ignore_class_names = tuple(
+            str(obj["cls"])
+            for obj in ignore_objects_in_fov
+        )
 
         return {
             "rad": rad,
             "rae": rae,
             "gt_boxes": gt_boxes,
             "gt_boxes_raw": gt_boxes_raw,
+            "gt_ignore_boxes": gt_ignore_boxes,
+            "gt_ignore_boxes_raw": gt_ignore_boxes_raw,
+            "gt_ignore_class_names": gt_ignore_class_names,
             "gt_labels": gt_labels,
             "gt_frame_idx": gt_frame_idx,
             "file_idx": file_idx,
@@ -160,7 +200,24 @@ class KRadarGTDetectionDataset(Dataset):
             "full_rae_shape": full_rae_shape,
             "num_gt_before_fov": len(objects),
             "num_gt_after_fov": len(objects_in_fov),
+            "num_ignore_before_fov": len(ignore_objects),
+            "num_ignore_after_fov": len(ignore_objects_in_fov),
+            "num_override_ignored": int(num_override_ignored),
         }
+
+    def _build_box_tensors(self, objects, full_rae_shape):
+        if len(objects) == 0:
+            empty = torch.zeros((0, 7), dtype=torch.float32)
+            return empty, empty
+
+        boxes_global = torch.stack([obj["box_rae"] for obj in objects], dim=0)
+        boxes_raw = global_rae_boxes_to_local_scope(
+            boxes=boxes_global,
+            scope_mode=self.scope_mode,
+            rae_shape=full_rae_shape,
+        )
+        boxes = self._normalize_boxes_rae(boxes_global, full_rae_shape)
+        return boxes, boxes_raw
 
     def _object_center_in_rae_fov(self, obj, rae_shape):
         r_size, a_size, e_size = rae_shape
@@ -244,6 +301,9 @@ def detection_collate(batch):
         "rae": torch.stack([item["rae"] for item in batch], dim=0),
         "gt_boxes": [item["gt_boxes"] for item in batch],
         "gt_boxes_raw": [item["gt_boxes_raw"] for item in batch],
+        "gt_ignore_boxes": [item["gt_ignore_boxes"] for item in batch],
+        "gt_ignore_boxes_raw": [item["gt_ignore_boxes_raw"] for item in batch],
+        "gt_ignore_class_names": [item["gt_ignore_class_names"] for item in batch],
         "gt_labels": [item["gt_labels"] for item in batch],
         "gt_frame_idx": [item["gt_frame_idx"] for item in batch],
         "file_idx": [item["file_idx"] for item in batch],
@@ -255,6 +315,9 @@ def detection_collate(batch):
         "full_rae_shape": [item["full_rae_shape"] for item in batch],
         "num_gt_before_fov": [item["num_gt_before_fov"] for item in batch],
         "num_gt_after_fov": [item["num_gt_after_fov"] for item in batch],
+        "num_ignore_before_fov": [item["num_ignore_before_fov"] for item in batch],
+        "num_ignore_after_fov": [item["num_ignore_after_fov"] for item in batch],
+        "num_override_ignored": [item["num_override_ignored"] for item in batch],
     }
 
 

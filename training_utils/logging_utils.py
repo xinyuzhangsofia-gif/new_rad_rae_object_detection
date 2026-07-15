@@ -30,9 +30,10 @@ def print_training_history(history):
         header += f"{'val_hm':>9} "
     header += (
         f"{'BEV@0.3':>9} "
-        f"{'BEV@0.5':>9} "
-        f"{'BEV@0.7':>9} "
         f"{'3D@0.3':>8} "
+        f"{'tp':>6} "
+        f"{'fp':>6} "
+        f"{'fn':>6} "
         f"{'Sel':>9}"
     )
     print(header)
@@ -56,9 +57,10 @@ def print_training_history(history):
             line += f"{row.get('val_heatmap_loss', 0.0):9.4f} "
         line += (
             f"{row.get('val_bev_mAP_0.3', row['val_mAP']):9.4f} "
-            f"{row.get('val_bev_mAP_0.5', 0.0):9.4f} "
-            f"{row.get('val_bev_mAP_0.7', 0.0):9.4f} "
             f"{row.get('val_3d_mAP_0.3', 0.0):8.4f} "
+            f"{int(row.get('val_detection_tp', 0)):6d} "
+            f"{int(row.get('val_detection_fp', 0)):6d} "
+            f"{int(row.get('val_detection_fn', 0)):6d} "
             f"{row.get('selection_metric_value', row['val_mAP']):9.4f}"
         )
         print(line)
@@ -73,21 +75,18 @@ def print_epoch_evaluation_summary(epoch, val_metrics, f1):
         f"Epoch {epoch}: "
         f"{selection_key}={selection_value:.4f}"
     )
-    print(
-        "  official revised:",
-        f"bev@0.3={val_metrics.get('official_bev_mAP_0.3', 0.0):.4f}",
-        f"bev@0.5={val_metrics.get('official_bev_mAP_0.5', 0.0):.4f}",
-        f"bev@0.7={val_metrics.get('official_bev_mAP_0.7', 0.0):.4f}",
-        f"3d@0.3={val_metrics.get('official_3d_mAP_0.3', 0.0):.4f}",
-        f"3d@0.5={val_metrics.get('official_3d_mAP_0.5', 0.0):.4f}",
-        f"3d@0.7={val_metrics.get('official_3d_mAP_0.7', 0.0):.4f}",
-        f"p={val_metrics.get('official_detection_precision', 0.0):.4f}",
-        f"r={val_metrics.get('official_detection_recall', 0.0):.4f}",
-        f"f1={val_metrics.get('official_detection_f1', 0.0):.4f}",
-        f"tp={int(val_metrics.get('official_detection_tp', 0))}",
-        f"fp={int(val_metrics.get('official_detection_fp', 0))}",
-        f"fn={int(val_metrics.get('official_detection_fn', 0))}",
-    )
+    if any(key.startswith("official_") for key in val_metrics):
+        print(
+            "  official revised:",
+            f"bev@0.3={val_metrics.get('official_bev_mAP_0.3', 0.0):.4f}",
+            f"3d@0.3={val_metrics.get('official_3d_mAP_0.3', 0.0):.4f}",
+            f"p={val_metrics.get('official_detection_precision', 0.0):.4f}",
+            f"r={val_metrics.get('official_detection_recall', 0.0):.4f}",
+            f"f1={val_metrics.get('official_detection_f1', 0.0):.4f}",
+            f"tp={int(val_metrics.get('official_detection_tp', 0))}",
+            f"fp={int(val_metrics.get('official_detection_fp', 0))}",
+            f"fn={int(val_metrics.get('official_detection_fn', 0))}",
+        )
     if "coco_bev_mAP" in val_metrics:
         print(
             "  coco-style:",
@@ -143,6 +142,7 @@ def write_tensorboard_run_config(
         split_mode=None,
         train_sequences=None,
         val_sequences=None,
+        training_eval_enabled=True,
         best_metric_key=None,
         official_eval_enabled=False,
         official_eval_version="revised",
@@ -150,6 +150,9 @@ def write_tensorboard_run_config(
         official_eval_iou_mode="easy",
         coco_style_eval_enabled=False,
         nuscenes_style_eval_enabled=False,
+        gt_object_ignore_override_path=None,
+        train_control_split_enabled=False,
+        train_control_split_dir=None,
     ):
     config_text = "\n".join([
         f"sequence: {cfg.sequence}",
@@ -159,6 +162,7 @@ def write_tensorboard_run_config(
         f"val_sequences: {val_sequences}",
         f"model_type: {model_type}",
         f"train_scope: {train_scope}",
+        f"training_eval_enabled: {training_eval_enabled}",
         f"num_epochs: {num_epochs}",
         f"batch_size: {batch_size}",
         f"train_size: {train_size}",
@@ -174,6 +178,9 @@ def write_tensorboard_run_config(
         f"official_eval_iou_mode: {official_eval_iou_mode}",
         f"coco_style_eval_enabled: {coco_style_eval_enabled}",
         f"nuscenes_style_eval_enabled: {nuscenes_style_eval_enabled}",
+        f"gt_object_ignore_override_path: {gt_object_ignore_override_path}",
+        f"train_control_split_enabled: {train_control_split_enabled}",
+        f"train_control_split_dir: {train_control_split_dir}",
     ])
     writer.add_text("run/config", config_text, 0)
     writer.flush()
@@ -182,13 +189,14 @@ def write_tensorboard_run_config(
 def write_tensorboard_metrics(writer, epoch, train_metrics, val_metrics, f1, learning_rate):
     writer.add_scalar("training_metrics/train_loss", train_metrics["train_loss"], epoch)
     writer.add_scalar("training_metrics/train_box_loss", train_metrics["train_box_loss"], epoch)
-    writer.add_scalar("training_metrics/train_cls_loss", train_metrics["train_cls_loss"], epoch)
     if "train_heatmap_loss" in train_metrics:
         writer.add_scalar(
             "training_metrics/train_heatmap_loss",
             train_metrics["train_heatmap_loss"],
             epoch
         )
+    else:
+        writer.add_scalar("training_metrics/train_cls_loss", train_metrics["train_cls_loss"], epoch)
     if "train_quality_loss" in train_metrics:
         writer.add_scalar(
             "training_metrics/train_quality_loss",
@@ -204,13 +212,14 @@ def write_tensorboard_metrics(writer, epoch, train_metrics, val_metrics, f1, lea
 
     writer.add_scalar("validation_metrics/val_loss", val_metrics["val_loss"], epoch)
     writer.add_scalar("validation_metrics/val_box_loss", val_metrics["val_box_loss"], epoch)
-    writer.add_scalar("validation_metrics/val_cls_loss", val_metrics["val_cls_loss"], epoch)
     if "val_heatmap_loss" in val_metrics:
         writer.add_scalar(
             "validation_metrics/val_heatmap_loss",
             val_metrics["val_heatmap_loss"],
             epoch
         )
+    else:
+        writer.add_scalar("validation_metrics/val_cls_loss", val_metrics["val_cls_loss"], epoch)
     if "val_quality_loss" in val_metrics:
         writer.add_scalar(
             "validation_metrics/val_quality_loss",
@@ -223,28 +232,18 @@ def write_tensorboard_metrics(writer, epoch, train_metrics, val_metrics, f1, lea
         writer.add_scalar("validation_metrics/val_l1_loss", val_metrics["val_l1_loss"], epoch)
     if "val_gwd_loss" in val_metrics:
         writer.add_scalar("validation_metrics/val_gwd_loss", val_metrics["val_gwd_loss"], epoch)
-    writer.add_scalar("validation_metrics/val_mAP", val_metrics["mAP"], epoch)
-    writer.add_scalar(
-        "validation_metrics/val_bev_mAP_0.3",
-        val_metrics.get("official_bev_mAP_0.3", val_metrics["mAP"]),
-        epoch,
-    )
-    writer.add_scalar(
-        "validation_metrics/val_3d_mAP_0.3",
-        val_metrics.get("official_3d_mAP_0.3", 0.0),
-        epoch,
-    )
-    writer.add_scalar(
-        "validation_metrics/selection_metric_value",
-        val_metrics.get("selection_metric_value", val_metrics["mAP"]),
-        epoch,
-    )
-
-    for key, value in sorted(val_metrics.items()):
-        if (
-            (key.startswith("official_") or key.startswith("coco_") or key.startswith("nuscenes_"))
-            and isinstance(value, (int, float))
-        ):
+    for key in (
+        "official_bev_mAP_0.3",
+        "official_3d_mAP_0.3",
+        "official_detection_tp",
+        "official_detection_fp",
+        "official_detection_fn",
+        "official_detection_precision",
+        "official_detection_recall",
+        "official_detection_f1",
+    ):
+        value = val_metrics.get(key)
+        if isinstance(value, (int, float)):
             writer.add_scalar(f"validation_metrics/{key}", value, epoch)
 
     writer.add_scalar("parameters/learning_rate", learning_rate, epoch)

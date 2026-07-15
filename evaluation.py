@@ -10,6 +10,7 @@ import argparse
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -24,6 +25,7 @@ from cfg_model import (
     SCOPE_CHOICES,
     SCOPE_FULL,
     SCOPE_NARROW,
+    denormalize_rae_boxes_to_local_scope,
     denormalize_rae_boxes_for_scope,
     normalized_rae_box_centers_in_cartesian_roi,
 )
@@ -32,7 +34,10 @@ from dataloader import (
     normalize_sequence_list,
     prepare_model_inputs,
 )
-from dataset import CLASS_NAMES, CLASS_TO_IDX
+from domain_shift_tables import (
+    build_model_configuration,
+    update_domain_shift_tables,
+)
 from eval.adapter import (
     compute_official_kradar_style_metrics,
     metric_boxes_to_kitti_anno,
@@ -45,8 +50,16 @@ from eval.custom_iou_range import (
 )
 from eval.nuscenes_style import compute_nuscenes_style_metrics
 from models import MODEL_TYPES, build_model
+from train_mode_utils import (
+    apply_task_configuration,
+    infer_include_bus_as_target_from_checkpoint_config,
+    initialize_model_from_checkpoint,
+    normalize_optional_path,
+    resolve_loss_mode,
+)
 from training_utils.checkpoints import format_sequence_run_name
 from training_utils.radenet_utils import regression_cell_to_normalized_rae_box
+from training_utils.training_loop import validate_loss
 from training_utils.yolox_utils import yolox_outputs_to_detections
 from zxy_config import DataConfig
 
@@ -55,8 +68,24 @@ try:
 except ImportError:
     EVAL_CONFIG = {}
 
+_EVAL_CFG_MISSING = object()
+HEATMAP_SCORE_MODES = ("peak_times_local_mean", "peak_only")
+HEATMAP_PEAK_WEIGHT = 0.85
+HEATMAP_LOCAL_MEAN_WEIGHT = 0.15
+OFFICIAL_CLASS_TOKEN_BY_DATASET_NAME = {
+    "Sedan": "sed",
+    "Bus or Truck": "bus",
+}
+SPLIT_BBOX_COUNT_CLASS_NAMES = ("Sedan", "Bus or Truck")
 
-NUM_CLASSES = len(CLASS_NAMES)
+
+def eval_cfg_value(key):
+    return EVAL_CONFIG.get(key, _EVAL_CFG_MISSING)
+
+
+def should_inherit_from_checkpoint(key):
+    value = eval_cfg_value(key)
+    return value is _EVAL_CFG_MISSING or value is None
 
 
 def load_torch_checkpoint(checkpoint_path, map_location="cpu"):
@@ -72,12 +101,13 @@ def load_torch_checkpoint(checkpoint_path, map_location="cpu"):
         return torch.load(checkpoint_path, map_location=map_location)
 
 
-def load_model_checkpoint(model, checkpoint_path, device):
-    checkpoint = load_torch_checkpoint(checkpoint_path, map_location=device)
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"])
-    else:
-        model.load_state_dict(checkpoint)
+def load_model_checkpoint(model, checkpoint_path, device, include_bus_as_target=True):
+    checkpoint = initialize_model_from_checkpoint(
+        model=model,
+        checkpoint_path=checkpoint_path,
+        map_location=device,
+        include_bus_as_target=include_bus_as_target,
+    )
     model.eval()
     return model
 
@@ -146,9 +176,10 @@ def parse_args():
     cfg_defaults = {
         "checkpoint_root": (
             "checkpoints/object_detection/20260619_155520_209652__model_12__seq1_4-6_11_14_20_3_18/"
-            "20260620_040729_mAP_0p4741_model_12_global_best_epoch_059_seq1-11.pth"
+            "0620_model_12_global_best_epoch_059_seq1-11.pth"
         ),
         "epoch_step": 1,
+        "end_epoch": None,
         "batch_size": 100,
         "train_ratio": 0.7,
         "split_mode": "file",
@@ -159,8 +190,34 @@ def parse_args():
         "num_workers": 0,
         "limit_samples": None,
         "eval_scope": None,
+        "include_bus_as_target": True,
+        "gt_object_ignore_override_path": None,
+        "train_control_split_enabled": False,
+        "train_control_split_dir": None,
+        "ignore_class_names": (
+            "Pedestrian",
+            "Pedestrian Group",
+            "Bicycle",
+            "Bicycle Group",
+            "Motorcycle",
+        ),
+        "ignore_mask_margin": 1.0,
+        "ignore_mask_expand_ratio": 1.0,
+        "eval_ignore_suppress_enabled": False,
+        "eval_ignore_expand_ratio": 1.5,
+        "eval_ignore_suppress_margin": 1.0,
+        "loss_eval_enabled": False,
+        "heatmap_radius": 3,
+        "centerpoint_giou_loss_weight": 2.0,
+        "quality_loss_weight": 0.25,
+        "table_txt_enabled": False,
+        "table_output_base_dir": "evaluation_plots",
+        "domain_comparison_enabled": True,
+        "domain_comparison_output_dir": "evaluation_results",
+        "domain_comparison_sequence_info_path": "sequence_information.csv",
         "max_detections": 64,
         "heatmap_nms_kernel": 3,
+        "heatmap_score_mode": "peak_times_local_mean",
         "yolox_nms_iou": 0.65,
         "model_type": "auto",
         "gpu_ids": "0,1,2",
@@ -172,16 +229,24 @@ def parse_args():
         "custom_iou_thresholds": DEFAULT_CUSTOM_IOU_THRESHOLDS.tolist(),
         "coco_style_eval_enabled": False,
         "nuscenes_style_eval_enabled": False,
-        "detection_score_thresh": 0.3,
+        "official_detection_metrics_enabled": True,
+        "official_ap03_only": False,
+        "terminal_epoch_table_enabled": False,
+        "group_checkpoint_plot_best_only": False,
+        "ap_score_thresh": 0.01,
+        "score_thresh": 0.3,
         "plot_output": None,
     }
     cfg_defaults.update(EVAL_CONFIG)
+    if "score_thresh" not in EVAL_CONFIG and "detection_score_thresh" in EVAL_CONFIG:
+        cfg_defaults["score_thresh"] = EVAL_CONFIG["detection_score_thresh"]
 
     parser = argparse.ArgumentParser(
         description="Run official K-Radar KITTI-style evaluation."
     )
     parser.add_argument("--checkpoint-root", default=cfg_defaults["checkpoint_root"])
     parser.add_argument("--epoch-step", type=int, default=cfg_defaults["epoch_step"])
+    parser.add_argument("--end-epoch", type=int, default=cfg_defaults["end_epoch"])
     parser.add_argument("--batch-size", type=int, default=cfg_defaults["batch_size"])
     parser.add_argument("--train-ratio", type=float, default=cfg_defaults["train_ratio"])
     parser.add_argument("--split-mode", default=cfg_defaults["split_mode"], choices=["random", "order", "file", "sequence"])
@@ -192,8 +257,68 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=cfg_defaults["num_workers"])
     parser.add_argument("--limit-samples", type=int, default=cfg_defaults["limit_samples"])
     parser.add_argument("--eval-scope", default=cfg_defaults["eval_scope"], choices=SCOPE_CHOICES)
+    parser.add_argument(
+        "--include-bus-as-target",
+        default=cfg_defaults["include_bus_as_target"],
+    )
+    parser.add_argument(
+        "--gt-object-ignore-override-path",
+        default=cfg_defaults["gt_object_ignore_override_path"],
+    )
+    parser.add_argument(
+        "--train-control-split-enabled",
+        default=cfg_defaults["train_control_split_enabled"],
+    )
+    parser.add_argument(
+        "--train-control-split-dir",
+        default=cfg_defaults["train_control_split_dir"],
+    )
+    parser.add_argument("--ignore-mask-margin", type=float, default=cfg_defaults["ignore_mask_margin"])
+    parser.add_argument(
+        "--ignore-mask-expand-ratio",
+        type=float,
+        default=cfg_defaults["ignore_mask_expand_ratio"],
+    )
+    parser.add_argument(
+        "--eval-ignore-suppress-enabled",
+        default=cfg_defaults["eval_ignore_suppress_enabled"],
+    )
+    parser.add_argument(
+        "--eval-ignore-expand-ratio",
+        type=float,
+        default=cfg_defaults["eval_ignore_expand_ratio"],
+    )
+    parser.add_argument(
+        "--eval-ignore-suppress-margin",
+        type=float,
+        default=cfg_defaults["eval_ignore_suppress_margin"],
+    )
+    parser.add_argument(
+        "--loss-eval-enabled",
+        default=cfg_defaults["loss_eval_enabled"],
+    )
+    parser.add_argument("--heatmap-radius", type=int, default=cfg_defaults["heatmap_radius"])
+    parser.add_argument(
+        "--centerpoint-giou-loss-weight",
+        type=float,
+        default=cfg_defaults["centerpoint_giou_loss_weight"],
+    )
+    parser.add_argument(
+        "--quality-loss-weight",
+        type=float,
+        default=cfg_defaults["quality_loss_weight"],
+    )
     parser.add_argument("--max-detections", type=int, default=cfg_defaults["max_detections"])
     parser.add_argument("--heatmap-nms-kernel", type=int, default=cfg_defaults["heatmap_nms_kernel"])
+    parser.add_argument(
+        "--heatmap-score-mode",
+        default=cfg_defaults["heatmap_score_mode"],
+        choices=list(HEATMAP_SCORE_MODES),
+        help=(
+            "peak_only uses pure local peaks; peak_times_local_mean uses "
+            "0.85 * peak_score + 0.15 * local_mean."
+        ),
+    )
     parser.add_argument("--yolox-nms-iou", type=float, default=cfg_defaults["yolox_nms_iou"])
     parser.add_argument(
         "--model-type",
@@ -234,12 +359,68 @@ def parse_args():
         default=cfg_defaults["nuscenes_style_eval_enabled"],
     )
     parser.add_argument(
-        "--detection-score-thresh",
+        "--official-detection-metrics-enabled",
+        default=cfg_defaults["official_detection_metrics_enabled"],
+    )
+    parser.add_argument(
+        "--official-ap03-only",
+        default=cfg_defaults["official_ap03_only"],
+    )
+    parser.add_argument(
+        "--terminal-epoch-table-enabled",
+        default=cfg_defaults["terminal_epoch_table_enabled"],
+    )
+    parser.add_argument(
+        "--group-checkpoint-plot-best-only",
+        default=cfg_defaults["group_checkpoint_plot_best_only"],
+    )
+    parser.add_argument(
+        "--ap-score-thresh",
         type=float,
-        default=cfg_defaults["detection_score_thresh"],
+        default=cfg_defaults["ap_score_thresh"],
+    )
+    parser.add_argument(
+        "--score-thresh",
+        type=float,
+        default=cfg_defaults["score_thresh"],
+    )
+    parser.add_argument(
+        "--detection-score-thresh",
+        dest="score_thresh",
+        type=float,
+        default=cfg_defaults["score_thresh"],
     )
     parser.add_argument("--plot-output", default=cfg_defaults["plot_output"])
+    parser.add_argument(
+        "--table-txt-enabled",
+        default=cfg_defaults["table_txt_enabled"],
+    )
+    parser.add_argument(
+        "--table-output-base-dir",
+        default=cfg_defaults["table_output_base_dir"],
+    )
+    parser.add_argument(
+        "--domain-comparison-enabled",
+        default=cfg_defaults["domain_comparison_enabled"],
+    )
+    parser.add_argument(
+        "--domain-comparison-output-dir",
+        default=cfg_defaults["domain_comparison_output_dir"],
+    )
+    parser.add_argument(
+        "--domain-comparison-sequence-info-path",
+        default=cfg_defaults["domain_comparison_sequence_info_path"],
+    )
     args = parser.parse_args()
+    args.ignore_class_names = tuple(cfg_defaults.get("ignore_class_names", ()))
+    if args.end_epoch is not None:
+        args.end_epoch = int(args.end_epoch)
+    args.ap_score_thresh = float(args.ap_score_thresh)
+    args.detection_score_thresh = float(args.score_thresh)
+    if args.ap_score_thresh < 0.0:
+        raise ValueError(
+            f"ap_score_thresh must be non-negative, got {args.ap_score_thresh!r}"
+        )
     args.custom_iou_range_eval_enabled = normalize_bool_flag(
         args.custom_iou_range_eval_enabled,
         name="custom_iou_range_eval_enabled",
@@ -256,10 +437,55 @@ def parse_args():
         args.nuscenes_style_eval_enabled,
         name="nuscenes_style_eval_enabled",
     )
+    args.official_detection_metrics_enabled = normalize_bool_flag(
+        args.official_detection_metrics_enabled,
+        name="official_detection_metrics_enabled",
+    )
+    args.official_ap03_only = normalize_bool_flag(
+        args.official_ap03_only,
+        name="official_ap03_only",
+    )
+    args.terminal_epoch_table_enabled = normalize_bool_flag(
+        args.terminal_epoch_table_enabled,
+        name="terminal_epoch_table_enabled",
+    )
+    args.group_checkpoint_plot_best_only = normalize_bool_flag(
+        args.group_checkpoint_plot_best_only,
+        name="group_checkpoint_plot_best_only",
+    )
+    args.eval_ignore_suppress_enabled = normalize_bool_flag(
+        args.eval_ignore_suppress_enabled,
+        name="eval_ignore_suppress_enabled",
+    )
+    args.loss_eval_enabled = normalize_bool_flag(
+        args.loss_eval_enabled,
+        name="loss_eval_enabled",
+    )
+    args.table_txt_enabled = normalize_bool_flag(
+        args.table_txt_enabled,
+        name="table_txt_enabled",
+    )
+    args.domain_comparison_enabled = normalize_bool_flag(
+        args.domain_comparison_enabled,
+        name="domain_comparison_enabled",
+    )
     if args.custom_iou_range_eval_enabled and len(args.custom_iou_thresholds) == 0:
         raise ValueError(
             "custom_iou_range_eval_enabled is True, but custom_iou_thresholds is empty."
         )
+    if args.eval_ignore_expand_ratio <= 0.0:
+        raise ValueError(
+            f"eval_ignore_expand_ratio must be greater than 0, got {args.eval_ignore_expand_ratio!r}"
+        )
+    if args.eval_ignore_suppress_margin < 0.0:
+        raise ValueError(
+            f"eval_ignore_suppress_margin must be non-negative, got {args.eval_ignore_suppress_margin!r}"
+        )
+    if args.ignore_mask_expand_ratio <= 0.0:
+        raise ValueError(
+            f"ignore_mask_expand_ratio must be greater than 0, got {args.ignore_mask_expand_ratio!r}"
+        )
+    apply_eval_profile(args)
     return args
 
 
@@ -319,6 +545,32 @@ def normalize_float_thresholds(value, name):
     return [float(round(threshold, 6)) for threshold in values]
 
 
+def apply_eval_profile(args):
+    if getattr(args, "official_ap03_only", False):
+        args.official_eval_iou_mode = "easy"
+        args.custom_iou_range_eval_enabled = False
+        args.coco_style_eval_enabled = False
+        args.nuscenes_style_eval_enabled = False
+        args.official_detection_metrics_enabled = False
+        args.terminal_epoch_table_enabled = True
+
+
+def resolve_official_eval_class_name_map(class_names):
+    class_name_map = {}
+    display_name_map = {}
+    for class_id, dataset_class_name in sorted(class_names.items()):
+        dataset_class_name = str(dataset_class_name)
+        if dataset_class_name not in OFFICIAL_CLASS_TOKEN_BY_DATASET_NAME:
+            raise KeyError(
+                f"Unsupported evaluation class name {dataset_class_name!r}. "
+                f"Known names: {sorted(OFFICIAL_CLASS_TOKEN_BY_DATASET_NAME)}"
+            )
+        official_name = OFFICIAL_CLASS_TOKEN_BY_DATASET_NAME[dataset_class_name]
+        class_name_map[int(class_id)] = official_name
+        display_name_map[official_name] = dataset_class_name
+    return class_name_map, display_name_map
+
+
 def normalized_rae_boxes_to_cartesian_metric_boxes(boxes, scope_mode, rae_shape):
     if boxes.numel() == 0:
         return boxes.new_zeros((0, 7))
@@ -370,10 +622,65 @@ def centerpoint_heatmap_nms(heatmap, kernel_size=3):
     return heatmap * keep.to(heatmap.dtype)
 
 
+def centerpoint_local_heatmap_mean(heatmap, kernel_size=3):
+    if kernel_size <= 1:
+        return heatmap
+    if kernel_size % 2 == 0:
+        raise ValueError(f"Heatmap local-mean kernel must be odd, got {kernel_size}")
+
+    pad = (kernel_size - 1) // 2
+    return F.avg_pool2d(
+        heatmap,
+        kernel_size=kernel_size,
+        stride=1,
+        padding=pad,
+        count_include_pad=False,
+    )
+
+
+def build_heatmap_candidate_scores(
+        heatmap_scores,
+        heatmap_nms_kernel=3,
+        heatmap_score_mode="peak_times_local_mean",
+        peak_scores=None,
+    ):
+    if peak_scores is None:
+        peak_scores = centerpoint_heatmap_nms(
+            heatmap=heatmap_scores,
+            kernel_size=heatmap_nms_kernel,
+        )
+
+    if heatmap_score_mode == "peak_only":
+        return peak_scores
+    if heatmap_score_mode == "peak_times_local_mean":
+        local_mean_scores = centerpoint_local_heatmap_mean(
+            heatmap=heatmap_scores,
+            kernel_size=heatmap_nms_kernel,
+        )
+        return (
+            (HEATMAP_PEAK_WEIGHT * peak_scores)
+            + (HEATMAP_LOCAL_MEAN_WEIGHT * local_mean_scores)
+        )
+    raise ValueError(
+        f"Unknown heatmap_score_mode={heatmap_score_mode!r}. "
+        f"Expected one of {HEATMAP_SCORE_MODES}."
+    )
+
+
 def gather_dense_feature(feature_map, indices):
     flat = feature_map.flatten(start_dim=2).transpose(1, 2)
     gather_index = indices.unsqueeze(-1).expand(-1, -1, flat.shape[-1])
     return flat.gather(dim=1, index=gather_index)
+
+
+def topk_heatmap_candidates(candidate_scores, max_detections, score_thresh=None):
+    flat_scores = candidate_scores.flatten(start_dim=1)
+    topk_count = min(max_detections, flat_scores.shape[1])
+    scores, flat_indices = flat_scores.topk(topk_count, dim=1)
+    keep = scores > 0.0
+    if score_thresh is not None:
+        keep = keep & (scores > float(score_thresh))
+    return scores, flat_indices, keep
 
 
 def apply_quality_score(heatmap_scores, outputs):
@@ -407,6 +714,8 @@ def outputs_to_detections(
         num_classes,
         max_detections=64,
         heatmap_nms_kernel=3,
+        heatmap_score_mode="peak_times_local_mean",
+        score_thresh=None,
     ):
     dense_keys = {"cls_logits", "center_offset", "center_height", "size", "yaw"}
     missing_keys = sorted(dense_keys - set(outputs.keys()))
@@ -421,14 +730,17 @@ def outputs_to_detections(
     dtype = cls_logits.dtype
 
     heatmap_scores = apply_quality_score(cls_logits.sigmoid(), outputs)
-    heatmap_scores = centerpoint_heatmap_nms(
-        heatmap=heatmap_scores,
-        kernel_size=heatmap_nms_kernel,
+    rescored_heatmap = build_heatmap_candidate_scores(
+        heatmap_scores=heatmap_scores,
+        heatmap_nms_kernel=heatmap_nms_kernel,
+        heatmap_score_mode=heatmap_score_mode,
     )
 
-    flat_scores = heatmap_scores.flatten(start_dim=1)
-    topk_count = min(max_detections, flat_scores.shape[1])
-    scores, flat_indices = flat_scores.topk(topk_count, dim=1)
+    scores, flat_indices, keep = topk_heatmap_candidates(
+        candidate_scores=rescored_heatmap,
+        max_detections=max_detections,
+        score_thresh=score_thresh,
+    )
 
     spatial_size = heatmap_h * heatmap_w
     labels = flat_indices // spatial_size
@@ -475,7 +787,7 @@ def outputs_to_detections(
         dim=-1,
     ).clamp(min=1e-4, max=1.0 - 1e-4)
 
-    return boxes, scores, labels
+    return boxes, scores, labels, keep
 
 
 def official_radenet_outputs_to_detections(
@@ -485,21 +797,26 @@ def official_radenet_outputs_to_detections(
         full_rae_shapes,
         max_detections=64,
         heatmap_nms_kernel=3,
+        heatmap_score_mode="peak_times_local_mean",
+        score_thresh=None,
     ):
     if scope_modes is None or full_rae_shapes is None:
         raise ValueError("Official RADE-Net decoding requires scope_modes and full_rae_shapes.")
 
-    heatmap = outputs["heatmap"][:, :num_classes]
-    heatmap_scores = centerpoint_heatmap_nms(
-        heatmap=heatmap,
-        kernel_size=heatmap_nms_kernel,
+    heatmap_scores = outputs["heatmap"][:, :num_classes]
+    rescored_heatmap = build_heatmap_candidate_scores(
+        heatmap_scores=heatmap_scores,
+        heatmap_nms_kernel=heatmap_nms_kernel,
+        heatmap_score_mode=heatmap_score_mode,
     )
     regression = outputs["regression"]
     batch_size, _, heatmap_h, heatmap_w = heatmap_scores.shape
 
-    flat_scores = heatmap_scores.flatten(start_dim=1)
-    topk_count = min(max_detections, flat_scores.shape[1])
-    scores, flat_indices = flat_scores.topk(topk_count, dim=1)
+    scores, flat_indices, keep = topk_heatmap_candidates(
+        candidate_scores=rescored_heatmap,
+        max_detections=max_detections,
+        score_thresh=score_thresh,
+    )
 
     spatial_size = heatmap_h * heatmap_w
     labels = flat_indices // spatial_size
@@ -520,7 +837,7 @@ def official_radenet_outputs_to_detections(
                 full_rae_shape=full_rae_shapes[batch_index],
             )
         )
-    return torch.stack(boxes, dim=0), scores, labels
+    return torch.stack(boxes, dim=0), scores, labels, keep
 
 
 def decode_batch_predictions(
@@ -528,7 +845,9 @@ def decode_batch_predictions(
         num_classes,
         max_detections,
         heatmap_nms_kernel,
+        heatmap_score_mode,
         yolox_nms_iou,
+        score_thresh=None,
         scope_modes=None,
         full_rae_shapes=None,
     ):
@@ -536,34 +855,39 @@ def decode_batch_predictions(
         return yolox_outputs_to_detections(
             outputs=outputs,
             num_classes=num_classes,
-            score_thresh=None,
+            score_thresh=score_thresh,
             max_detections=max_detections,
             nms_iou_thresh=yolox_nms_iou,
         )
 
     if "heatmap" in outputs and "regression" in outputs:
-        pred_boxes, pred_scores, pred_labels = official_radenet_outputs_to_detections(
+        pred_boxes, pred_scores, pred_labels, pred_keep = official_radenet_outputs_to_detections(
             outputs=outputs,
             num_classes=num_classes,
             scope_modes=scope_modes,
             full_rae_shapes=full_rae_shapes,
             max_detections=max_detections,
             heatmap_nms_kernel=heatmap_nms_kernel,
+            heatmap_score_mode=heatmap_score_mode,
+            score_thresh=score_thresh,
         )
     else:
-        pred_boxes, pred_scores, pred_labels = outputs_to_detections(
+        pred_boxes, pred_scores, pred_labels, pred_keep = outputs_to_detections(
             outputs=outputs,
             num_classes=num_classes,
             max_detections=max_detections,
             heatmap_nms_kernel=heatmap_nms_kernel,
+            heatmap_score_mode=heatmap_score_mode,
+            score_thresh=score_thresh,
         )
 
     batch_predictions = []
     for batch_index in range(pred_boxes.shape[0]):
+        keep = pred_keep[batch_index]
         batch_predictions.append({
-            "boxes": pred_boxes[batch_index],
-            "scores": pred_scores[batch_index],
-            "labels": pred_labels[batch_index],
+            "boxes": pred_boxes[batch_index][keep],
+            "scores": pred_scores[batch_index][keep],
+            "labels": pred_labels[batch_index][keep],
         })
     return batch_predictions
 
@@ -592,6 +916,54 @@ def init_kradar_eval_state():
     }
 
 
+def suppress_predictions_near_ignore_boxes(
+        pred_boxes,
+        pred_scores,
+        pred_labels,
+        gt_ignore_boxes_raw,
+        scope_mode,
+        full_rae_shape,
+        expand_ratio=1.5,
+        margin=1.0,
+    ):
+    if gt_ignore_boxes_raw is None or pred_boxes.numel() == 0:
+        return pred_boxes, pred_scores, pred_labels, 0
+
+    ignore_boxes = gt_ignore_boxes_raw.to(pred_boxes.device)
+    if ignore_boxes.numel() == 0:
+        return pred_boxes, pred_scores, pred_labels, 0
+
+    pred_boxes_raw = denormalize_rae_boxes_to_local_scope(
+        boxes=pred_boxes,
+        scope_mode=scope_mode,
+        rae_shape=full_rae_shape,
+    )
+    pred_center_y = pred_boxes_raw[:, 0]
+    pred_center_x = pred_boxes_raw[:, 1]
+    keep = torch.ones((pred_boxes.shape[0],), dtype=torch.bool, device=pred_boxes.device)
+
+    for ignore_box in ignore_boxes:
+        center_y = ignore_box[0]
+        center_x = ignore_box[1]
+        half_h = (ignore_box[3].abs().clamp(min=1e-4) * 0.5 * float(expand_ratio)) + float(margin)
+        half_w = (ignore_box[4].abs().clamp(min=1e-4) * 0.5 * float(expand_ratio)) + float(margin)
+        inside = (
+            (pred_center_y >= (center_y - half_h))
+            & (pred_center_y <= (center_y + half_h))
+            & (pred_center_x >= (center_x - half_w))
+            & (pred_center_x <= (center_x + half_w))
+        )
+        keep &= ~inside
+
+    suppressed_predictions = int((~keep).sum().item())
+    return (
+        pred_boxes[keep],
+        pred_scores[keep],
+        pred_labels[keep],
+        suppressed_predictions,
+    )
+
+
 def append_frame_annos_for_kradar_eval(
         state,
         batch,
@@ -600,6 +972,10 @@ def append_frame_annos_for_kradar_eval(
         device,
         num_classes,
         scope_mode,
+        official_class_name_map,
+        eval_ignore_suppress_enabled=False,
+        eval_ignore_expand_ratio=1.5,
+        eval_ignore_suppress_margin=1.0,
     ):
     full_rae_shape = batch["full_rae_shape"][batch_index]
     frame_predictions = filter_predictions_to_scope(
@@ -607,6 +983,27 @@ def append_frame_annos_for_kradar_eval(
         scope_mode=scope_mode,
         full_rae_shape=full_rae_shape,
     )
+    if eval_ignore_suppress_enabled:
+        gt_ignore_boxes_raw_list = batch.get("gt_ignore_boxes_raw")
+        gt_ignore_boxes_raw = None
+        if gt_ignore_boxes_raw_list is not None:
+            gt_ignore_boxes_raw = gt_ignore_boxes_raw_list[batch_index]
+        (
+            frame_predictions["boxes"],
+            frame_predictions["scores"],
+            frame_predictions["labels"],
+            suppressed_predictions,
+        ) = suppress_predictions_near_ignore_boxes(
+            pred_boxes=frame_predictions["boxes"],
+            pred_scores=frame_predictions["scores"],
+            pred_labels=frame_predictions["labels"],
+            gt_ignore_boxes_raw=gt_ignore_boxes_raw,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+            expand_ratio=eval_ignore_expand_ratio,
+            margin=eval_ignore_suppress_margin,
+        )
+        state["eval_ignore_suppressed_predictions"] += suppressed_predictions
 
     gt_boxes_all = batch["gt_boxes"][batch_index].to(device)
     gt_labels_all = batch["gt_labels"][batch_index].to(device)
@@ -630,6 +1027,7 @@ def append_frame_annos_for_kradar_eval(
             boxes=gt_metric_boxes.detach().cpu(),
             labels=gt_labels.detach().cpu(),
             is_prediction=False,
+            class_name_map=official_class_name_map,
         )
     )
     state["official_dt_annos"].append(
@@ -638,6 +1036,7 @@ def append_frame_annos_for_kradar_eval(
             labels=frame_predictions["labels"].detach().cpu(),
             scores=frame_predictions["scores"].detach().cpu(),
             is_prediction=True,
+            class_name_map=official_class_name_map,
         )
     )
     state["metric_frames"].append(
@@ -657,14 +1056,22 @@ def collect_kradar_annos(
         dataloader,
         device,
         num_classes,
+        official_class_name_map,
         prepare_model_inputs,
         max_detections=64,
         heatmap_nms_kernel=3,
+        heatmap_score_mode="peak_times_local_mean",
         yolox_nms_iou=0.65,
+        ap_score_thresh=0.01,
+        detection_score_thresh=0.3,
         scope_mode=SCOPE_FULL,
+        eval_ignore_suppress_enabled=False,
+        eval_ignore_expand_ratio=1.5,
+        eval_ignore_suppress_margin=1.0,
     ):
     model.eval()
     state = init_kradar_eval_state()
+    state["eval_ignore_suppressed_predictions"] = 0
 
     for batch in tqdm.tqdm(dataloader, desc="Evaluation", ncols=120, leave=False):
         rad, rae = prepare_model_inputs(batch, device)
@@ -674,7 +1081,9 @@ def collect_kradar_annos(
             num_classes=num_classes,
             max_detections=max_detections,
             heatmap_nms_kernel=heatmap_nms_kernel,
+            heatmap_score_mode=heatmap_score_mode,
             yolox_nms_iou=yolox_nms_iou,
+            score_thresh=ap_score_thresh,
             scope_modes=batch["scope_mode"],
             full_rae_shapes=batch["full_rae_shape"],
         )
@@ -688,6 +1097,10 @@ def collect_kradar_annos(
                 device=device,
                 num_classes=num_classes,
                 scope_mode=scope_mode,
+                official_class_name_map=official_class_name_map,
+                eval_ignore_suppress_enabled=eval_ignore_suppress_enabled,
+                eval_ignore_expand_ratio=eval_ignore_expand_ratio,
+                eval_ignore_suppress_margin=eval_ignore_suppress_margin,
             )
 
     return state
@@ -698,11 +1111,14 @@ def run_kradar_eval_revised(
         official_eval_version="revised",
         official_eval_iou_backend="auto",
         official_eval_iou_mode="easy",
+        official_detection_metrics_enabled=True,
         custom_iou_range_eval_enabled=False,
         custom_iou_thresholds=None,
         coco_style_eval_enabled=False,
         nuscenes_style_eval_enabled=False,
         detection_score_thresh=0.3,
+        official_eval_class_ids=None,
+        official_class_name_map=None,
     ):
     if official_eval_version not in ("revised", "kradar"):
         raise ValueError(
@@ -721,7 +1137,10 @@ def run_kradar_eval_revised(
         official_eval_version="revised",
         official_eval_iou_backend=official_eval_iou_backend,
         official_eval_iou_mode=official_eval_iou_mode,
+        official_detection_metrics_enabled=official_detection_metrics_enabled,
         detection_score_thresh=detection_score_thresh,
+        official_eval_class_ids=official_eval_class_ids,
+        official_class_name_map=official_class_name_map,
     )
     if custom_iou_range_eval_enabled:
         official_metrics.update(
@@ -729,6 +1148,9 @@ def run_kradar_eval_revised(
                 state=kradar_eval_state,
                 iou_backend=official_eval_iou_backend,
                 iou_thresholds=custom_iou_thresholds,
+                detection_score_thresh=detection_score_thresh,
+                class_ids=official_eval_class_ids,
+                class_name_map=official_class_name_map,
             )
         )
     if coco_style_eval_enabled:
@@ -736,12 +1158,16 @@ def run_kradar_eval_revised(
             compute_coco_style_metrics(
                 state=kradar_eval_state,
                 iou_backend=official_eval_iou_backend,
+                class_ids=official_eval_class_ids,
+                class_name_map=official_class_name_map,
             )
         )
     if nuscenes_style_eval_enabled:
         official_metrics.update(
             compute_nuscenes_style_metrics(
                 state=kradar_eval_state,
+                class_ids=official_eval_class_ids,
+                class_name_map=official_class_name_map,
             )
         )
     print("Official K-Radar metric computation finished.", flush=True)
@@ -757,20 +1183,27 @@ def evaluate_checkpoint_with_kradar_revised(
         dataloader,
         device,
         num_classes,
+        official_class_name_map,
         prepare_model_inputs,
         max_detections=64,
         heatmap_nms_kernel=3,
+        heatmap_score_mode="peak_times_local_mean",
         yolox_nms_iou=0.65,
         scope_mode=SCOPE_FULL,
         official_eval_enabled=True,
         official_eval_version="revised",
         official_eval_iou_backend="auto",
         official_eval_iou_mode="easy",
+        official_detection_metrics_enabled=True,
         custom_iou_range_eval_enabled=False,
         custom_iou_thresholds=None,
         coco_style_eval_enabled=False,
         nuscenes_style_eval_enabled=False,
+        ap_score_thresh=0.01,
         detection_score_thresh=0.3,
+        eval_ignore_suppress_enabled=False,
+        eval_ignore_expand_ratio=1.5,
+        eval_ignore_suppress_margin=1.0,
     ):
     if not official_eval_enabled:
         return {"mAP": 0.0}
@@ -780,23 +1213,38 @@ def evaluate_checkpoint_with_kradar_revised(
         dataloader=dataloader,
         device=device,
         num_classes=num_classes,
+        official_class_name_map=official_class_name_map,
         prepare_model_inputs=prepare_model_inputs,
         max_detections=max_detections,
         heatmap_nms_kernel=heatmap_nms_kernel,
+        heatmap_score_mode=heatmap_score_mode,
         yolox_nms_iou=yolox_nms_iou,
+        ap_score_thresh=ap_score_thresh,
+        detection_score_thresh=detection_score_thresh,
         scope_mode=scope_mode,
+        eval_ignore_suppress_enabled=eval_ignore_suppress_enabled,
+        eval_ignore_expand_ratio=eval_ignore_expand_ratio,
+        eval_ignore_suppress_margin=eval_ignore_suppress_margin,
     )
-    return run_kradar_eval_revised(
+    metrics = run_kradar_eval_revised(
         kradar_eval_state=kradar_eval_state,
         official_eval_version=official_eval_version,
         official_eval_iou_backend=official_eval_iou_backend,
         official_eval_iou_mode=official_eval_iou_mode,
+        official_detection_metrics_enabled=official_detection_metrics_enabled,
         custom_iou_range_eval_enabled=custom_iou_range_eval_enabled,
         custom_iou_thresholds=custom_iou_thresholds,
         coco_style_eval_enabled=coco_style_eval_enabled,
         nuscenes_style_eval_enabled=nuscenes_style_eval_enabled,
         detection_score_thresh=detection_score_thresh,
+        official_eval_class_ids=sorted(official_class_name_map.keys()),
+        official_class_name_map=official_class_name_map,
     )
+    metrics["ap_score_thresh"] = float(ap_score_thresh)
+    metrics["eval_ignore_suppressed_predictions"] = int(
+        kradar_eval_state.get("eval_ignore_suppressed_predictions", 0)
+    )
+    return metrics
 
 
 @torch.no_grad()
@@ -806,9 +1254,11 @@ def evaluate_train_val_iou(
         val_dataloader,
         device,
         num_classes,
+        official_class_name_map,
         prepare_model_inputs,
         max_detections=64,
         heatmap_nms_kernel=3,
+        heatmap_score_mode="peak_times_local_mean",
         yolox_nms_iou=0.65,
         scope_mode=SCOPE_FULL,
         evaluate_train=False,
@@ -816,10 +1266,12 @@ def evaluate_train_val_iou(
         official_eval_version="revised",
         official_eval_iou_backend="auto",
         official_eval_iou_mode="easy",
+        official_detection_metrics_enabled=True,
         custom_iou_range_eval_enabled=False,
         custom_iou_thresholds=None,
         coco_style_eval_enabled=False,
         nuscenes_style_eval_enabled=False,
+        ap_score_thresh=0.01,
         detection_score_thresh=0.3,
     ):
     del train_dataloader
@@ -830,19 +1282,23 @@ def evaluate_train_val_iou(
         dataloader=val_dataloader,
         device=device,
         num_classes=num_classes,
+        official_class_name_map=official_class_name_map,
         prepare_model_inputs=prepare_model_inputs,
         max_detections=max_detections,
         heatmap_nms_kernel=heatmap_nms_kernel,
+        heatmap_score_mode=heatmap_score_mode,
         yolox_nms_iou=yolox_nms_iou,
         scope_mode=scope_mode,
         official_eval_enabled=official_eval_enabled,
         official_eval_version=official_eval_version,
         official_eval_iou_backend=official_eval_iou_backend,
         official_eval_iou_mode=official_eval_iou_mode,
+        official_detection_metrics_enabled=official_detection_metrics_enabled,
         custom_iou_range_eval_enabled=custom_iou_range_eval_enabled,
         custom_iou_thresholds=custom_iou_thresholds,
         coco_style_eval_enabled=coco_style_eval_enabled,
         nuscenes_style_eval_enabled=nuscenes_style_eval_enabled,
+        ap_score_thresh=ap_score_thresh,
         detection_score_thresh=detection_score_thresh,
     )
 
@@ -860,15 +1316,19 @@ def checkpoint_epoch(checkpoint_path):
     return int(match.group(1))
 
 
-def find_epoch_checkpoints(checkpoint_root, epoch_step):
+def find_epoch_checkpoints(checkpoint_root, epoch_step, end_epoch=None):
     if epoch_step <= 0:
         raise ValueError(f"--epoch-step must be greater than 0, got {epoch_step}")
+    if end_epoch is not None and end_epoch <= 0:
+        raise ValueError(f"--end-epoch must be greater than 0, got {end_epoch}")
 
     if os.path.isfile(checkpoint_root):
         epoch = checkpoint_epoch(checkpoint_root)
         if epoch is None:
             checkpoint = load_torch_checkpoint(checkpoint_root, map_location="cpu")
             epoch = checkpoint.get("epoch", 0) if isinstance(checkpoint, dict) else 0
+        if end_epoch is not None and epoch > end_epoch:
+            return []
         return [(epoch, checkpoint_root)]
 
     checkpoint_by_epoch = {}
@@ -876,21 +1336,16 @@ def find_epoch_checkpoints(checkpoint_root, epoch_step):
         if not filename.endswith(".pth"):
             continue
 
+        checkpoint_path = os.path.join(checkpoint_root, filename)
+        epoch = checkpoint_epoch(checkpoint_path)
+        if epoch is None:
+            continue
+
         is_global_best = (
             filename.startswith("global_best_epoch_")
             or "_global_best_epoch_" in filename
         )
-        is_candidate = (
-            filename.startswith("candidate_epoch_")
-            or "_candidate_epoch_" in filename
-        )
-        is_epoch = filename.startswith("epoch_")
-        if not (is_global_best or is_candidate or is_epoch):
-            continue
-
-        checkpoint_path = os.path.join(checkpoint_root, filename)
-        epoch = checkpoint_epoch(checkpoint_path)
-        if epoch is None:
+        if end_epoch is not None and epoch > end_epoch:
             continue
         if not is_global_best and epoch % epoch_step != 0:
             continue
@@ -908,6 +1363,199 @@ def get_checkpoint_state_dict(checkpoint):
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         return checkpoint["model_state_dict"]
     return checkpoint
+
+
+def _list_matching_conv_weights(state_dict, prefixes):
+    matches = []
+    for key, value in state_dict.items():
+        if not torch.is_tensor(value) or value.ndim != 4:
+            continue
+        if not key.endswith(".weight"):
+            continue
+        if any(key.startswith(prefix) for prefix in prefixes):
+            matches.append((key, tuple(value.shape)))
+    matches.sort(key=lambda item: item[0])
+    return matches
+
+
+def infer_checkpoint_decoder_overrides(checkpoint):
+    state_dict = get_checkpoint_state_dict(checkpoint)
+    if not isinstance(state_dict, dict):
+        return {}
+
+    decoder_prefixes = (
+        "decoder.cls_decoder.decoder",
+        "decoder.box_decoder.shared",
+        "decoder.heatmap_head.head",
+        "decoder.regression_head.head",
+    )
+    class_output_prefixes = (
+        "decoder.cls_decoder.decoder",
+        "decoder.heatmap_head.head",
+    )
+
+    decoder_convs = _list_matching_conv_weights(state_dict, decoder_prefixes)
+    class_output_convs = _list_matching_conv_weights(state_dict, class_output_prefixes)
+
+    overrides = {}
+    if decoder_convs:
+        first_key, first_shape = decoder_convs[0]
+        overrides["decoder_hidden_channels"] = int(first_shape[0])
+        overrides["feature_channels"] = int(first_shape[1])
+        overrides["decoder_channels_key"] = first_key
+
+    class_output_1x1 = [
+        (key, shape)
+        for key, shape in class_output_convs
+        if shape[2:] == (1, 1)
+    ]
+    if class_output_1x1:
+        class_key, class_shape = class_output_1x1[-1]
+        overrides["num_classes"] = int(class_shape[0])
+        overrides["num_classes_key"] = class_key
+
+    return overrides
+
+
+def print_checkpoint_override_summary(checkpoint_path, overrides):
+    if not overrides:
+        return
+
+    details = []
+    if "decoder_hidden_channels" in overrides:
+        details.append(f"decoder_hidden_channels={overrides['decoder_hidden_channels']}")
+    if "feature_channels" in overrides:
+        details.append(f"feature_channels={overrides['feature_channels']}")
+    if "num_classes" in overrides:
+        details.append(f"inferred_num_classes={overrides['num_classes']}")
+    print(
+        f"Checkpoint overrides for {Path(checkpoint_path).name}: "
+        + ", ".join(details)
+    )
+
+
+def format_sequence_label(sequences, prefix):
+    normalized = normalize_sequence_list(sequences, name=prefix)
+    if normalized in (None, "", ()):
+        return None
+    values = [str(int(sequence)) for sequence in normalized]
+    return f"{prefix}_{','.join(values)}"
+
+
+def normalize_checkpoint_sequences(sequences, name):
+    if sequences in (None, "", ()):
+        return None
+    return normalize_sequence_list(sequences, name=name)
+
+
+def infer_source_controlled_from_config(config):
+    if not isinstance(config, dict):
+        return False
+    override_path = normalize_optional_path(
+        config.get("gt_object_ignore_override_path")
+    )
+    if override_path is not None:
+        return True
+    return bool(config.get("train_control_split_enabled", False))
+
+
+def extract_checkpoint_source_metadata(checkpoint):
+    if not isinstance(checkpoint, dict):
+        return {
+            "train_sequences": None,
+            "val_sequences": None,
+            "include_bus_as_target": True,
+            "gt_object_ignore_override_path": None,
+            "train_control_split_enabled": False,
+        }
+
+    config = checkpoint.get("config", {})
+    inferred_include_bus_as_target = infer_include_bus_as_target_from_checkpoint_config(
+        config
+    )
+    include_bus_as_target = True
+    if inferred_include_bus_as_target is not None:
+        include_bus_as_target = bool(inferred_include_bus_as_target)
+
+    return {
+        "train_sequences": normalize_checkpoint_sequences(
+            config.get("train_sequences"),
+            name="checkpoint.config.train_sequences",
+        ),
+        "val_sequences": normalize_checkpoint_sequences(
+            config.get("val_sequences"),
+            name="checkpoint.config.val_sequences",
+        ),
+        "include_bus_as_target": include_bus_as_target,
+        "gt_object_ignore_override_path": normalize_optional_path(
+            config.get("gt_object_ignore_override_path")
+        ),
+        "train_control_split_enabled": infer_source_controlled_from_config(config),
+    }
+
+
+def build_model_variant_name(
+        model_type,
+        overrides,
+        include_bus_as_target=True,
+        train_sequences=None,
+        train_control_split_enabled=False,
+    ):
+    parts = [str(model_type)]
+    decoder_hidden_channels = overrides.get("decoder_hidden_channels")
+    feature_channels = overrides.get("feature_channels")
+    if decoder_hidden_channels is not None:
+        parts.append(str(int(decoder_hidden_channels)))
+    if feature_channels is not None:
+        parts.append(str(int(feature_channels)))
+    if not bool(include_bus_as_target):
+        parts.append("ig")
+    train_label = format_sequence_label(train_sequences, prefix="train")
+    if train_label is not None:
+        parts.append(train_label)
+    if bool(train_control_split_enabled):
+        parts.append("controlled")
+    return "_".join(parts)
+
+
+def infer_model_variant_name(
+        model_type,
+        checkpoint_or_state_dict,
+        include_bus_as_target=True,
+        train_sequences=None,
+        train_control_split_enabled=False,
+    ):
+    overrides = infer_checkpoint_decoder_overrides(checkpoint_or_state_dict)
+    return build_model_variant_name(
+        model_type=model_type,
+        overrides=overrides,
+        include_bus_as_target=include_bus_as_target,
+        train_sequences=train_sequences,
+        train_control_split_enabled=train_control_split_enabled,
+    )
+
+
+def build_model_for_checkpoint(
+        model_type,
+        device,
+        num_classes,
+        checkpoint_path,
+    ):
+    checkpoint = load_torch_checkpoint(checkpoint_path, map_location="cpu")
+    overrides = infer_checkpoint_decoder_overrides(checkpoint)
+    build_kwargs = {
+        "model_type": model_type,
+        "device": device,
+        "num_classes": num_classes,
+    }
+    if "decoder_hidden_channels" in overrides:
+        build_kwargs["decoder_hidden_channels"] = overrides["decoder_hidden_channels"]
+    if "feature_channels" in overrides:
+        build_kwargs["feature_channels"] = overrides["feature_channels"]
+
+    print_checkpoint_override_summary(checkpoint_path, overrides)
+    model = build_model(**build_kwargs)
+    return model, overrides
 
 
 def infer_model_type_from_checkpoint(checkpoint_path):
@@ -979,32 +1627,73 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         return
 
     config = checkpoint.get("config", {})
-    if config.get("max_detections") is not None:
+    inferred_include_bus_as_target = infer_include_bus_as_target_from_checkpoint_config(
+        config
+    )
+    if should_inherit_from_checkpoint("max_detections") and config.get("max_detections") is not None:
         args.max_detections = int(config["max_detections"])
-    elif config.get("num_boxes") is not None:
+    elif should_inherit_from_checkpoint("max_detections") and config.get("num_boxes") is not None:
         args.max_detections = int(config["num_boxes"])
-    if config.get("train_ratio") is not None:
+    if should_inherit_from_checkpoint("train_ratio") and config.get("train_ratio") is not None:
         args.train_ratio = float(config["train_ratio"])
-    if config.get("custom_iou_range_eval_enabled") is not None:
+    if (
+        should_inherit_from_checkpoint("include_bus_as_target")
+        and inferred_include_bus_as_target is not None
+    ):
+        args.include_bus_as_target = inferred_include_bus_as_target
+        if config.get("include_bus_as_target") is None:
+            print(
+                "Checkpoint config missing include_bus_as_target; "
+                f"inferred {args.include_bus_as_target} "
+                f"from stored num_classes/class_names for {Path(first_checkpoint_path).name}"
+            )
+    if should_inherit_from_checkpoint("ignore_class_names") and config.get("ignore_class_names") is not None:
+        args.ignore_class_names = tuple(config["ignore_class_names"])
+    if (
+        should_inherit_from_checkpoint("gt_object_ignore_override_path")
+        and config.get("gt_object_ignore_override_path") is not None
+    ):
+        args.gt_object_ignore_override_path = config["gt_object_ignore_override_path"]
+    if (
+        should_inherit_from_checkpoint("train_control_split_enabled")
+        and config.get("train_control_split_enabled") is not None
+    ):
+        args.train_control_split_enabled = bool(config["train_control_split_enabled"])
+    if (
+        should_inherit_from_checkpoint("train_control_split_dir")
+        and config.get("train_control_split_dir") is not None
+    ):
+        args.train_control_split_dir = config["train_control_split_dir"]
+    if should_inherit_from_checkpoint("ignore_mask_margin") and config.get("ignore_mask_margin") is not None:
+        args.ignore_mask_margin = float(config["ignore_mask_margin"])
+    if (
+        should_inherit_from_checkpoint("ignore_mask_expand_ratio")
+        and config.get("ignore_mask_expand_ratio") is not None
+    ):
+        args.ignore_mask_expand_ratio = float(config["ignore_mask_expand_ratio"])
+    if (
+        should_inherit_from_checkpoint("custom_iou_range_eval_enabled")
+        and config.get("custom_iou_range_eval_enabled") is not None
+    ):
         args.custom_iou_range_eval_enabled = bool(config["custom_iou_range_eval_enabled"])
-    if config.get("custom_iou_thresholds") is not None:
+    if should_inherit_from_checkpoint("custom_iou_thresholds") and config.get("custom_iou_thresholds") is not None:
         args.custom_iou_thresholds = normalize_float_thresholds(
             config["custom_iou_thresholds"],
             name="checkpoint.config.custom_iou_thresholds",
         )
-    if config.get("coco_style_eval_enabled") is not None:
+    if should_inherit_from_checkpoint("coco_style_eval_enabled") and config.get("coco_style_eval_enabled") is not None:
         args.coco_style_eval_enabled = bool(config["coco_style_eval_enabled"])
-    if config.get("nuscenes_style_eval_enabled") is not None:
+    if should_inherit_from_checkpoint("nuscenes_style_eval_enabled") and config.get("nuscenes_style_eval_enabled") is not None:
         args.nuscenes_style_eval_enabled = bool(config["nuscenes_style_eval_enabled"])
-    if config.get("split_mode") is not None:
+    if should_inherit_from_checkpoint("split_mode") and config.get("split_mode") is not None:
         args.split_mode = config["split_mode"]
-    if config.get("split_dir") is not None:
+    if should_inherit_from_checkpoint("split_dir") and config.get("split_dir") is not None:
         args.split_dir = config["split_dir"]
-    if config.get("train_sequences") is not None:
+    if should_inherit_from_checkpoint("train_sequences") and config.get("train_sequences") is not None:
         args.train_sequences = config["train_sequences"]
-    if config.get("val_sequences") is not None:
+    if should_inherit_from_checkpoint("val_sequences") and config.get("val_sequences") is not None:
         args.val_sequences = config["val_sequences"]
-    if config.get("seed") is not None:
+    if should_inherit_from_checkpoint("seed") and config.get("seed") is not None:
         args.seed = int(config["seed"])
     if args.eval_scope is None:
         args.eval_scope = config.get("train_scope", SCOPE_FULL)
@@ -1043,15 +1732,39 @@ def sequence_name_for_filename(sequences, empty_name):
     return format_sequence_run_name(sequences)
 
 
-def build_plot_metadata(args, model_type):
+def build_plot_metadata(args, model_variant_name, source_metadata):
+    source_train_sequences = source_metadata.get("train_sequences")
+    source_val_sequences = source_metadata.get("val_sequences")
     return {
-        "model_type": str(model_type or "model_unknown"),
+        "model_type": str(model_variant_name or "model_unknown"),
+        "base_model_type": str(source_metadata.get("base_model_type", "model_unknown")),
+        "model_configuration_name": source_metadata.get("model_configuration_name"),
+        "model_configuration": source_metadata.get("model_configuration", {}),
         "split_mode": str(args.split_mode),
-        "train_sequences": sequence_name_for_filename(args.train_sequences, "train_unknown"),
+        "train_sequences": sequence_name_for_filename(source_train_sequences, "train_unknown"),
+        "checkpoint_train_sequences": sequence_name_for_filename(source_train_sequences, "train_unknown"),
+        "checkpoint_val_sequences": sequence_name_for_filename(source_val_sequences, "val_unknown"),
         "val_sequences": sequence_name_for_filename(args.val_sequences, "val_unknown"),
         "eval_scope": str(args.eval_scope),
-        "detection_score_thresh": float(args.detection_score_thresh),
+        "include_bus_as_target": bool(args.include_bus_as_target),
+        "checkpoint_include_bus_as_target": bool(
+            source_metadata.get("include_bus_as_target", args.include_bus_as_target)
+        ),
+        "gt_object_ignore_override_path": source_metadata.get(
+            "gt_object_ignore_override_path",
+            args.gt_object_ignore_override_path,
+        ),
+        "train_control_split_enabled": bool(
+            source_metadata.get("train_control_split_enabled", False)
+        ),
+        "end_epoch": None if args.end_epoch is None else int(args.end_epoch),
+        "heatmap_score_mode": str(args.heatmap_score_mode),
+        "ap_score_thresh": float(args.ap_score_thresh),
+        "score_thresh": float(args.score_thresh),
         "official_iou_mode": str(args.official_eval_iou_mode),
+        "official_ap03_only": bool(args.official_ap03_only),
+        "official_detection_metrics_enabled": bool(args.official_detection_metrics_enabled),
+        "group_checkpoint_plot_best_only": bool(args.group_checkpoint_plot_best_only),
         "custom_iou_range_eval_enabled": bool(args.custom_iou_range_eval_enabled),
         "custom_iou_thresholds": [float(value) for value in args.custom_iou_thresholds],
         "coco_style_eval_enabled": bool(args.coco_style_eval_enabled),
@@ -1059,56 +1772,93 @@ def build_plot_metadata(args, model_type):
     }
 
 
-def resolve_plot_output_path(args, checkpoint_paths, model_type):
-    plot_output = args.plot_output
+def plot_output_requested(plot_output):
     if plot_output is None:
-        return None
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_tag = str(model_type or "model_unknown")
-    train_tag = sequence_name_for_filename(args.train_sequences, "train_unknown")
-    val_tag = sequence_name_for_filename(args.val_sequences, "val_unknown")
-
+        return False
     if isinstance(plot_output, str):
         normalized = plot_output.strip()
         if normalized == "":
-            return None
+            return False
         if normalized.lower() in {"no", "none", "false", "0", "null"}:
-            return None
-        if normalized.lower() in {"yes", "true", "1", "auto"}:
-            checkpoint_root = args.checkpoint_root
-            if os.path.isfile(checkpoint_root):
-                checkpoint_name = os.path.splitext(
-                    os.path.basename(checkpoint_root)
-                )[0]
-            else:
-                _, first_checkpoint_path = checkpoint_paths[0]
-                checkpoint_name = os.path.splitext(
-                    os.path.basename(first_checkpoint_path)
-                )[0]
-            filename = (
-                f"{timestamp}_{model_tag}_{train_tag}_{val_tag}_{checkpoint_name}_{args.official_eval_iou_mode}_"
-                f"{args.official_eval_iou_backend}.png"
-            )
-            return os.path.join("evaluation_plots", "png_photos", filename)
-        return normalized
+            return False
+        return True
+    return bool(plot_output)
 
-    if bool(plot_output):
+
+def plot_output_is_auto(plot_output):
+    if not isinstance(plot_output, str):
+        return bool(plot_output)
+    normalized = plot_output.strip().lower()
+    return normalized in {"yes", "true", "1", "auto"}
+
+
+def plot_checkpoint_name(checkpoint_path):
+    return os.path.splitext(os.path.basename(checkpoint_path))[0]
+
+
+def checkpoint_epoch_number(checkpoint_path):
+    checkpoint_name = plot_checkpoint_name(checkpoint_path)
+    match = re.search(r"_epoch_(\d+)_", checkpoint_name)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def append_filename_tag(output_path, tag):
+    if tag in (None, ""):
+        return output_path
+    base, suffix = os.path.splitext(output_path)
+    return f"{base}__{tag}{suffix}"
+
+
+def resolve_plot_output_path(args, checkpoint_paths, model_type, checkpoint_path=None, selection_tag=None):
+    plot_output = args.plot_output
+    if not plot_output_requested(plot_output):
+        return None
+
+    model_tag = str(model_type or "model_unknown")
+    val_tag = format_sequence_tag(args.val_sequences, "val_seq")
+    if checkpoint_path is None:
         checkpoint_root = args.checkpoint_root
         if os.path.isfile(checkpoint_root):
-            checkpoint_name = os.path.splitext(
-                os.path.basename(checkpoint_root)
-            )[0]
+            checkpoint_path = checkpoint_root
         else:
-            _, first_checkpoint_path = checkpoint_paths[0]
-            checkpoint_name = os.path.splitext(
-                os.path.basename(first_checkpoint_path)
-            )[0]
-        filename = (
-            f"{timestamp}_{model_tag}_{train_tag}_{val_tag}_{checkpoint_name}_{args.official_eval_iou_mode}_"
-            f"{args.official_eval_iou_backend}.png"
+            _, checkpoint_path = checkpoint_paths[0]
+    epoch_number = checkpoint_epoch_number(checkpoint_path)
+
+    def auto_plot_output_path():
+        # Keep the model identity in the directory, matching evaluation_plots.
+        # The filename only identifies the validation set and selected epoch.
+        output_dir = (
+            resolve_output_base_dir("evaluation_plots/png_photos")
+            / sanitize_filename(model_tag)
         )
-        return os.path.join("evaluation_plots", "png_photos", filename)
+        stem_parts = [
+            sanitize_filename(val_tag),
+        ]
+        if selection_tag:
+            stem_parts.append(sanitize_filename(selection_tag))
+        if epoch_number is not None:
+            stem_parts.append(f"e{int(epoch_number):03d}")
+        if args.official_ap03_only:
+            stem_parts.append("ap03only")
+        stem = "__".join(part for part in stem_parts if part not in {"", None})
+        return str(
+            next_available_output_path(
+                output_dir=output_dir,
+                stem=stem,
+                suffix=".png",
+            )
+        )
+
+    if isinstance(plot_output, str):
+        normalized = plot_output.strip()
+        if plot_output_is_auto(normalized):
+            return auto_plot_output_path()
+        return append_filename_tag(normalized, selection_tag)
+
+    if bool(plot_output):
+        return auto_plot_output_path()
 
     return None
 
@@ -1121,7 +1871,50 @@ def metric_label(metric_key):
     return metric_key
 
 
-def display_class_name(class_name):
+def metric_class_names_for_result(result):
+    class_names = result.get("metric_class_names")
+    if isinstance(class_names, (list, tuple)) and len(class_names) > 0:
+        return [str(class_name) for class_name in class_names]
+
+    for key in (
+        "official_per_class",
+        "official_detection_per_class",
+        "custom_iou_per_class",
+        "custom_iou_detection_per_class",
+        "coco_per_class",
+        "nuscenes_per_class",
+    ):
+        values = result.get(key)
+        if isinstance(values, dict) and len(values) > 0:
+            return [str(class_name) for class_name in values.keys()]
+    return []
+
+
+def merged_metric_class_names(results):
+    merged = []
+    seen = set()
+    for result in results:
+        for class_name in metric_class_names_for_result(result):
+            if class_name in seen:
+                continue
+            merged.append(class_name)
+            seen.add(class_name)
+    return merged
+
+
+def class_display_name_map_for_results(results):
+    merged = {}
+    for result in results:
+        values = result.get("class_display_name_map", {})
+        if isinstance(values, dict):
+            for class_name, display_name in values.items():
+                merged[str(class_name)] = str(display_name)
+    return merged
+
+
+def display_class_name(class_name, display_name_map=None):
+    if display_name_map is not None and class_name in display_name_map:
+        return display_name_map[class_name]
     return {
         "sed": "Sedan",
         "bus": "Bus",
@@ -1209,10 +2002,17 @@ def style_metric_table(table, row_meta, best_epoch, font_size=9.5):
 
 
 def build_official_plot_section(results, iou_suffixes, multi_epoch):
+    class_names = merged_metric_class_names(results)
+    display_name_map = class_display_name_map_for_results(results)
     columns = ["Object"]
     for iou_suffix in iou_suffixes:
         columns.extend([f"BEV AP@{iou_suffix}", f"3D AP@{iou_suffix}"])
-    columns.extend(label for label, _, _ in detection_table_columns())
+    include_detection_metrics = any(
+        isinstance(result.get("official_detection_precision"), (int, float))
+        for result in results
+    )
+    if include_detection_metrics:
+        columns.extend(label for label, _, _ in detection_table_columns())
 
     rows = []
     row_meta = []
@@ -1224,12 +2024,13 @@ def build_official_plot_section(results, iou_suffixes, multi_epoch):
                 official_ap_text(result.get(f"official_bev_mAP_{iou_suffix}")),
                 official_ap_text(result.get(f"official_3d_mAP_{iou_suffix}")),
             ])
-        for _, result_key, value_type in detection_table_columns():
-            value = result.get(result_key)
-            if value_type == "metric":
-                row.append(metric_text(value))
-            else:
-                row.append("-" if value is None else str(int(value)))
+        if include_detection_metrics:
+            for _, result_key, value_type in detection_table_columns():
+                value = result.get(result_key)
+                if value_type == "metric":
+                    row.append(metric_text(value))
+                else:
+                    row.append("-" if value is None else str(int(value)))
         rows.append(row)
         row_meta.append({
             "epoch": int(result["epoch"]),
@@ -1239,20 +2040,21 @@ def build_official_plot_section(results, iou_suffixes, multi_epoch):
         stripe_index += 1
 
         per_class = result.get("official_detection_per_class", {})
-        for class_name in ("sed", "bus"):
+        for class_name in class_names:
             class_stats = per_class.get(class_name, {})
-            row = [result_row_label(result, display_class_name(class_name), multi_epoch)]
+            row = [result_row_label(result, display_class_name(class_name, display_name_map), multi_epoch)]
             for iou_suffix in iou_suffixes:
                 row.extend([
                     official_ap_text(result.get(f"official_{class_name}_bev_AP_{iou_suffix}")),
                     official_ap_text(result.get(f"official_{class_name}_3d_AP_{iou_suffix}")),
                 ])
-            for label, _, value_type in detection_table_columns():
-                class_value = class_stats.get(label.lower())
-                if value_type == "metric":
-                    row.append(metric_text(class_value))
-                else:
-                    row.append("-" if class_value is None else str(int(class_value)))
+            if include_detection_metrics:
+                for label, _, value_type in detection_table_columns():
+                    class_value = class_stats.get(label.lower())
+                    if value_type == "metric":
+                        row.append(metric_text(class_value))
+                    else:
+                        row.append("-" if class_value is None else str(int(class_value)))
             rows.append(row)
             row_meta.append({
                 "epoch": int(result["epoch"]),
@@ -1272,6 +2074,8 @@ def build_official_plot_section(results, iou_suffixes, multi_epoch):
 def build_coco_plot_section(results, multi_epoch):
     if not any("coco_bev_mAP" in result for result in results):
         return None
+    class_names = merged_metric_class_names(results)
+    display_name_map = class_display_name_map_for_results(results)
 
     columns = [
         "Object",
@@ -1307,9 +2111,9 @@ def build_coco_plot_section(results, multi_epoch):
         if not include_per_class:
             continue
 
-        for class_name in ("sed", "bus"):
+        for class_name in class_names:
             rows.append([
-                result_row_label(result, display_class_name(class_name), multi_epoch),
+                result_row_label(result, display_class_name(class_name, display_name_map), multi_epoch),
                 metric_text(result.get(f"coco_{class_name}_bev_mAP")),
                 metric_text(result.get(f"coco_{class_name}_bev_AP_0.50")),
                 metric_text(result.get(f"coco_{class_name}_bev_AP_0.75")),
@@ -1335,6 +2139,8 @@ def build_coco_plot_section(results, multi_epoch):
 def build_custom_iou_plot_section(results, multi_epoch):
     if not any("custom_iou_bev_mAP" in result for result in results):
         return None
+    class_names = merged_metric_class_names(results)
+    display_name_map = class_display_name_map_for_results(results)
 
     columns = ["Object", "BEV mAP", "3D mAP", "Precision", "Recall", "F1"]
 
@@ -1362,9 +2168,9 @@ def build_custom_iou_plot_section(results, multi_epoch):
         if not include_per_class:
             continue
 
-        for class_name in ("sed", "bus"):
+        for class_name in class_names:
             row = [
-                result_row_label(result, display_class_name(class_name), multi_epoch),
+                result_row_label(result, display_class_name(class_name, display_name_map), multi_epoch),
                 metric_text(result.get(f"custom_iou_{class_name}_bev_mAP")),
                 metric_text(result.get(f"custom_iou_{class_name}_3d_mAP")),
                 metric_text(result.get(f"custom_iou_{class_name}_precision")),
@@ -1390,6 +2196,8 @@ def build_custom_iou_plot_section(results, multi_epoch):
 def build_nuscenes_plot_section(results, multi_epoch):
     if not any("nuscenes_mAP" in result for result in results):
         return None
+    class_names = merged_metric_class_names(results)
+    display_name_map = class_display_name_map_for_results(results)
 
     columns = [
         "Object",
@@ -1429,9 +2237,9 @@ def build_nuscenes_plot_section(results, multi_epoch):
         if not include_per_class:
             continue
 
-        for class_name in ("sed", "bus"):
+        for class_name in class_names:
             rows.append([
-                result_row_label(result, display_class_name(class_name), multi_epoch),
+                result_row_label(result, display_class_name(class_name, display_name_map), multi_epoch),
                 metric_text(result.get(f"nuscenes_{class_name}_mAP")),
                 metric_text(result.get(f"nuscenes_{class_name}_AP_0.5m")),
                 metric_text(result.get(f"nuscenes_{class_name}_AP_1.0m")),
@@ -1484,13 +2292,6 @@ def save_evaluation_plot(results, plot_output_path, plot_metadata=None):
     if nuscenes_section is not None:
         sections.append(nuscenes_section)
 
-    max_columns = max(len(section["columns"]) for section in sections)
-    total_rows = sum(len(section["rows"]) for section in sections)
-    fig_width = max(13.0, 1.15 * max_columns)
-    fig_height = max(7.0, 3.4 + 0.46 * total_rows + 0.8 * len(sections))
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    ax.axis("off")
-    fig.suptitle("Evaluation Results", fontsize=15, y=0.975)
     summary_lines = [
         (
             f"Best epoch: {best_result['epoch']} | "
@@ -1499,28 +2300,42 @@ def save_evaluation_plot(results, plot_output_path, plot_metadata=None):
         )
     ]
     if plot_metadata is not None:
+        shown_ap_iou_text = ", ".join(iou_suffixes)
         summary_lines.append(
             (
-                f"Model: {plot_metadata['model_type']} | "
-                f"Split: {plot_metadata['split_mode']} | "
-                f"Scope: {plot_metadata['eval_scope']}"
+                f"Model: {plot_metadata.get('model_type', '-')} | "
+                f"Split: {plot_metadata.get('split_mode', '-')} | "
+                f"Scope: {plot_metadata.get('eval_scope', '-')}"
             )
         )
         summary_lines.append(
             (
-                f"Train: {plot_metadata['train_sequences']} | "
-                f"Val: {plot_metadata['val_sequences']}"
+                f"Train: {plot_metadata.get('train_sequences', '-')} | "
+                f"Val: {plot_metadata.get('val_sequences', '-')}"
             )
         )
         summary_lines.append(
             (
                 f"Frames: {best_result.get('official_num_eval_frames', 0)} | "
                 f"Backend: {best_result.get('official_iou_backend_used', '-')} | "
-                f"Score threshold: {plot_metadata['detection_score_thresh']:.2f} | "
-                f"Det IoU: {best_result.get('official_detection_iou_threshold', 0.0):.2f} | "
-                f"Shown AP IoU: 0.3, 0.5"
+                f"Shown AP IoU: {shown_ap_iou_text}"
             )
         )
+        ap_score_thresh = plot_metadata.get("ap_score_thresh")
+        if ap_score_thresh is not None:
+            summary_lines.append(f"AP score threshold: {ap_score_thresh:.2f}")
+        if plot_metadata.get("official_detection_metrics_enabled", False):
+            score_thresh = plot_metadata.get(
+                "score_thresh",
+                plot_metadata.get("detection_score_thresh"),
+            )
+            if score_thresh is not None:
+                summary_lines.append(
+                    (
+                        f"Det score threshold: {score_thresh:.2f} | "
+                        f"Det IoU: {best_result.get('official_detection_iou_threshold', 0.0):.2f}"
+                    )
+                )
     if "custom_iou_bev_mAP" in best_result:
         custom_iou_text = ", ".join(
             format_custom_iou_suffix(value)
@@ -1530,7 +2345,12 @@ def save_evaluation_plot(results, plot_output_path, plot_metadata=None):
             (
                 f"Custom IoU range: {custom_iou_text} | "
                 f"BEV mAP={metric_text(best_result.get('custom_iou_bev_mAP'))} | "
-                f"3D mAP={metric_text(best_result.get('custom_iou_3d_mAP'))} | "
+                f"3D mAP={metric_text(best_result.get('custom_iou_3d_mAP'))}"
+            )
+        )
+        summary_lines.append(
+            (
+                "Custom IoU detection: "
                 f"P={metric_text(best_result.get('custom_iou_precision'))} | "
                 f"R={metric_text(best_result.get('custom_iou_recall'))} | "
                 f"F1={metric_text(best_result.get('custom_iou_f1'))}"
@@ -1543,55 +2363,95 @@ def save_evaluation_plot(results, plot_output_path, plot_metadata=None):
                 f"AP@0.5m={metric_text(best_result.get('nuscenes_AP_0.5m'))} | "
                 f"AP@1.0m={metric_text(best_result.get('nuscenes_AP_1.0m'))} | "
                 f"AP@2.0m={metric_text(best_result.get('nuscenes_AP_2.0m'))} | "
-                f"AP@4.0m={metric_text(best_result.get('nuscenes_AP_4.0m'))} | "
+                f"AP@4.0m={metric_text(best_result.get('nuscenes_AP_4.0m'))}"
+            )
+        )
+        summary_lines.append(
+            (
+                "nuScenes-style errors: "
                 f"mATE={metric_text(best_result.get('nuscenes_mATE'))} | "
                 f"mASE={metric_text(best_result.get('nuscenes_mASE'))} | "
                 f"mAOE={metric_text(best_result.get('nuscenes_mAOE'))}"
             )
         )
-    ax.text(
-        0.5,
-        0.93,
-        "\n".join(summary_lines),
-        transform=ax.transAxes,
-        ha="center",
-        va="top",
-        fontsize=10.5,
-        color="#374151",
-        linespacing=1.55,
-    )
 
-    summary_bottom = 0.80
-    section_gap = 0.03
-    title_height = 0.028
-    raw_table_heights = [
-        0.030 + 0.027 * (len(section["rows"]) + 1)
+    max_columns = max(len(section["columns"]) for section in sections)
+    fig_width = max(13.0, 1.15 * max_columns)
+    summary_height = 0.62 + 0.22 * len(summary_lines)
+    section_heights = [
+        0.42 + 0.36 * (len(section["rows"]) + 1)
         for section in sections
     ]
-    total_raw_height = sum(raw_table_heights) + len(sections) * title_height + (len(sections) - 1) * section_gap
-    available_height = summary_bottom - 0.05
-    scale = min(1.0, available_height / max(total_raw_height, 1e-6))
-    current_top = summary_bottom
+    fig_height = max(
+        7.0,
+        summary_height + sum(section_heights) + 0.22 * (len(sections) - 1) + 0.35,
+    )
+    fig = plt.figure(figsize=(fig_width, fig_height))
+    grid = fig.add_gridspec(
+        nrows=len(sections) + 1,
+        ncols=1,
+        height_ratios=[summary_height, *section_heights],
+        left=0.035,
+        right=0.965,
+        top=0.98,
+        bottom=0.025,
+        hspace=0.22,
+    )
 
-    for section, raw_table_height in zip(sections, raw_table_heights):
-        ax.text(
-            0.03,
-            current_top,
+    summary_ax = fig.add_subplot(grid[0])
+    summary_ax.axis("off")
+    summary_ax.text(
+        0.5,
+        0.98,
+        "Evaluation Results",
+        transform=summary_ax.transAxes,
+        ha="center",
+        va="top",
+        fontsize=15,
+        fontweight="bold",
+        color="#111827",
+    )
+    summary_ax.text(
+        0.5,
+        0.78,
+        "\n".join(summary_lines),
+        transform=summary_ax.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10.0,
+        color="#374151",
+        linespacing=1.35,
+        bbox={
+            "boxstyle": "round,pad=0.55",
+            "facecolor": "#f8fafc",
+            "edgecolor": "#d1d5db",
+            "linewidth": 0.8,
+        },
+    )
+
+    for section_index, (section, section_height) in enumerate(
+        zip(sections, section_heights),
+        start=1,
+    ):
+        section_ax = fig.add_subplot(grid[section_index])
+        section_ax.axis("off")
+        section_ax.text(
+            0.0,
+            0.98,
             section["title"],
-            transform=ax.transAxes,
+            transform=section_ax.transAxes,
             ha="left",
             va="top",
             fontsize=11,
             fontweight="bold",
             color="#111827",
         )
-        scaled_title_height = title_height * scale
-        table_height = raw_table_height * scale
-        table_bottom = current_top - scaled_title_height - table_height
-        table = ax.table(
+        title_fraction = min(0.24, 0.34 / section_height)
+        table_top = 1.0 - title_fraction
+        table = section_ax.table(
             cellText=section["rows"],
             colLabels=section["columns"],
-            bbox=[0.03, table_bottom, 0.94, table_height],
+            bbox=[0.0, 0.0, 1.0, table_top],
             cellLoc="center",
             colLoc="center",
         )
@@ -1599,13 +2459,10 @@ def save_evaluation_plot(results, plot_output_path, plot_metadata=None):
             table,
             row_meta=section["row_meta"],
             best_epoch=int(best_result["epoch"]),
-            font_size=max(7.8, 9.5 * scale),
+            font_size=9.5,
         )
-        table.scale(1.0, max(1.0, 1.2 * scale))
-        current_top = table_bottom - (section_gap * scale)
 
-    fig.tight_layout(rect=[0.02, 0.02, 0.98, 0.97])
-    fig.savefig(plot_output_path, dpi=200, bbox_inches="tight")
+    fig.savefig(plot_output_path, dpi=200, bbox_inches="tight", pad_inches=0.12)
     plt.close(fig)
 
 
@@ -1628,18 +2485,31 @@ def yaml_safe_value(value):
     return str(value)
 
 
+def available_official_iou_suffixes(result):
+    suffixes = []
+    for suffix in ("0.3", "0.5"):
+        bev_key = f"official_bev_mAP_{suffix}"
+        d3_key = f"official_3d_mAP_{suffix}"
+        if bev_key in result or d3_key in result:
+            suffixes.append(suffix)
+    return suffixes
+
+
 def collect_method_summary(result):
+    official_summary = {
+        "main_metric_key": result.get("official_main_metric_key"),
+        "main_metric_value": official_ap_value(result.get("official_main_metric_value")),
+    }
+    for suffix in available_official_iou_suffixes(result):
+        official_summary[f"bev_mAP_{suffix}"] = official_ap_value(
+            result.get(f"official_bev_mAP_{suffix}")
+        )
+        official_summary[f"3d_mAP_{suffix}"] = official_ap_value(
+            result.get(f"official_3d_mAP_{suffix}")
+        )
+
     summary = {
-        "official": {
-            "main_metric_key": result.get("official_main_metric_key"),
-            "main_metric_value": official_ap_value(result.get("official_main_metric_value")),
-            "bev_mAP_0.3": official_ap_value(result.get("official_bev_mAP_0.3")),
-            "bev_mAP_0.5": official_ap_value(result.get("official_bev_mAP_0.5")),
-            "bev_mAP_0.7": official_ap_value(result.get("official_bev_mAP_0.7")),
-            "3d_mAP_0.3": official_ap_value(result.get("official_3d_mAP_0.3")),
-            "3d_mAP_0.5": official_ap_value(result.get("official_3d_mAP_0.5")),
-            "3d_mAP_0.7": official_ap_value(result.get("official_3d_mAP_0.7")),
-        }
+        "official": official_summary
     }
     if "coco_bev_mAP" in result:
         summary["coco_style"] = {
@@ -1724,24 +2594,35 @@ def save_evaluation_yaml(results, yaml_output_path, plot_metadata=None):
 
 def print_checkpoint_metrics(epoch, metrics):
     main_key = metrics.get("official_main_metric_key", "official_bev_mAP_0.3")
-    print(
-        f"epoch={epoch} "
-        f"{main_key}={official_ap_text(metrics.get('official_main_metric_value'))} "
-        f"bev@0.3={official_ap_text(metrics.get('official_bev_mAP_0.3'))} "
-        f"bev@0.5={official_ap_text(metrics.get('official_bev_mAP_0.5'))} "
-        f"bev@0.7={official_ap_text(metrics.get('official_bev_mAP_0.7'))} "
-        f"3d@0.3={official_ap_text(metrics.get('official_3d_mAP_0.3'))} "
-        f"3d@0.5={official_ap_text(metrics.get('official_3d_mAP_0.5'))} "
-        f"3d@0.7={official_ap_text(metrics.get('official_3d_mAP_0.7'))} "
-        f"score_thr={metric_text(metrics.get('official_detection_score_threshold'))} "
-        f"p={metric_text(metrics.get('official_detection_precision'))} "
-        f"r={metric_text(metrics.get('official_detection_recall'))} "
-        f"f1={metric_text(metrics.get('official_detection_f1'))} "
-        f"tp={metrics.get('official_detection_tp', 0)} "
-        f"fp={metrics.get('official_detection_fp', 0)} "
-        f"fn={metrics.get('official_detection_fn', 0)} "
-        f"frames={metrics.get('official_num_eval_frames', 0)}"
-    )
+    parts = [
+        f"epoch={epoch}",
+        f"{main_key}={official_ap_text(metrics.get('official_main_metric_value'))}",
+        f"ap_score_thr={metric_text(metrics.get('ap_score_thresh'))}",
+    ]
+    for suffix in available_official_iou_suffixes(metrics):
+        parts.append(
+            f"bev@{suffix}={official_ap_text(metrics.get(f'official_bev_mAP_{suffix}'))}"
+        )
+    for suffix in available_official_iou_suffixes(metrics):
+        parts.append(
+            f"3d@{suffix}={official_ap_text(metrics.get(f'official_3d_mAP_{suffix}'))}"
+        )
+    if "official_detection_precision" in metrics:
+        parts.extend([
+            f"score_thr={metric_text(metrics.get('official_detection_score_threshold'))}",
+            f"p={metric_text(metrics.get('official_detection_precision'))}",
+            f"r={metric_text(metrics.get('official_detection_recall'))}",
+            f"f1={metric_text(metrics.get('official_detection_f1'))}",
+            f"tp={metrics.get('official_detection_tp', 0)}",
+            f"fp={metrics.get('official_detection_fp', 0)}",
+            f"fn={metrics.get('official_detection_fn', 0)}",
+        ])
+    if "eval_ignore_suppressed_predictions" in metrics:
+        parts.append(
+            f"ign_sup={int(metrics.get('eval_ignore_suppressed_predictions', 0))}"
+        )
+    parts.append(f"frames={metrics.get('official_num_eval_frames', 0)}")
+    print(" ".join(parts))
     if "coco_bev_mAP" in metrics:
         print(
             f"  coco-style "
@@ -1760,6 +2641,7 @@ def print_checkpoint_metrics(epoch, metrics):
         print(
             f"  custom-iou-range "
             f"iou=[{custom_iou_text}] "
+            f"ap_score_thr={metric_text(metrics.get('ap_score_thresh'))} "
             f"bev_mAP={metric_text(metrics.get('custom_iou_bev_mAP'))} "
             f"3d_mAP={metric_text(metrics.get('custom_iou_3d_mAP'))} "
             f"p={metric_text(metrics.get('custom_iou_precision'))} "
@@ -1780,73 +2662,869 @@ def print_checkpoint_metrics(epoch, metrics):
         )
 
 
+def _plain_text_table(headers, rows):
+    string_rows = [[str(cell) for cell in row] for row in rows]
+    widths = [len(str(header)) for header in headers]
+    for row in string_rows:
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], len(value))
+
+    def format_row(row_values):
+        return "| " + " | ".join(
+            str(value).ljust(widths[index])
+            for index, value in enumerate(row_values)
+        ) + " |"
+
+    separator = "+-" + "-+-".join("-" * width for width in widths) + "-+"
+    lines = [separator, format_row(headers), separator]
+    for row in string_rows:
+        lines.append(format_row(row))
+    lines.append(separator)
+    return "\n".join(lines)
+
+
+def sanitize_filename(text):
+    return re.sub(r"[^A-Za-z0-9.,_-]+", "_", str(text)).strip("_")
+
+
+def format_sequence_tag(sequences, prefix):
+    if sequences in (None, "", ()):
+        return f"{prefix}_unknown"
+    values = [str(int(sequence)) for sequence in sequences]
+    return f"{prefix}_{'_'.join(values)}"
+
+
+def resolve_output_base_dir(base_dir):
+    output_dir = Path(base_dir)
+    if not output_dir.is_absolute():
+        output_dir = Path(__file__).resolve().parent / output_dir
+    return output_dir
+
+
+def next_available_output_path(output_dir, stem, suffix):
+    candidate = output_dir / f"{stem}{suffix}"
+    if not candidate.exists():
+        return candidate
+
+    index = 2
+    while True:
+        candidate = output_dir / f"{stem}__{index:02d}{suffix}"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def format_custom_iou_range_text(thresholds):
+    values = [float(value) for value in thresholds]
+    if len(values) == 0:
+        return "iou=[]"
+    if len(values) == 1:
+        return f"iou={format_custom_iou_suffix(values[0])}"
+
+    step = values[1] - values[0]
+    is_uniform = all(
+        abs((values[index] - values[index - 1]) - step) <= 1e-6
+        for index in range(1, len(values))
+    )
+    if is_uniform and step > 0.0:
+        return (
+            f"iou={format_custom_iou_suffix(values[0])}"
+            f" -> {format_custom_iou_suffix(values[-1])}"
+            f" (step={format_custom_iou_suffix(step)})"
+        )
+
+    threshold_text = ", ".join(
+        format_custom_iou_suffix(value)
+        for value in values
+    )
+    return f"iou=[{threshold_text}]"
+
+
+def format_eval_table(rows):
+    if len(rows) == 0:
+        return ""
+
+    columns = [("epoch", "epoch", 5, "int")]
+    if any("val_loss" in row for row in rows):
+        columns.extend(
+            [
+                ("val_loss", "val_loss", 10, "float"),
+                ("val_box", "val_box_loss", 10, "float"),
+                ("val_cls", "val_cls_loss", 10, "float"),
+            ]
+        )
+        if any("val_heatmap_loss" in row for row in rows):
+            columns.append(("val_hm", "val_heatmap_loss", 10, "float"))
+        if any("val_quality_loss" in row for row in rows):
+            columns.append(("val_q", "val_quality_loss", 10, "float"))
+        if any("val_obj_loss" in row for row in rows):
+            columns.append(("val_obj", "val_obj_loss", 10, "float"))
+        if any("val_l1_loss" in row for row in rows):
+            columns.append(("val_l1", "val_l1_loss", 10, "float"))
+        if any("val_gwd_loss" in row for row in rows):
+            columns.append(("val_gwd", "val_gwd_loss", 10, "float"))
+    columns.extend(
+        [
+            ("bev@0.3", "official_bev_mAP_0.3", 9, "float"),
+            ("bev@0.5", "official_bev_mAP_0.5", 9, "float"),
+            ("3d@0.3", "official_3d_mAP_0.3", 9, "float"),
+            ("3d@0.5", "official_3d_mAP_0.5", 9, "float"),
+            ("p", "official_detection_precision", 8, "float"),
+            ("r", "official_detection_recall", 8, "float"),
+            ("f1", "official_detection_f1", 8, "float"),
+        ]
+    )
+    if any("custom_iou_bev_mAP" in row for row in rows):
+        columns.extend(
+            [
+                ("c_bev_mAP", "custom_iou_bev_mAP", 11, "float"),
+                ("c_3d_mAP", "custom_iou_3d_mAP", 10, "float"),
+            ]
+        )
+    if any("eval_ignore_suppressed_predictions" in row for row in rows):
+        columns.append(("ign_sup", "eval_ignore_suppressed_predictions", 8, "int"))
+
+    header = " ".join(f"{label:>{width}}" for label, _, width, _ in columns)
+    lines = [header, "-" * len(header)]
+    for row in rows:
+        row_text = []
+        for _, key, width, kind in columns:
+            if kind == "int":
+                row_text.append(f"{int(row.get(key, 0)):>{width}d}")
+            else:
+                row_text.append(f"{float(row.get(key, 0.0)):>{width}.4f}")
+        lines.append(" ".join(row_text))
+    return "\n".join(lines)
+
+
+def format_best_epoch_summary(rows):
+    summary_specs = (
+        ("official_bev_mAP_0.3", "bev@0.3"),
+        ("official_3d_mAP_0.3", "3d@0.3"),
+    )
+    lines = []
+    thresholds = next(
+        (
+            row.get("custom_iou_thresholds")
+            for row in rows
+            if isinstance(row.get("custom_iou_thresholds"), (list, tuple))
+            and len(row.get("custom_iou_thresholds")) > 0
+        ),
+        None,
+    )
+    if thresholds is not None:
+        lines.append(f"custom_iou_range: {format_custom_iou_range_text(thresholds)}")
+        lines.append("custom_iou_range_metrics: c_bev_mAP=BEV mAP, c_3d_mAP=3D mAP")
+        summary_specs = summary_specs + (
+            ("custom_iou_bev_mAP", "custom_bev_mAP"),
+            ("custom_iou_3d_mAP", "custom_3d_mAP"),
+        )
+    for metric_key, metric_label in summary_specs:
+        best_row = select_best_result_by_metric(rows, metric_key)
+        if best_row is None:
+            continue
+        lines.append(
+            f"best_epoch_{metric_label}: "
+            f"epoch {int(best_row['epoch'])} "
+            f"({metric_label}={float(best_row.get(metric_key, 0.0)):.4f})"
+        )
+    return lines
+
+
+def default_eval_table_txt_path(
+        model_variant_name,
+        val_sequences=None,
+        base_dir="evaluation_plots",
+    ):
+    timestamp = datetime.now().strftime("%Y%m%d")
+    output_dir = resolve_output_base_dir(base_dir) / sanitize_filename(model_variant_name)
+    filename_parts = [timestamp]
+    if val_sequences is not None:
+        filename_parts.append(format_sequence_tag(val_sequences, "val_seq"))
+    return next_available_output_path(
+        output_dir=output_dir,
+        stem="__".join(filename_parts),
+        suffix=".txt",
+    )
+
+
+def save_eval_table_txt(rows, output_path, metadata=None):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    sections = []
+    if metadata:
+        for key, value in metadata.items():
+            sections.append(f"{key}: {value}")
+        sections.append("")
+
+    summary_lines = format_best_epoch_summary(rows)
+    if summary_lines:
+        sections.extend(summary_lines)
+        sections.append("")
+
+    table_text = format_eval_table(rows)
+    if table_text != "":
+        sections.append(table_text)
+
+    output_path.write_text("\n".join(sections).rstrip() + "\n", encoding="utf-8")
+    return output_path
+
+
+def init_split_bbox_count_summary():
+    return {
+        "frames": 0,
+        "bbox_total": 0,
+        "bbox_by_class": {
+            class_name: 0
+            for class_name in SPLIT_BBOX_COUNT_CLASS_NAMES
+        },
+    }
+
+
+def iter_subset_global_indices(dataset_subset):
+    if hasattr(dataset_subset, "indices") and hasattr(dataset_subset, "dataset"):
+        return [int(index) for index in dataset_subset.indices], dataset_subset.dataset
+    return list(range(len(dataset_subset))), dataset_subset
+
+
+def compute_subset_bbox_count_summary(dataset_subset):
+    subset_indices, base_dataset = iter_subset_global_indices(dataset_subset)
+    if not hasattr(base_dataset, "_resolve_index") or not hasattr(
+        base_dataset,
+        "sequence_datasets",
+    ):
+        raise TypeError(
+            "Expected KRadarMultiSequenceGTDetectionDataset or its Subset for bbox stats."
+        )
+
+    summary = init_split_bbox_count_summary()
+    summary["frames"] = len(subset_indices)
+
+    for global_index in subset_indices:
+        dataset_idx, sample_idx = base_dataset._resolve_index(int(global_index))
+        sequence_dataset = base_dataset.sequence_datasets[dataset_idx]
+        all_objects = sequence_dataset.gt_by_file_idx.get(int(sample_idx), [])
+        for obj in all_objects:
+            class_name = str(obj.get("cls", ""))
+            if class_name not in summary["bbox_by_class"]:
+                continue
+            if not sequence_dataset._object_center_in_scope(obj):
+                continue
+            summary["bbox_by_class"][class_name] += 1
+            summary["bbox_total"] += 1
+
+    return summary
+
+
+def build_split_statistics_metadata(train_dataset, test_dataset):
+    train_summary = compute_subset_bbox_count_summary(train_dataset)
+    test_summary = compute_subset_bbox_count_summary(test_dataset)
+
+    total_frames = train_summary["frames"] + test_summary["frames"]
+    total_bboxes = train_summary["bbox_total"] + test_summary["bbox_total"]
+
+    return {
+        "train_frames": train_summary["frames"],
+        "test_frames": test_summary["frames"],
+        "train_ratio_frames": (
+            float(train_summary["frames"] / total_frames)
+            if total_frames > 0
+            else 0.0
+        ),
+        "train_bbox_total": train_summary["bbox_total"],
+        "train_bbox_sedan": train_summary["bbox_by_class"]["Sedan"],
+        "train_bbox_bus": train_summary["bbox_by_class"]["Bus or Truck"],
+        "test_bbox_total": test_summary["bbox_total"],
+        "test_bbox_sedan": test_summary["bbox_by_class"]["Sedan"],
+        "test_bbox_bus": test_summary["bbox_by_class"]["Bus or Truck"],
+        "train_ratio_bboxes": (
+            float(train_summary["bbox_total"] / total_bboxes)
+            if total_bboxes > 0
+            else 0.0
+        ),
+    }
+
+
+def print_epoch_ap03_table(results):
+    if len(results) == 0:
+        return
+
+    class_names = merged_metric_class_names(results)
+    headers = ["epoch", "bev@0.3", "3d@0.3"]
+    for class_name in class_names:
+        headers.extend([f"{class_name}_bev@0.3", f"{class_name}_3d@0.3"])
+    rows = []
+    for result in sorted(results, key=lambda item: int(item["epoch"])):
+        row = [
+            str(int(result["epoch"])),
+            official_ap_text(result.get("official_bev_mAP_0.3")),
+            official_ap_text(result.get("official_3d_mAP_0.3")),
+        ]
+        for class_name in class_names:
+            row.extend([
+                official_ap_text(result.get(f"official_{class_name}_bev_AP_0.3")),
+                official_ap_text(result.get(f"official_{class_name}_3d_AP_0.3")),
+            ])
+        rows.append(row)
+
+    print("Epoch-wise official AP@0.3 summary:")
+    print(_plain_text_table(headers, rows))
+
+
+def select_best_result_by_metric(results, metric_key):
+    best_result = None
+    best_value = float("-inf")
+    best_epoch = None
+
+    for result in results:
+        if metric_key not in result or "epoch" not in result:
+            continue
+        value = float(result.get(metric_key, 0.0))
+        epoch = int(result.get("epoch", 0))
+        if (
+            best_result is None
+            or value > best_value
+            or (value == best_value and epoch < best_epoch)
+        ):
+            best_result = result
+            best_value = value
+            best_epoch = epoch
+    return best_result
+
+
+def selection_iou_mode_for_group_plot(args):
+    if args.official_eval_iou_mode in {"easy", "all"}:
+        return args.official_eval_iou_mode
+    return "easy"
+
+
+def group_checkpoint_plot_best_only_active(args, checkpoint_paths):
+    return (
+        bool(args.group_checkpoint_plot_best_only)
+        and plot_output_requested(args.plot_output)
+        and os.path.isdir(args.checkpoint_root)
+        and len(checkpoint_paths) > 1
+    )
+
+
+def evaluate_checkpoint_result(
+        model,
+        checkpoint_path,
+        epoch,
+        validation_loader,
+        device,
+        model_type,
+        args,
+        official_eval_iou_mode=None,
+        official_detection_metrics_enabled=None,
+        custom_iou_range_eval_enabled=None,
+        coco_style_eval_enabled=None,
+        nuscenes_style_eval_enabled=None,
+        loss_eval_enabled=None,
+    ):
+    load_model_checkpoint(
+        model=model,
+        checkpoint_path=checkpoint_path,
+        device=device,
+        include_bus_as_target=args.include_bus_as_target,
+    )
+
+    metrics = {}
+    effective_loss_eval_enabled = (
+        args.loss_eval_enabled
+        if loss_eval_enabled is None
+        else bool(loss_eval_enabled)
+    )
+    if effective_loss_eval_enabled:
+        loss_metrics = validate_loss(
+            model=model,
+            dataloader=validation_loader,
+            device=device,
+            heatmap_radius=args.heatmap_radius,
+            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
+            quality_loss_weight=args.quality_loss_weight,
+            ignore_mask_margin=args.ignore_mask_margin,
+            ignore_mask_expand_ratio=args.ignore_mask_expand_ratio,
+            loss_mode=resolve_loss_mode(model_type),
+            num_classes=args.num_classes,
+        )
+        metrics.update(loss_metrics)
+
+    eval_metrics = evaluate_checkpoint_with_kradar_revised(
+        model=model,
+        dataloader=validation_loader,
+        device=device,
+        num_classes=args.num_classes,
+        official_class_name_map=args.official_class_name_map,
+        prepare_model_inputs=prepare_model_inputs,
+        max_detections=args.max_detections,
+        heatmap_nms_kernel=args.heatmap_nms_kernel,
+        heatmap_score_mode=args.heatmap_score_mode,
+        yolox_nms_iou=args.yolox_nms_iou,
+        scope_mode=args.eval_scope,
+        official_eval_enabled=True,
+        official_eval_version=args.official_eval_version,
+        official_eval_iou_backend=args.official_eval_iou_backend,
+        official_eval_iou_mode=(
+            args.official_eval_iou_mode
+            if official_eval_iou_mode is None
+            else official_eval_iou_mode
+        ),
+        official_detection_metrics_enabled=(
+            args.official_detection_metrics_enabled
+            if official_detection_metrics_enabled is None
+            else official_detection_metrics_enabled
+        ),
+        custom_iou_range_eval_enabled=(
+            args.custom_iou_range_eval_enabled
+            if custom_iou_range_eval_enabled is None
+            else custom_iou_range_eval_enabled
+        ),
+        custom_iou_thresholds=args.custom_iou_thresholds,
+        coco_style_eval_enabled=(
+            args.coco_style_eval_enabled
+            if coco_style_eval_enabled is None
+            else coco_style_eval_enabled
+        ),
+        nuscenes_style_eval_enabled=(
+            args.nuscenes_style_eval_enabled
+            if nuscenes_style_eval_enabled is None
+            else nuscenes_style_eval_enabled
+        ),
+        ap_score_thresh=args.ap_score_thresh,
+        detection_score_thresh=args.detection_score_thresh,
+        eval_ignore_suppress_enabled=args.eval_ignore_suppress_enabled,
+        eval_ignore_expand_ratio=args.eval_ignore_expand_ratio,
+        eval_ignore_suppress_margin=args.eval_ignore_suppress_margin,
+    )
+    metrics.update(eval_metrics)
+    return {
+        "epoch": int(epoch),
+        "checkpoint_path": checkpoint_path,
+        "ap_score_thresh": float(args.ap_score_thresh),
+        "metric_class_names": list(args.metric_class_names),
+        "class_display_name_map": dict(args.class_display_name_map),
+        **metrics,
+    }
+
+
+def build_group_plot_selection_entries(results):
+    selection_specs = [
+        ("official_bev_mAP_0.3", "best_bev03"),
+        ("official_3d_mAP_0.3", "best_3d03"),
+    ]
+    selected_by_path = {}
+    for metric_key, selection_tag in selection_specs:
+        best_result = select_best_result_by_metric(results, metric_key)
+        if best_result is None:
+            continue
+        checkpoint_path = str(best_result.get("checkpoint_path", ""))
+        entry = selected_by_path.setdefault(
+            checkpoint_path,
+            {
+                "result": best_result,
+                "selection_tags": [],
+            },
+        )
+        if selection_tag not in entry["selection_tags"]:
+            entry["selection_tags"].append(selection_tag)
+    return list(selected_by_path.values())
+
+
+def save_group_best_only_plot_exports(
+        selected_entries,
+        checkpoint_paths,
+        model_type,
+        args,
+        plot_metadata,
+    ):
+    for entry in selected_entries:
+        result = entry["result"]
+        selection_tags = list(entry["selection_tags"])
+        selection_tag = "_".join(selection_tags)
+        export_metadata = dict(plot_metadata)
+        export_metadata.update({
+            "group_checkpoint_plot_best_only": True,
+            "group_checkpoint_plot_selection": selection_tags,
+            "group_checkpoint_plot_source_num_checkpoints": len(checkpoint_paths),
+            "group_checkpoint_plot_source_checkpoint_root": str(args.checkpoint_root),
+        })
+        plot_output_path = resolve_plot_output_path(
+            args=args,
+            checkpoint_paths=checkpoint_paths,
+            model_type=model_type,
+            checkpoint_path=result["checkpoint_path"],
+            selection_tag=selection_tag,
+        )
+        if plot_output_path is None:
+            continue
+        output_dir = os.path.dirname(plot_output_path)
+        if output_dir != "":
+            os.makedirs(output_dir, exist_ok=True)
+        save_evaluation_plot([result], plot_output_path, plot_metadata=export_metadata)
+        yaml_output_path = resolve_yaml_output_path(plot_output_path)
+        save_evaluation_yaml([result], yaml_output_path, plot_metadata=export_metadata)
+        print(
+            "Saved evaluation plot:",
+            plot_output_path,
+            f"(selection={selection_tag}, epoch={int(result['epoch'])})",
+        )
+        print(f"Saved evaluation YAML: {yaml_output_path}")
+
+
 def build_eval_context(args):
     device = select_evaluation_device(args.cuda, args.gpu_ids)
     cfg = DataConfig()
-    checkpoint_paths = find_epoch_checkpoints(args.checkpoint_root, args.epoch_step)
+    checkpoint_paths = find_epoch_checkpoints(
+        args.checkpoint_root,
+        args.epoch_step,
+        end_epoch=args.end_epoch,
+    )
     if len(checkpoint_paths) == 0:
         raise ValueError(f"No epoch checkpoints found in {args.checkpoint_root}")
 
     apply_checkpoint_config_defaults(args, checkpoint_paths)
+    apply_eval_profile(args)
+    args = apply_task_configuration(args)
+    (
+        args.official_class_name_map,
+        args.class_display_name_map,
+    ) = resolve_official_eval_class_name_map(args.class_names)
+    args.metric_class_names = [
+        args.official_class_name_map[class_id]
+        for class_id in sorted(args.official_class_name_map.keys())
+    ]
     model_type = resolve_model_type(args, checkpoint_paths)
-    plot_output_path = resolve_plot_output_path(args, checkpoint_paths, model_type)
+    reference_checkpoint = load_torch_checkpoint(
+        checkpoint_paths[0][1],
+        map_location="cpu",
+    )
+    source_metadata = extract_checkpoint_source_metadata(reference_checkpoint)
+    reference_overrides = infer_checkpoint_decoder_overrides(reference_checkpoint)
+    model_variant_name = infer_model_variant_name(
+        model_type=model_type,
+        checkpoint_or_state_dict=reference_checkpoint,
+        include_bus_as_target=source_metadata["include_bus_as_target"],
+        train_sequences=source_metadata["train_sequences"],
+        train_control_split_enabled=source_metadata["train_control_split_enabled"],
+    )
+    checkpoint_config = (
+        reference_checkpoint.get("config", {})
+        if isinstance(reference_checkpoint, dict)
+        else {}
+    )
+    model_configuration_name, model_configuration = build_model_configuration(
+        model_type=model_type,
+        model_variant_name=model_variant_name,
+        checkpoint_config=checkpoint_config,
+        model_overrides=reference_overrides,
+    )
+    source_metadata.update({
+        "base_model_type": model_type,
+        "model_configuration_name": model_configuration_name,
+        "model_configuration": model_configuration,
+    })
 
-    _, validation_dataset, _, validation_loader = build_train_val_dataloaders(
+    train_dataset, validation_dataset, _, validation_loader = build_train_val_dataloaders(
         cfg=cfg,
         batch_size=args.batch_size,
         train_ratio=args.train_ratio,
         seed=args.seed,
         num_workers=args.num_workers,
         limit_samples=args.limit_samples,
-        class_to_idx=CLASS_TO_IDX,
+        class_to_idx=args.class_to_idx,
+        ignore_class_names=args.ignore_class_names,
+        gt_object_ignore_override_path=args.gt_object_ignore_override_path,
         ignore_unmapped_classes=True,
         split_mode=args.split_mode,
         split_dir=args.split_dir,
         scope_mode=args.eval_scope,
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
+        train_control_split_enabled=getattr(args, "train_control_split_enabled", False),
+        train_control_split_dir=getattr(args, "train_control_split_dir", None),
     )
     if len(validation_dataset) == 0:
         raise ValueError("Validation split is empty.")
+    split_statistics_metadata = build_split_statistics_metadata(
+        train_dataset=train_dataset,
+        test_dataset=validation_dataset,
+    )
 
-    model = build_model(
+    model, _ = build_model_for_checkpoint(
         model_type=model_type,
         device=device,
-        num_classes=NUM_CLASSES,
+        num_classes=args.num_classes,
+        checkpoint_path=checkpoint_paths[0][1],
     )
 
     return {
+        "args": args,
         "device": device,
         "checkpoint_paths": checkpoint_paths,
         "model_type": model_type,
-        "plot_output_path": plot_output_path,
-        "plot_metadata": build_plot_metadata(args, model_type),
+        "model_variant_name": model_variant_name,
+        "source_metadata": source_metadata,
+        "plot_metadata": build_plot_metadata(args, model_variant_name, source_metadata),
+        "split_statistics_metadata": split_statistics_metadata,
         "validation_loader": validation_loader,
         "model": model,
     }
 
 
+def update_domain_comparison_outputs(
+        results,
+        args,
+        model_type,
+        model_variant_name,
+        source_metadata,
+    ):
+    if not args.domain_comparison_enabled or len(results) == 0:
+        return None
+
+    output_dir = resolve_output_base_dir(args.domain_comparison_output_dir)
+    sequence_info_path = resolve_output_base_dir(
+        args.domain_comparison_sequence_info_path
+    )
+    metadata = {
+        "model_type": model_variant_name,
+        "base_model_type": model_type,
+        "model_configuration_name": source_metadata.get(
+            "model_configuration_name"
+        ),
+        "model_configuration": source_metadata.get("model_configuration", {}),
+        "train_sequences": source_metadata.get("train_sequences"),
+        "checkpoint_val_sequences": source_metadata.get("val_sequences"),
+        "val_sequences": args.val_sequences,
+        "include_bus_as_target": bool(args.include_bus_as_target),
+        "checkpoint_include_bus_as_target": bool(
+            source_metadata.get("include_bus_as_target", args.include_bus_as_target)
+        ),
+        "train_control_split_enabled": bool(
+            source_metadata.get("train_control_split_enabled", False)
+        ),
+        "gt_object_ignore_override_path": source_metadata.get(
+            "gt_object_ignore_override_path"
+        ),
+        "eval_scope": args.eval_scope,
+        "official_eval_version": args.official_eval_version,
+        "official_eval_iou_mode": args.official_eval_iou_mode,
+        "ap_score_thresh": float(args.ap_score_thresh),
+        "score_thresh": float(args.score_thresh),
+        "checkpoint_root": str(args.checkpoint_root),
+        "evaluated_checkpoint_count": len(results),
+    }
+    summary = update_domain_shift_tables(
+        results,
+        metadata,
+        output_dir=output_dir,
+        sequence_info_path=sequence_info_path,
+    )
+    print(
+        "Updated domain-shift comparison tables:",
+        f"configuration={summary['model_configuration_name']}",
+        f"group={summary['evaluation_group']}",
+    )
+    print(f"  Source: {summary['source_domain']}")
+    print(f"  Target: {summary['target_domain']}")
+    if summary["target_recorded_in_csv"]:
+        for criterion, table_path in summary["table_paths"].items():
+            selection = summary["selections"][criterion]
+            print(
+                f"  {criterion}: epoch={selection['epoch']} -> {table_path}"
+            )
+    else:
+        print("  CSV tables: skipped because target weather is normal")
+    print(f"  Structured record: {summary['record_path']}")
+    return summary
+
+
 def main():
     args = parse_args()
     context = build_eval_context(args)
+    args = context["args"]
     device = context["device"]
     checkpoint_paths = context["checkpoint_paths"]
     model_type = context["model_type"]
-    plot_output_path = context["plot_output_path"]
+    model_variant_name = context["model_variant_name"]
+    source_metadata = context["source_metadata"]
     plot_metadata = context["plot_metadata"]
+    split_statistics_metadata = context["split_statistics_metadata"]
     validation_loader = context["validation_loader"]
     model = context["model"]
+    group_plot_best_only_mode = group_checkpoint_plot_best_only_active(
+        args, checkpoint_paths
+    )
+    default_plot_output_path = None
+    default_table_txt_path = None
 
-    print(f"Evaluation classes: {CLASS_NAMES}")
+    print(f"Evaluation classes: {args.class_names}")
+    print(f"Bus target enabled: {args.include_bus_as_target}")
+    if getattr(args, "train_control_split_enabled", False):
+        print(f"Train control split: {args.train_control_split_dir}")
+    if args.gt_object_ignore_override_path is not None:
+        print(f"GT object ignore override: {args.gt_object_ignore_override_path}")
+    print(f"Ignore-mask classes: {args.ignore_class_names}")
+    print(
+        f"Ignore-mask region: GT box * {args.ignore_mask_expand_ratio} + margin {args.ignore_mask_margin}"
+    )
+    if args.eval_ignore_suppress_enabled:
+        print(
+            "Eval ignore suppression: enabled "
+            f"(expand_ratio={args.eval_ignore_expand_ratio}, margin={args.eval_ignore_suppress_margin})"
+        )
     print(f"Using evaluation device: {device}")
     print(f"Evaluation scope: {args.eval_scope}")
+    if args.end_epoch is not None:
+        print(f"Evaluation end epoch: {args.end_epoch}")
     print(f"Official evaluator: {args.official_eval_version}")
+    print(f"Official IoU mode: {args.official_eval_iou_mode}")
+    print(f"AP score threshold: {args.ap_score_thresh}")
+    print(f"Detection score threshold: {args.score_thresh}")
+    if args.domain_comparison_enabled:
+        print(
+            "Domain-shift table auto-update: enabled "
+            f"({resolve_output_base_dir(args.domain_comparison_output_dir)})"
+        )
+    if args.official_ap03_only:
+        print("Official AP@0.3 only mode: enabled")
+    if group_plot_best_only_mode:
+        print(
+            "Group checkpoint best-only plot mode: enabled "
+            "(select by official bev@0.3 and 3d@0.3)."
+        )
     print(
         f"Evaluating {len(checkpoint_paths)} checkpoint(s) from {args.checkpoint_root}",
         flush=True,
     )
-    if plot_output_path is not None:
-        print(f"Plot output path: {plot_output_path}", flush=True)
+    if not group_plot_best_only_mode and plot_output_requested(args.plot_output):
+        default_plot_output_path = resolve_plot_output_path(
+            args=args,
+            checkpoint_paths=checkpoint_paths,
+            model_type=model_variant_name,
+        )
+        if default_plot_output_path is not None:
+            print(f"Plot output path: {default_plot_output_path}", flush=True)
+    if args.table_txt_enabled:
+        default_table_txt_path = default_eval_table_txt_path(
+            model_variant_name=model_variant_name,
+            val_sequences=args.val_sequences,
+            base_dir=args.table_output_base_dir,
+        )
+        print(f"Table txt path: {default_table_txt_path}", flush=True)
+
+    if group_plot_best_only_mode:
+        selection_results = []
+        selection_iou_mode = selection_iou_mode_for_group_plot(args)
+        print(
+            f"Selection pass official IoU mode: {selection_iou_mode} "
+            "(custom/coco/nuscenes disabled)."
+        )
+        for epoch, checkpoint_path in tqdm.tqdm(
+            checkpoint_paths,
+            desc="Checkpoint selection",
+            ncols=120,
+        ):
+            result = evaluate_checkpoint_result(
+                model=model,
+                checkpoint_path=checkpoint_path,
+                epoch=epoch,
+                validation_loader=validation_loader,
+                device=device,
+                model_type=model_type,
+                args=args,
+                official_eval_iou_mode=selection_iou_mode,
+                official_detection_metrics_enabled=False,
+                custom_iou_range_eval_enabled=False,
+                coco_style_eval_enabled=False,
+                nuscenes_style_eval_enabled=False,
+                loss_eval_enabled=False,
+            )
+            selection_results.append(result)
+            print_checkpoint_metrics(int(epoch), result)
+
+        if len(selection_results) > 0 and args.terminal_epoch_table_enabled:
+            print_epoch_ap03_table(selection_results)
+        if len(selection_results) > 0 and default_table_txt_path is not None:
+            table_metadata = {
+                "model_type": model_variant_name,
+                "train_sequences": source_metadata["train_sequences"],
+                "val_sequences": args.val_sequences,
+                "eval_scope": args.eval_scope,
+                "include_bus_as_target": args.include_bus_as_target,
+                "checkpoint_include_bus_as_target": source_metadata["include_bus_as_target"],
+                "gt_object_ignore_override_path": source_metadata["gt_object_ignore_override_path"],
+                "train_control_split_enabled": source_metadata["train_control_split_enabled"],
+                "ap_score_thresh": args.ap_score_thresh,
+                "score_thresh": args.score_thresh,
+                "group_checkpoint_plot_best_only": True,
+                **split_statistics_metadata,
+            }
+            saved_table_path = save_eval_table_txt(
+                selection_results,
+                default_table_txt_path,
+                metadata=table_metadata,
+            )
+            print(f"Saved evaluation table txt: {saved_table_path}")
+
+        best_bev_result = select_best_result_by_metric(
+            selection_results,
+            "official_bev_mAP_0.3",
+        )
+        best_3d_result = select_best_result_by_metric(
+            selection_results,
+            "official_3d_mAP_0.3",
+        )
+        if best_bev_result is not None:
+            print(
+                "best_epoch_bev@0.3:",
+                f"epoch={best_bev_result['epoch']}",
+                f"bev@0.3={official_ap_text(best_bev_result.get('official_bev_mAP_0.3'))}",
+            )
+        if best_3d_result is not None:
+            print(
+                "best_epoch_3d@0.3:",
+                f"epoch={best_3d_result['epoch']}",
+                f"3d@0.3={official_ap_text(best_3d_result.get('official_3d_mAP_0.3'))}",
+            )
+
+        selected_entries = build_group_plot_selection_entries(selection_results)
+        for entry in selected_entries:
+            selection_label = ", ".join(entry["selection_tags"])
+            selected_result = entry["result"]
+            print(
+                "Running full export evaluation for selected checkpoint:",
+                f"epoch={selected_result['epoch']}",
+                f"selection={selection_label}",
+            )
+            full_result = evaluate_checkpoint_result(
+                model=model,
+                checkpoint_path=selected_result["checkpoint_path"],
+                epoch=selected_result["epoch"],
+                validation_loader=validation_loader,
+                device=device,
+                model_type=model_type,
+                args=args,
+            )
+            entry["result"] = full_result
+            print_checkpoint_metrics(int(full_result["epoch"]), full_result)
+
+        save_group_best_only_plot_exports(
+            selected_entries=selected_entries,
+            checkpoint_paths=checkpoint_paths,
+            model_type=model_variant_name,
+            args=args,
+            plot_metadata=plot_metadata,
+        )
+        update_domain_comparison_outputs(
+            results=selection_results,
+            args=args,
+            model_type=model_type,
+            model_variant_name=model_variant_name,
+            source_metadata=source_metadata,
+        )
+        return
 
     results = []
     for epoch, checkpoint_path in tqdm.tqdm(
@@ -1854,36 +3532,21 @@ def main():
         desc="Checkpoints",
         ncols=120,
     ):
-        load_model_checkpoint(model=model, checkpoint_path=checkpoint_path, device=device)
-        metrics = evaluate_checkpoint_with_kradar_revised(
+        result = evaluate_checkpoint_result(
             model=model,
-            dataloader=validation_loader,
+            checkpoint_path=checkpoint_path,
+            epoch=epoch,
+            validation_loader=validation_loader,
             device=device,
-            num_classes=NUM_CLASSES,
-            prepare_model_inputs=prepare_model_inputs,
-            max_detections=args.max_detections,
-            heatmap_nms_kernel=args.heatmap_nms_kernel,
-            yolox_nms_iou=args.yolox_nms_iou,
-            scope_mode=args.eval_scope,
-            official_eval_enabled=True,
-            official_eval_version=args.official_eval_version,
-            official_eval_iou_backend=args.official_eval_iou_backend,
-            official_eval_iou_mode=args.official_eval_iou_mode,
-            custom_iou_range_eval_enabled=args.custom_iou_range_eval_enabled,
-            custom_iou_thresholds=args.custom_iou_thresholds,
-            coco_style_eval_enabled=args.coco_style_eval_enabled,
-            nuscenes_style_eval_enabled=args.nuscenes_style_eval_enabled,
-            detection_score_thresh=args.detection_score_thresh,
+            model_type=model_type,
+            args=args,
         )
-        result = {
-            "epoch": epoch,
-            "checkpoint_path": checkpoint_path,
-            **metrics,
-        }
         results.append(result)
-        print_checkpoint_metrics(epoch, metrics)
+        print_checkpoint_metrics(int(epoch), result)
 
     if len(results) > 0:
+        if args.terminal_epoch_table_enabled and len(results) > 1:
+            print_epoch_ap03_table(results)
         best_result = max(
             results,
             key=lambda item: float(item.get("official_main_metric_value", 0.0)),
@@ -1894,16 +3557,48 @@ def main():
             f"{best_result.get('official_main_metric_key', 'official_bev_mAP_0.3')}="
             f"{official_ap_text(best_result.get('official_main_metric_value'))}",
         )
+        if default_table_txt_path is not None:
+            table_metadata = {
+                "model_type": model_variant_name,
+                "train_sequences": source_metadata["train_sequences"],
+                "val_sequences": args.val_sequences,
+                "eval_scope": args.eval_scope,
+                "include_bus_as_target": args.include_bus_as_target,
+                "checkpoint_include_bus_as_target": source_metadata["include_bus_as_target"],
+                "gt_object_ignore_override_path": source_metadata["gt_object_ignore_override_path"],
+                "train_control_split_enabled": source_metadata["train_control_split_enabled"],
+                "ap_score_thresh": args.ap_score_thresh,
+                "score_thresh": args.score_thresh,
+                **split_statistics_metadata,
+            }
+            saved_table_path = save_eval_table_txt(
+                results,
+                default_table_txt_path,
+                metadata=table_metadata,
+            )
+            print(f"Saved evaluation table txt: {saved_table_path}")
 
-    if plot_output_path is not None:
-        output_dir = os.path.dirname(plot_output_path)
+    if default_plot_output_path is not None:
+        output_dir = os.path.dirname(default_plot_output_path)
         if output_dir != "":
             os.makedirs(output_dir, exist_ok=True)
-        save_evaluation_plot(results, plot_output_path, plot_metadata=plot_metadata)
-        yaml_output_path = resolve_yaml_output_path(plot_output_path)
+        save_evaluation_plot(
+            results,
+            default_plot_output_path,
+            plot_metadata=plot_metadata,
+        )
+        yaml_output_path = resolve_yaml_output_path(default_plot_output_path)
         save_evaluation_yaml(results, yaml_output_path, plot_metadata=plot_metadata)
-        print(f"Saved evaluation plot: {plot_output_path}")
+        print(f"Saved evaluation plot: {default_plot_output_path}")
         print(f"Saved evaluation YAML: {yaml_output_path}")
+
+    update_domain_comparison_outputs(
+        results=results,
+        args=args,
+        model_type=model_type,
+        model_variant_name=model_variant_name,
+        source_metadata=source_metadata,
+    )
 
 
 if __name__ == "__main__":

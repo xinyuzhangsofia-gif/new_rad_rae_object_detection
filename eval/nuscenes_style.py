@@ -13,7 +13,7 @@ import math
 
 import numpy as np
 
-from .adapter import OFFICIAL_CLASS_NAMES
+from .adapter import normalize_official_class_name_map
 
 
 NUSCENES_DIST_THRESHOLDS = np.array([0.5, 1.0, 2.0, 4.0], dtype=np.float64)
@@ -293,13 +293,22 @@ def compute_nuscenes_style_metrics(
         tp_dist_threshold=NUSCENES_TP_DIST_THRESHOLD,
         min_recall=NUSCENES_MIN_RECALL,
         min_precision=NUSCENES_MIN_PRECISION,
+        class_ids=None,
+        class_name_map=None,
     ):
     metric_frames = state.get("metric_frames", [])
     if len(metric_frames) == 0:
         raise ValueError("No frames were collected for nuScenes-style evaluation.")
 
+    class_name_map = normalize_official_class_name_map(
+        class_name_map=class_name_map,
+        class_ids=class_ids,
+    )
     if class_ranges is None:
-        class_ranges = dict(NUSCENES_CLASS_RANGES)
+        class_ranges = {
+            class_name: float(NUSCENES_CLASS_RANGES.get(class_name, np.inf))
+            for class_name in class_name_map.values()
+        }
     else:
         class_ranges = {
             str(key): float(value)
@@ -321,7 +330,7 @@ def compute_nuscenes_style_metrics(
     overall_ase = []
     overall_aoe = []
 
-    for class_id, class_name in sorted(OFFICIAL_CLASS_NAMES.items()):
+    for class_id, class_name in sorted(class_name_map.items()):
         gt_by_frame, predictions, num_gt = prepare_nuscenes_class_data(
             metric_frames=metric_frames,
             class_id=class_id,
@@ -385,7 +394,7 @@ def compute_nuscenes_style_metrics(
         "nuscenes_min_precision": float(min_precision),
         "nuscenes_class_ranges": {
             class_name: float(class_ranges.get(class_name, np.inf))
-            for class_name in sorted(set(OFFICIAL_CLASS_NAMES.values()))
+            for class_name in sorted(set(class_name_map.values()))
         },
         "nuscenes_per_class": per_class,
         "nuscenes_mAP": overall["mAP"],

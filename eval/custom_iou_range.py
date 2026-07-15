@@ -3,10 +3,10 @@
 import numpy as np
 
 from .adapter import (
-    OFFICIAL_CLASS_NAMES,
     load_official_overlap_functions,
     load_rotate_iou_eval_function,
     match_frame_detections,
+    normalize_official_class_name_map,
 )
 from .coco_style import (
     COCO_RECALL_THRESHOLDS,
@@ -16,7 +16,7 @@ from .coco_style import (
 )
 
 
-DEFAULT_CUSTOM_IOU_THRESHOLDS = np.arange(0.25, 0.51, 0.05, dtype=np.float64)
+DEFAULT_CUSTOM_IOU_THRESHOLDS = np.arange(0.30, 0.51, 0.05, dtype=np.float64)
 
 
 def format_custom_iou_suffix(iou_value):
@@ -64,7 +64,9 @@ def compute_custom_iou_detection_metrics(
         iou_backend,
         iou_thresholds,
         detection_score_thresh,
+        class_name_map=None,
     ):
+    class_name_map = normalize_official_class_name_map(class_name_map)
     rotate_iou_eval_fn, matching_backend_used = load_rotate_iou_eval_function(
         iou_backend
     )
@@ -78,7 +80,7 @@ def compute_custom_iou_detection_metrics(
             "recall": [],
             "f1": [],
         }
-        for class_name in OFFICIAL_CLASS_NAMES.values()
+        for class_name in class_name_map.values()
     }
 
     for min_overlap in np.asarray(iou_thresholds, dtype=np.float64).reshape(-1):
@@ -94,6 +96,7 @@ def compute_custom_iou_detection_metrics(
                 min_overlap=float(min_overlap),
                 detection_score_thresh=detection_score_thresh,
                 rotate_iou_eval_fn=rotate_iou_eval_fn,
+                class_name_map=class_name_map,
             )
             for key in totals:
                 totals[key] += int(frame_totals[key])
@@ -117,7 +120,7 @@ def compute_custom_iou_detection_metrics(
         overall_recall_values.append(recall)
         overall_f1_values.append(f1)
 
-        for class_name in OFFICIAL_CLASS_NAMES.values():
+        for class_name in class_name_map.values():
             class_totals = per_class_totals.get(class_name, {"tp": 0, "fp": 0, "fn": 0})
             class_tp = int(class_totals["tp"])
             class_fp = int(class_totals["fp"])
@@ -165,6 +168,8 @@ def compute_custom_iou_range_metrics(
         iou_thresholds=None,
         recall_thresholds=None,
         detection_score_thresh=0.3,
+        class_ids=None,
+        class_name_map=None,
     ):
     metric_frames = state.get("metric_frames", [])
     if len(metric_frames) == 0:
@@ -178,12 +183,16 @@ def compute_custom_iou_range_metrics(
     iou_thresholds = np.asarray(iou_thresholds, dtype=np.float64).reshape(-1)
     recall_thresholds = np.asarray(recall_thresholds, dtype=np.float64).reshape(-1)
 
+    class_name_map = normalize_official_class_name_map(
+        class_name_map=class_name_map,
+        class_ids=class_ids,
+    )
     bev_overlap_fn, d3_overlap_fn, backend_used = load_official_overlap_functions(
         iou_backend
     )
 
     per_class = {}
-    for class_id, class_name in sorted(OFFICIAL_CLASS_NAMES.items()):
+    for class_id, class_name in sorted(class_name_map.items()):
         bev_ap_by_iou, bev_num_gt = evaluate_coco_style_class(
             metric_frames=metric_frames,
             class_id=class_id,
@@ -220,6 +229,7 @@ def compute_custom_iou_range_metrics(
         iou_backend=iou_backend,
         iou_thresholds=iou_thresholds,
         detection_score_thresh=detection_score_thresh,
+        class_name_map=class_name_map,
     )
 
     valid_class_names = [

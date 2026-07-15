@@ -19,7 +19,7 @@ class CenterPointYOLOXDecoder(nn.Module):
     def __init__(
             self,
             in_channels=128,
-            hidden_channels=128,
+            hidden_channels=64,     # want a smaller hidden channel to make the model lighter , past 128
             num_classes=2,
         ):
         super().__init__()
@@ -86,8 +86,8 @@ class RADRAEYOLOXFPNCenterPointModel(nn.Module):
             d_in=64,
             e_in=37,
             num_classes=2,
-            decoder_hidden_channels=128,
-            fpn_channels=128,
+            decoder_hidden_channels=64,
+            fpn_channels=64,
         ):
         super().__init__()
         self.num_classes = num_classes

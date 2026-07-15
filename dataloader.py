@@ -90,6 +90,8 @@ def build_detection_dataset_for_sequence(
         sequence,
         class_to_idx=None,
         ignore_unmapped_classes=True,
+        ignore_class_names=None,
+        gt_object_ignore_override_path=None,
         scope_mode=SCOPE_FULL,
     ):
     radar_dataset = KRadarRADRAEDataset(
@@ -98,14 +100,34 @@ def build_detection_dataset_for_sequence(
         scope_mode=scope_mode,
     )
 
-    return KRadarGTDetectionDataset(
+    dataset = KRadarGTDetectionDataset(
         radar_dataset=radar_dataset,
         gt_txt_path=get_gt_txt_path(cfg, sequence=sequence),
         class_to_idx=class_to_idx,
         sequence=sequence,
         ignore_unmapped_classes=ignore_unmapped_classes,
+        ignore_class_names=ignore_class_names,
+        gt_object_ignore_override_path=gt_object_ignore_override_path,
         scope_mode=scope_mode,
     )
+    override_summary = getattr(dataset, "object_ignore_override_summary", None)
+    if override_summary and override_summary.get("override_path"):
+        print(
+            "GT object ignore override:",
+            f"sequence={sequence}",
+            f"path={override_summary['override_path']}",
+            f"frames={override_summary['frame_override_count']}",
+            f"objects={override_summary['object_override_count']}",
+            f"applied={override_summary['applied']}",
+        )
+        missing_frame_names = override_summary.get("missing_frame_names") or ()
+        if len(missing_frame_names) > 0:
+            preview = ", ".join(missing_frame_names[:10])
+            print(
+                f"  warning: {len(missing_frame_names)} override frames were not found "
+                f"in sequence {sequence}. First missing: {preview}"
+            )
+    return dataset
 
 
 def build_train_val_dataloaders(
@@ -117,11 +139,15 @@ def build_train_val_dataloaders(
     limit_samples,
     class_to_idx=None,
     ignore_unmapped_classes=True,
+    ignore_class_names=None,
+    gt_object_ignore_override_path=None,
     split_mode="random",
     split_dir="split",
     scope_mode=SCOPE_FULL,
     train_sequences=None,
     val_sequences=None,
+    train_control_split_enabled=False,
+    train_control_split_dir=None,
 ):
     dataset_sequences = get_dataset_sequences_for_split(
         cfg=cfg,
@@ -135,6 +161,8 @@ def build_train_val_dataloaders(
             sequence=sequence,
             class_to_idx=class_to_idx,
             ignore_unmapped_classes=ignore_unmapped_classes,
+            ignore_class_names=ignore_class_names,
+            gt_object_ignore_override_path=None,
             scope_mode=scope_mode,
         )
         for sequence in dataset_sequences
@@ -142,6 +170,23 @@ def build_train_val_dataloaders(
     full_dataset = KRadarMultiSequenceGTDetectionDataset(
         sequence_datasets=sequence_datasets
     )
+    train_source_dataset = full_dataset
+    if gt_object_ignore_override_path is not None:
+        controlled_sequence_datasets = [
+            build_detection_dataset_for_sequence(
+                cfg=cfg,
+                sequence=sequence,
+                class_to_idx=class_to_idx,
+                ignore_unmapped_classes=ignore_unmapped_classes,
+                ignore_class_names=ignore_class_names,
+                gt_object_ignore_override_path=gt_object_ignore_override_path,
+                scope_mode=scope_mode,
+            )
+            for sequence in dataset_sequences
+        ]
+        train_source_dataset = KRadarMultiSequenceGTDetectionDataset(
+            sequence_datasets=controlled_sequence_datasets
+        )
 
     if split_mode == "random":
         train_indices, val_indices = build_random_split_indices(
@@ -173,10 +218,19 @@ def build_train_val_dataloaders(
     else:
         raise ValueError(f"Unknown split_mode: {split_mode}")
 
+    if train_control_split_enabled:
+        train_indices = apply_train_control_split_indices(
+            full_dataset=full_dataset,
+            train_indices=train_indices,
+            control_split_dir=train_control_split_dir,
+        )
+
     if len(train_indices) == 0:
         raise ValueError("Training split is empty. Increase --limit-samples or train_ratio.")
 
-    train_dataset = Subset(full_dataset, train_indices)
+    # Keep generated object ignores out of validation, even for file splits
+    # where train and validation frames can belong to the same sequence.
+    train_dataset = Subset(train_source_dataset, train_indices)
     val_dataset = Subset(full_dataset, val_indices)
 
     loader_generator = torch.Generator()
@@ -200,6 +254,100 @@ def build_train_val_dataloaders(
     )
 
     return train_dataset, val_dataset, train_loader, val_loader
+
+
+def apply_train_control_split_indices(
+        full_dataset,
+        train_indices,
+        control_split_dir,
+    ):
+    if control_split_dir is None:
+        raise ValueError(
+            "train_control_split_enabled=True requires train_control_split_dir."
+        )
+
+    control_train_split_path = os.path.join(control_split_dir, "train.txt")
+    if not os.path.exists(control_train_split_path):
+        raise FileNotFoundError(
+            f"Controlled train split file not found: {control_train_split_path}"
+        )
+
+    sequence_lookup = build_sequence_index_lookup(full_dataset)
+    allowed_sequences = tuple(sorted(sequence_lookup.keys()))
+    control_train_by_sequence = read_split_file(
+        control_train_split_path,
+        allowed_sequences=allowed_sequences,
+    )
+    controlled_sequences = {
+        int(sequence)
+        for sequence, entries in control_train_by_sequence.items()
+        if len(entries) > 0
+    }
+    if len(controlled_sequences) == 0:
+        print(
+            f"Train control split enabled but {control_train_split_path} contains no usable entries. "
+            "Keeping the original train split."
+        )
+        return train_indices
+
+    controlled_index_set = set(
+        split_entries_to_indices(
+            split_by_sequence=control_train_by_sequence,
+            sequence_lookup=sequence_lookup,
+            split_name=os.path.join(control_split_dir, "train.txt"),
+        )
+    )
+    sequence_ranges = [
+        {
+            "sequence": int(sequence_range["sequence"]),
+            "start": int(sequence_range["start"]),
+            "end": int(sequence_range["end"]),
+        }
+        for sequence_range in full_dataset.get_sequence_ranges()
+    ]
+
+    def sequence_for_index(index):
+        for sequence_range in sequence_ranges:
+            if sequence_range["start"] <= index < sequence_range["end"]:
+                return sequence_range["sequence"]
+        raise ValueError(f"Could not resolve sequence for global index {index}")
+
+    filtered_train_indices = []
+    per_sequence_before = {}
+    per_sequence_after = {}
+    for index in train_indices:
+        sequence = sequence_for_index(int(index))
+        per_sequence_before[sequence] = per_sequence_before.get(sequence, 0) + 1
+        if sequence in controlled_sequences and index not in controlled_index_set:
+            continue
+        filtered_train_indices.append(index)
+        per_sequence_after[sequence] = per_sequence_after.get(sequence, 0) + 1
+
+    controlled_sequences_in_train = sorted(
+        int(sequence)
+        for sequence in controlled_sequences
+        if per_sequence_before.get(int(sequence), 0) > 0
+    )
+    if len(controlled_sequences_in_train) == 0:
+        print(
+            f"Train control split {control_split_dir} does not overlap the current train split. "
+            "Keeping the original train split."
+        )
+        return train_indices
+
+    summary_parts = []
+    for sequence in controlled_sequences_in_train:
+        before_count = int(per_sequence_before.get(sequence, 0))
+        after_count = int(per_sequence_after.get(sequence, 0))
+        summary_parts.append(f"seq{sequence}: {before_count}->{after_count}")
+    print(
+        "Applied train control split:",
+        f"dir={control_split_dir}",
+        f"sequences={controlled_sequences_in_train}",
+        f"counts={', '.join(summary_parts)}",
+    )
+
+    return filtered_train_indices
 
 
 def build_random_split_indices(full_dataset, train_ratio, seed, limit_samples):
@@ -323,11 +471,26 @@ def split_line_to_sequence_and_frame_names(line):
 
     sequence = int(parts[0])
     frame_token = os.path.splitext(parts[1])[0]
-    frame_name = frame_token.split("_")[0]
-    if frame_name == "":
+    if frame_token == "":
         raise ValueError(f"Invalid split frame token: {line!r}")
 
-    return sequence, [frame_name]
+    # Supported split entry formats:
+    # 1. Legacy project split:   "1,00033_00001.txt"
+    #    - "00033" is the RAD/RAE frame name used by the dataset loader.
+    #    - "00001" is an older GT-frame suffix kept only for bookkeeping.
+    # 2. New explicit frame-name split: "3,00031.txt"
+    #    - "00031" is directly the RAD/RAE frame name.
+    #
+    # The loader always resolves entries against dataset.radar_dataset.frame_names,
+    # so we return candidate keys in the lookup order that matches the split type.
+    frame_name_candidates = []
+    if "_" in frame_token:
+        frame_name_candidates.append(frame_token.split("_")[0])
+        frame_name_candidates.append(frame_token)
+    else:
+        frame_name_candidates.append(frame_token)
+
+    return sequence, frame_name_candidates
 
 
 def read_split_file(split_path, allowed_sequences):
