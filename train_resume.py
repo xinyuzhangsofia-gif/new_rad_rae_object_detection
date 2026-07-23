@@ -21,9 +21,11 @@ from train import (
 )
 from train_cfg import RESUME_CONFIG
 from train_mode_utils import (
+    apply_training_coordinate_mode,
     apply_task_configuration,
     apply_model15_lr_defaults,
     build_model15_lr_scheduler,
+    model_uses_separate_quality_loss,
     prepare_controlled_train_data,
     resolve_loss_mode,
     resolve_run_model_type,
@@ -85,6 +87,7 @@ def load_resume_checkpoint(
         expected_model_type=None,
         expected_num_classes=None,
         expected_include_bus_as_target=None,
+        expected_box_coordinate_mode=None,
     ):
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
@@ -94,6 +97,9 @@ def load_resume_checkpoint(
     checkpoint_model_type = checkpoint_config.get("model_type")
     checkpoint_num_classes = checkpoint_config.get("num_classes")
     checkpoint_include_bus_as_target = checkpoint_config.get("include_bus_as_target")
+    checkpoint_box_coordinate_mode = checkpoint_config.get(
+        "box_coordinate_mode"
+    )
 
     if (
         expected_model_type is not None
@@ -120,6 +126,16 @@ def load_resume_checkpoint(
         raise ValueError(
             "Checkpoint include_bus_as_target does not match RESUME_CONFIG "
             f"({checkpoint_include_bus_as_target} vs {expected_include_bus_as_target})."
+        )
+    if (
+        expected_box_coordinate_mode is not None
+        and checkpoint_box_coordinate_mode is not None
+        and str(checkpoint_box_coordinate_mode) != str(expected_box_coordinate_mode)
+    ):
+        raise ValueError(
+            "Checkpoint box_coordinate_mode does not match RESUME_CONFIG "
+            f"({checkpoint_box_coordinate_mode!r} vs "
+            f"{expected_box_coordinate_mode!r})."
         )
 
     state_dict = checkpoint["model_state_dict"] if isinstance(checkpoint, dict) else checkpoint
@@ -199,6 +215,7 @@ def main():
         raise ValueError("train_resume.py reads settings from train_cfg.py. Edit RESUME_CONFIG, then run: python train_resume.py")
 
     args = build_resume_args()
+    args = apply_training_coordinate_mode(args)
     if args.checkpoint_epoch_step <= 0:
         raise ValueError("checkpoint_epoch_step must be greater than 0")
     if (
@@ -229,17 +246,52 @@ def main():
     )
 
     print(f"Training classes: {args.class_names}")
+    print(f"Box coordinate mode: {args.box_coordinate_mode}")
+    if args.cartesian_training_workflow == "radenet_official_in_model7":
+        print(
+            "Model7 Cartesian detector: original RADE-Net head implemented "
+            "directly inside model7"
+        )
+    elif args.cartesian_training_workflow == "centerpoint_cartesian_in_model7":
+        print(
+            "Model7 Cartesian detector: CenterPoint decoder with metric "
+            "Cartesian box regression"
+        )
     print(f"Bus target enabled: {args.include_bus_as_target}")
+    print(
+        "Ignore object_label=-1: "
+        f"{args.ignore_object_label_minus_one}"
+    )
     print(f"Ignore-mask classes: {args.ignore_class_names}")
     print(
         f"Ignore-mask region: GT box * {args.ignore_mask_expand_ratio} + margin {args.ignore_mask_margin}"
     )
+    loss_mode = resolve_loss_mode(
+        args.model_type,
+        box_coordinate_mode=args.box_coordinate_mode,
+        loss_mode=args.loss_mode,
+    )
+    print(f"Loss mode: {loss_mode} (configured: {args.loss_mode})")
+    if loss_mode == "centerpoint":
+        print(
+            "CenterPoint box loss: offset + height + size + yaw + "
+            f"{args.centerpoint_gwd_loss_weight:g} * GWD"
+        )
+        if model_uses_separate_quality_loss(args.model_type):
+            print(f"Separate quality loss: enabled, weight={args.quality_loss_weight:g}")
+        else:
+            print("Separate quality loss: inactive for this model")
+    if not getattr(args, "training_eval_enabled", True):
+        print("Best checkpoint selection: disabled (epoch checkpoints only)")
     if args.train_control_split_enabled:
         print(f"Train control split: {args.train_control_split_dir}")
     if args.gt_object_ignore_override_path is not None:
         print(f"GT object ignore override: {args.gt_object_ignore_override_path}")
     print(f"Resume checkpoint: {args.resume_checkpoint}")
-    print(f"Initial best checkpoint: {args.initial_best_checkpoint}")
+    if getattr(args, "training_eval_enabled", True):
+        print(f"Initial best checkpoint: {args.initial_best_checkpoint}")
+    elif args.initial_best_checkpoint:
+        print("Initial best checkpoint: ignored because best selection is disabled")
     if use_official_model15_lr_mode(args.model_type):
         print("Model15 LR mode: official RADE-Net CosineAnnealingLR")
 
@@ -261,6 +313,10 @@ def main():
         val_sequences=args.val_sequences,
         train_control_split_enabled=args.train_control_split_enabled,
         train_control_split_dir=args.train_control_split_dir,
+        box_coordinate_mode=args.box_coordinate_mode,
+        cartesian_gt_root=args.cartesian_gt_root,
+        polar_gt_root=args.polar_gt_root,
+        ignore_object_label_minus_one=args.ignore_object_label_minus_one,
     )
     if len(val_dataset) == 0:
         raise ValueError("Validation split is empty.")
@@ -269,6 +325,8 @@ def main():
         model_type=args.model_type,
         device=device,
         num_classes=args.num_classes,
+        box_coordinate_mode=args.box_coordinate_mode,
+        loss_mode=loss_mode,
     )
     if len(gpu_ids) > 1:
         model = torch.nn.DataParallel(model, device_ids=gpu_ids, output_device=gpu_ids[0])
@@ -292,6 +350,7 @@ def main():
         expected_model_type=args.model_type,
         expected_num_classes=args.num_classes,
         expected_include_bus_as_target=args.include_bus_as_target,
+        expected_box_coordinate_mode=args.box_coordinate_mode,
     )
 
     if args.start_epoch is None:
@@ -335,34 +394,48 @@ def main():
         num_classes=args.num_classes,
         class_names=args.class_names,
         model_type=args.run_model_type,
+        configured_model_type=args.configured_model_type,
+        cartesian_training_workflow=args.cartesian_training_workflow,
+        loss_mode=loss_mode,
         train_scope=args.train_scope,
         split_mode=args.split_mode,
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
         training_eval_enabled=getattr(args, "training_eval_enabled", True),
-        best_metric_key=getattr(args, "best_metric_key", "auto"),
+        best_metric_key=(
+            getattr(args, "best_metric_key", "auto")
+            if getattr(args, "training_eval_enabled", True)
+            else None
+        ),
         official_eval_enabled=getattr(args, "official_eval_enabled", False),
         official_eval_version=getattr(args, "official_eval_version", "revised"),
         official_eval_iou_backend=getattr(args, "official_eval_iou_backend", "auto"),
         official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
+        polar_eval_enabled=getattr(args, "polar_eval_enabled", False),
+        polar_iou_thresholds=getattr(args, "polar_iou_thresholds", None),
         coco_style_eval_enabled=getattr(args, "coco_style_eval_enabled", False),
         nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
         gt_object_ignore_override_path=getattr(args, "gt_object_ignore_override_path", None),
         train_control_split_enabled=getattr(args, "train_control_split_enabled", False),
         train_control_split_dir=getattr(args, "train_control_split_dir", None),
+        centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
+        quality_loss_weight=args.quality_loss_weight,
+        quality_loss_active=model_uses_separate_quality_loss(args.model_type),
+        box_coordinate_mode=args.box_coordinate_mode,
+        cartesian_gt_root=args.cartesian_gt_root,
     )
 
     history = []
     best_state = BestCheckpointState()
-    initial_best_path = initialize_best_state(
-        best_state=best_state,
-        initial_best_checkpoint=args.initial_best_checkpoint,
-        checkpoint_dir=checkpoint_dir,
-    )
-    if initial_best_path is not None:
-        print(f"Copied initial global best to: {initial_best_path}")
+    if getattr(args, "training_eval_enabled", True):
+        initial_best_path = initialize_best_state(
+            best_state=best_state,
+            initial_best_checkpoint=args.initial_best_checkpoint,
+            checkpoint_dir=checkpoint_dir,
+        )
+        if initial_best_path is not None:
+            print(f"Copied initial global best to: {initial_best_path}")
 
-    loss_mode = resolve_loss_mode(args.model_type)
     for epoch_number in range(args.start_epoch, args.end_epoch + 1):
         train_metrics = train_one_epoch(
             model=model,
@@ -375,12 +448,13 @@ def main():
             box_loss_weight=1.0,
             cls_loss_weight=1.0,
             heatmap_radius=args.heatmap_radius,
-            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
+            centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
             quality_loss_weight=args.quality_loss_weight,
             ignore_mask_margin=args.ignore_mask_margin,
             ignore_mask_expand_ratio=args.ignore_mask_expand_ratio,
             loss_mode=loss_mode,
             num_classes=args.num_classes,
+            box_coordinate_mode=args.box_coordinate_mode,
         )
         val_loss_metrics = validate_loss(
             model=model,
@@ -389,12 +463,13 @@ def main():
             box_loss_weight=1.0,
             cls_loss_weight=1.0,
             heatmap_radius=args.heatmap_radius,
-            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
+            centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
             quality_loss_weight=args.quality_loss_weight,
             ignore_mask_margin=args.ignore_mask_margin,
             ignore_mask_expand_ratio=args.ignore_mask_expand_ratio,
             loss_mode=loss_mode,
             num_classes=args.num_classes,
+            box_coordinate_mode=args.box_coordinate_mode,
         )
         eval_metrics = None
         if getattr(args, "training_eval_enabled", True):
@@ -417,6 +492,13 @@ def main():
                 nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
                 ap_score_thresh=getattr(args, "ap_score_thresh", 0.01),
                 detection_score_thresh=getattr(args, "score_thresh", 0.3),
+                polar_eval_enabled=getattr(args, "polar_eval_enabled", False),
+                polar_iou_thresholds=getattr(
+                    args,
+                    "polar_iou_thresholds",
+                    (0.3, 0.5),
+                ),
+                box_coordinate_mode=args.box_coordinate_mode,
             )
         val_metrics, f1 = build_epoch_eval_metrics(
             train_metrics=train_metrics,
@@ -454,6 +536,11 @@ def main():
             learning_rate=learning_rate,
             total_epochs=args.end_epoch,
             checkpoint_epoch_step=args.checkpoint_epoch_step,
+            best_selection_enabled=getattr(
+                args,
+                "training_eval_enabled",
+                True,
+            ),
         )
         if checkpoint_path is not None:
             print(f"Saved checkpoint: {checkpoint_path}")
@@ -467,13 +554,14 @@ def main():
         )
 
     writer.close()
-    global_best_path, _ = save_global_best_checkpoint(
-        best_state=best_state,
-        checkpoint_dirs=checkpoint_dirs,
-        checkpoint_key=checkpoint_key,
-    )
-    if global_best_path is not None:
-        print(f"Current global best checkpoint: {global_best_path}")
+    if getattr(args, "training_eval_enabled", True):
+        global_best_path, _ = save_global_best_checkpoint(
+            best_state=best_state,
+            checkpoint_dirs=checkpoint_dirs,
+            checkpoint_key=checkpoint_key,
+        )
+        if global_best_path is not None:
+            print(f"Current global best checkpoint: {global_best_path}")
 
 
 if __name__ == "__main__":

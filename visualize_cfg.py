@@ -9,7 +9,7 @@ VISUALIZE_CONFIG = {
     # Set this to the K-Radar sequence you want to watch, e.g. 3, 18, or 20.
     # When this is not None, visualization loads this sequence directly instead
     # of using the checkpoint's validation split.
-    "sequence": 3,
+    "sequence": 1,
 
     "start_file_idx": 0,
     "frame_step": 20,

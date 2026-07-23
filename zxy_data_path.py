@@ -119,9 +119,18 @@ def get_rae_npy_path(cfg, file_idx):
     return rae_files[file_idx]
 
 
-def get_gt_txt_path(cfg, sequence=None):
+DEFAULT_POLAR_GT_ROOT = "/home/local/xinyu/K-Radar-GT-Polar-v2.9"
+
+
+def get_gt_txt_path(cfg, sequence=None, polar_gt_root=None):
     if sequence is None:
         sequence = cfg.sequence
-    # gt_txt_path = f"/run/user/1000/gvfs/smb-share:server=192.168.189.30,share=elab-share/Datasets/K-Radar-GT-Polar-v2/{cfg.sequence}/gt/gt.txt"
-    gt_txt_path = f"/home/local/xinyu/K-Radar-GT-Polar-v2/{sequence}/gt/gt.txt"
+    if polar_gt_root in (None, ""):
+        polar_gt_root = DEFAULT_POLAR_GT_ROOT
+    gt_txt_path = os.path.join(
+        str(polar_gt_root),
+        str(sequence),
+        "gt",
+        "gt.txt",
+    )
     return gt_txt_path

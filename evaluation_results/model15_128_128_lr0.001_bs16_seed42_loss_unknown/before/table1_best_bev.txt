@@ -1,0 +1,27 @@
+model_type: model15
+model_variant: model15_128_128_train_13,10_lr1e-3
+model_configuration: model15_128_128_lr0.001_bs16_seed42_loss_unknown
+evaluation_group: before
+include_bus_as_target: True
+bus_ignored_during_evaluation: False
+train_sequences: [10, 13]
+val_sequences: [15]
+train_control_split_enabled: False
+eval_scope: full
+ap_score_thresh: 0.01
+score_thresh: 0.3
+source_evaluation_txt: /home/local/xinyu/MVRSS/mvrss/evaluation_plots/model15_128_128_train_13,10_lr1e-3/20260714__val_seq_15.txt
+table_selection: table1_best_bev
+selection_metric: official_bev_mAP_0.3
+selection_rule: one best epoch per source-target pair
+metric_pair: BEV@0.3/3D@0.3
+normal_only_target_rows: excluded
+source_domain_details:
+  - Overcast 1 (Sequences: 10, 13; Weather: Normal + Overcast)
+target_domain_details:
+  - Normal 5 (Sequences: 15)
+source_domains:
+  - Overcast 1 ->
+
+Source -> Target (APBEV/AP3D) | Overcast 1 ->
+------------------------------+--------------

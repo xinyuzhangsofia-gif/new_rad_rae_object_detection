@@ -1,0 +1,46 @@
+model_type: model7
+model_variant: model7_64_128_ig_train_9,10_controlled_lr5e-5
+model_configuration: model7_64_128_lr5e-05_bs32_seed42_loss_unknown
+evaluation_group: after
+include_bus_as_target: False
+bus_ignored_during_evaluation: True
+train_sequences: [9, 10]
+val_sequences: [22]
+train_control_split_enabled: True
+eval_scope: full
+ap_score_thresh: 0.01
+score_thresh: 0.3
+source_evaluation_txt: /home/local/xinyu/MVRSS/mvrss/evaluation_plots/model7_64_128_ig_train_9,10_controlled_lr5e-5/20260712__val_seq_22.txt
+table_selection: table1_best_bev
+selection_metric: official_bev_mAP_0.3
+selection_rule: one best epoch per source-target pair
+metric_pair: BEV@0.3/3D@0.3
+normal_only_target_rows: excluded
+merged_model_variants:
+  - model7_64_128_ig_train_13,10_lr5e-5
+  - model7_64_128_ig_train_9,10_controlled_lr5e-5
+merged_source_evaluation_txts:
+  - /home/local/xinyu/MVRSS/mvrss/evaluation_plots/model7_64_128_ig_train_13,10_lr5e-5/20260710__val_seq_22.txt
+  - /home/local/xinyu/MVRSS/mvrss/evaluation_plots/model7_64_128_ig_train_9,10_controlled_lr5e-5/20260712__val_seq_22.txt
+source_domain_details:
+  - Normal 1 (Sequences: 1, 5, 6, 14, 15, 18, 20)
+  - Normal 3 Controlled (Sequences: 9, 10)
+  - Overcast 1 (Sequences: 10, 13; Weather: Normal + Overcast)
+target_domain_details:
+  - Normal 1 (Sequences: 10)
+  - Normal 2 (Sequences: 11)
+  - Normal 3 (Sequences: 12)
+  - Normal 4 (Sequences: 9)
+  - Overcast 1 (Sequences: 22)
+source_domains:
+  - Normal 3 Controlled ->
+  - Normal 5 ->
+  - Normal 1 ->
+  - Overcast 1 ->
+  - Normal 4 ->
+target_domains:
+  - -> Overcast 1
+
+Source -> Target (APBEV/AP3D) | Normal 3 Controlled -> | Normal 5 -> | Normal 1 -> | Overcast 1 -> | Normal 4 ->
+------------------------------+------------------------+-------------+-------------+---------------+------------
+-> Overcast 1                 | 32.18/7.70             |             |             | 29.86/6.90    |

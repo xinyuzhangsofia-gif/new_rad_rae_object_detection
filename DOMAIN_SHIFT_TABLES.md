@@ -34,14 +34,14 @@ Each model parameter configuration has both `before` and `after` directories:
 ```text
 evaluation_results/<model_channels_lr_batch_seed_loss>/
   before/
-    table1_best_bev.csv
-    table2_best_3d.csv
-    table3_best_overall.csv
+    table1_best_bev.txt
+    table2_best_3d.txt
+    table3_best_overall.txt
     records/*.json
   after/
-    table1_best_bev.csv
-    table2_best_3d.csv
-    table3_best_overall.csv
+    table1_best_bev.txt
+    table2_best_3d.txt
+    table3_best_overall.txt
     records/*.json
 ```
 
@@ -49,7 +49,7 @@ evaluation_results/<model_channels_lr_batch_seed_loss>/
 `after` means Bus is ignored (`include_bus_as_target=False`). Results never cross
 between these directories. Missing source-target results remain empty cells.
 Targets containing only Normal-weather sequences are excluded from all comparison
-CSVs; their complete evaluation and epoch history remain in `records/*.json`.
+text tables; their complete evaluation and epoch history remain in `records/*.json`.
 A mixed target containing Normal and any non-Normal weather is still included.
 
 The selection rules use the current official AP@0.3 metrics:
@@ -61,7 +61,7 @@ The selection rules use the current official AP@0.3 metrics:
 Each populated cell stores the paired BEV/3D AP values. The JSON record keeps the
 selected epoch, every evaluated epoch, and the full source/target metadata.
 
-The CSV layout follows the source-to-target tables in *Exploring Domain Shift on
+The plain-text table layout follows the source-to-target tables in *Exploring Domain Shift on
 Radar-Based 3D Object Detection Amidst Diverse Environmental Conditions*:
 
 - Training/source domains are columns and validation/target domains are rows,
@@ -74,21 +74,25 @@ Radar-Based 3D Object Detection Amidst Diverse Environmental Conditions*:
 
 Project requirements that intentionally override Table II are the three separate
 epoch-selection tables, separate tables for different model/batch/seed/loss
-configurations, separate `before`/`after` outputs, and CSV-only storage. Therefore
+configurations, separate `before`/`after` outputs, and text-only table storage. Therefore
 the paper's multi-network merged header, three-run `mean +/- std`, and red cell
 styling are not added automatically.
 
-Only CSV comparison tables are generated. In VS Code, open a CSV and run
-`Edit as csv` from the Command Palette to view it as a spreadsheet-style grid.
-The `Edit CSV` extension (`janisdd.vscode-edit-csv`) provides this command.
+Only plain-text comparison tables are generated. They begin with the same
+`key: value` context style as the evaluation TXT files, followed by
+pipe-separated, space-aligned columns that can be opened directly beside those
+evaluation TXT files in any text editor. Matrix headers use short domain labels;
+the complete sequence illustrations are listed one per line under
+`source_domain_details` and `target_domain_details`.
 
 Model configurations are separated by model/channels, initial learning rate, batch
-size, seed, heatmap radius, GIoU loss weight, and quality loss weight. Therefore, a
-different seed, batch size, or loss setting creates a new table directory. Only a
-repeat with the same complete configuration, source sequences, and target sequences
-updates an existing cell. Historical checkpoints that did not store loss parameters
-are explicitly named with `loss_unknown`; newly created checkpoints store all three
-loss settings.
+size, seed, heatmap radius, GWD loss weight, and active model-specific loss settings.
+For example, model7 has no separate quality head, so its inactive quality weight does
+not create another table. A different seed, batch size, or effective loss setting
+creates a new table directory. Only a repeat with the same complete configuration,
+source sequences, and target sequences updates an existing cell. Historical
+checkpoints that did not store loss parameters are explicitly named with
+`loss_unknown`; the legacy `centerpoint_giou_loss_weight` field is read as GWD.
 
 ## Rebuild Existing Results
 

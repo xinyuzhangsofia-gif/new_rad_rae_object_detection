@@ -8,11 +8,17 @@ import torch.nn.functional as F
 from matplotlib.patches import Rectangle
 
 from cfg_model import (
+    RDR_SP_CUBE,
     SCOPE_CHOICES,
     SCOPE_FULL,
     SCOPE_NARROW,
     denormalize_rae_boxes_to_local_scope,
     normalized_rae_box_centers_in_cartesian_roi,
+)
+from coordinate_modes import (
+    BOX_COORDINATE_CARTESIAN,
+    BOX_COORDINATE_POLAR,
+    validate_box_coordinate_mode,
 )
 from dataloader import (
     build_detection_dataset_for_sequence,
@@ -26,13 +32,20 @@ from dataset import (
 )
 from models import *
 from train_mode_utils import (
+    normalize_bool_flag,
     normalize_optional_path,
+    resolve_loss_mode,
     resolve_gt_object_ignore_override_path,
 )
-from training_utils.radenet_utils import regression_cell_to_normalized_rae_box
+from training_utils.radenet_utils import (
+    metric_boxes_to_raw_local_rae,
+    regression_cell_to_metric_box,
+    regression_cell_to_normalized_rae_box,
+)
 from training_utils.torch_load import load_torch_checkpoint
 from training_utils.yolox_utils import yolox_outputs_to_detections
 from zxy_config import DataConfig
+from zxy_data_path import DEFAULT_POLAR_GT_ROOT
 
 try:
     from visualize_cfg import VISUALIZE_CONFIG
@@ -330,12 +343,21 @@ def resolve_visualization_classes(checkpoint_config, inferred_num_classes=None):
     return num_classes, class_names, class_to_idx
 
 
-def build_visualization_model(model_type, device, checkpoint, num_classes):
+def build_visualization_model(
+        model_type,
+        device,
+        checkpoint,
+        num_classes,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        loss_mode="auto",
+    ):
     overrides = infer_checkpoint_decoder_overrides(checkpoint)
     build_kwargs = {
         "device": device,
         "model_type": model_type,
         "num_classes": num_classes,
+        "box_coordinate_mode": box_coordinate_mode,
+        "loss_mode": loss_mode,
     }
     if "decoder_hidden_channels" in overrides:
         build_kwargs["decoder_hidden_channels"] = overrides["decoder_hidden_channels"]
@@ -603,7 +625,9 @@ def official_radenet_outputs_to_detections(
         scope_mode,
         full_rae_shape,
         score_thresh=None,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     heatmap = outputs["heatmap"][:, :num_classes]
     batch_size, _, heatmap_h, heatmap_w = heatmap.shape
     if batch_size != 1:
@@ -620,6 +644,8 @@ def official_radenet_outputs_to_detections(
     else:
         peak_scores = heatmap_scores
 
+    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        heatmap_score_mode = "peak_only"
     rescored_heatmap = build_heatmap_candidate_scores(
         heatmap_scores=heatmap_scores,
         heatmap_nms_kernel=heatmap_nms_kernel,
@@ -639,16 +665,26 @@ def official_radenet_outputs_to_detections(
     x_idx = spatial_indices % heatmap_w
     pred_reg = gather_dense_feature(outputs["regression"], spatial_indices)
 
-    pred_boxes_norm = regression_cell_to_normalized_rae_box(
+    decode_function = (
+        regression_cell_to_metric_box
+        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
+        else regression_cell_to_normalized_rae_box
+    )
+    pred_boxes = decode_function(
         pred_reg=pred_reg[0],
         y_idx=y_idx[0].to(pred_reg.dtype),
         x_idx=x_idx[0].to(pred_reg.dtype),
         feature_shape=(heatmap_h, heatmap_w),
         scope_mode=scope_mode,
         full_rae_shape=full_rae_shape,
+        **(
+            {"absolute_dimensions": False}
+            if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
+            else {}
+        ),
     )
     keep = keep.squeeze(0)
-    return pred_boxes_norm[keep], pred_labels.squeeze(0)[keep], pred_scores.squeeze(0)[keep]
+    return pred_boxes[keep], pred_labels.squeeze(0)[keep], pred_scores.squeeze(0)[keep]
 
 
 def filter_predictions(
@@ -662,8 +698,14 @@ def filter_predictions(
         heatmap_nms_kernel,
         heatmap_score_mode,
         yolox_nms_iou,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     if "objectness_logits" in outputs:
+        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            raise ValueError(
+                "Cartesian visualization is not implemented for YOLOX outputs."
+            )
         detections = yolox_outputs_to_detections(
             outputs=outputs,
             num_classes=num_classes,
@@ -685,6 +727,7 @@ def filter_predictions(
             scope_mode=scope_mode,
             full_rae_shape=full_rae_shape,
             score_thresh=score_thresh,
+            box_coordinate_mode=box_coordinate_mode,
         )
     else:
         pred_boxes_norm, pred_labels, pred_scores = dense_centerpoint_outputs_to_detections(
@@ -702,20 +745,52 @@ def filter_predictions(
     else:
         keep = pred_scores > score_thresh
     if scope_mode == SCOPE_NARROW:
-        keep = keep & normalized_rae_box_centers_in_cartesian_roi(
-            pred_boxes_norm,
-            scope_mode=scope_mode,
-            rae_shape=full_rae_shape,
-        )
+        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            roi = RDR_SP_CUBE["ROI"]
+            keep = keep & (
+                (pred_boxes_norm[:, 0] >= float(roi["x"][0]))
+                & (pred_boxes_norm[:, 0] <= float(roi["x"][1]))
+                & (pred_boxes_norm[:, 1] >= float(roi["y"][0]))
+                & (pred_boxes_norm[:, 1] <= float(roi["y"][1]))
+                & (pred_boxes_norm[:, 2] >= float(roi["z"][0]))
+                & (pred_boxes_norm[:, 2] <= float(roi["z"][1]))
+            )
+        else:
+            keep = keep & normalized_rae_box_centers_in_cartesian_roi(
+                pred_boxes_norm,
+                scope_mode=scope_mode,
+                rae_shape=full_rae_shape,
+            )
     pred_boxes_norm = pred_boxes_norm[keep]
     pred_labels = pred_labels[keep]
     pred_scores = pred_scores[keep]
+    if (
+        box_coordinate_mode == BOX_COORDINATE_CARTESIAN
+        and pred_mode == "final"
+    ):
+        from evaluation import cartesian_rotated_nms_indices
 
-    pred_boxes_raw = normalized_boxes_to_raw_rae(
-        pred_boxes_norm,
-        scope_mode=scope_mode,
-        full_rae_shape=full_rae_shape,
-    )
+        nms_keep = cartesian_rotated_nms_indices(
+            boxes=pred_boxes_norm,
+            scores=pred_scores,
+        )
+        pred_boxes_norm = pred_boxes_norm[nms_keep]
+        pred_labels = pred_labels[nms_keep]
+        pred_scores = pred_scores[nms_keep]
+
+    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        pred_boxes_raw = metric_boxes_to_raw_local_rae(
+            metric_boxes=pred_boxes_norm,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+            use_planar_center_range=True,
+        )
+    else:
+        pred_boxes_raw = normalized_boxes_to_raw_rae(
+            pred_boxes_norm,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+        )
     return pred_boxes_raw.cpu(), pred_labels.cpu(), pred_scores.cpu()
 
 
@@ -784,6 +859,7 @@ def get_frame_prediction(
         heatmap_score_mode,
         yolox_nms_iou,
         scope_mode,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
     item = dataset[file_idx]
     batch = detection_collate([item])
@@ -803,6 +879,7 @@ def get_frame_prediction(
         heatmap_nms_kernel=heatmap_nms_kernel,
         heatmap_score_mode=heatmap_score_mode,
         yolox_nms_iou=yolox_nms_iou,
+        box_coordinate_mode=box_coordinate_mode,
     )
 
     return {
@@ -889,6 +966,31 @@ def main():
 
     checkpoint = load_torch_checkpoint(checkpoint_path, map_location=device)
     checkpoint_config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+    checkpoint_state_dict = get_checkpoint_state_dict(checkpoint)
+    default_box_coordinate_mode = (
+        BOX_COORDINATE_CARTESIAN
+        if (
+            "_model7_cartesian_radenet_marker" in checkpoint_state_dict
+            or "_model7_cartesian_centerpoint_marker" in checkpoint_state_dict
+        )
+        else BOX_COORDINATE_POLAR
+    )
+    box_coordinate_mode = validate_box_coordinate_mode(
+        checkpoint_config.get(
+            "box_coordinate_mode",
+            default_box_coordinate_mode,
+        )
+    )
+    cartesian_gt_root = normalize_optional_path(
+        checkpoint_config.get("cartesian_gt_root")
+    )
+    polar_gt_root = normalize_optional_path(
+        checkpoint_config.get("polar_gt_root", DEFAULT_POLAR_GT_ROOT)
+    )
+    ignore_object_label_minus_one = normalize_bool_flag(
+        checkpoint_config.get("ignore_object_label_minus_one", False),
+        name="ignore_object_label_minus_one",
+    )
     if args.vis_scope is None:
         args.vis_scope = checkpoint_config.get("train_scope", SCOPE_FULL)
     if args.vis_scope not in SCOPE_CHOICES:
@@ -917,6 +1019,19 @@ def main():
         )
     )
     model_type = resolve_model_type(args, checkpoint)
+    configured_loss_mode = checkpoint_config.get("loss_mode")
+    if configured_loss_mode is None:
+        if "_model7_cartesian_radenet_marker" in checkpoint_state_dict:
+            configured_loss_mode = "radenet"
+        elif "_model7_cartesian_centerpoint_marker" in checkpoint_state_dict:
+            configured_loss_mode = "centerpoint"
+        else:
+            configured_loss_mode = "auto"
+    loss_mode = resolve_loss_mode(
+        model_type,
+        box_coordinate_mode=box_coordinate_mode,
+        loss_mode=configured_loss_mode,
+    )
     checkpoint_overrides = infer_checkpoint_decoder_overrides(checkpoint)
     inferred_num_classes = checkpoint_overrides.get("num_classes")
     config_num_classes = checkpoint_config.get("num_classes")
@@ -947,6 +1062,8 @@ def main():
     ):
         ignore_class_names = DEFAULT_SEDAN_ONLY_IGNORE_CLASS_NAMES
     print(f"Visualization classes: {class_names}")
+    print(f"Box coordinate mode: {box_coordinate_mode}")
+    print(f"Loss mode: {loss_mode}")
     if args.gt_object_ignore_override_path is not None:
         print(f"GT object ignore override: {args.gt_object_ignore_override_path}")
     if ignore_class_names:
@@ -961,6 +1078,10 @@ def main():
             ignore_class_names=ignore_class_names,
             gt_object_ignore_override_path=args.gt_object_ignore_override_path,
             scope_mode=args.vis_scope,
+            box_coordinate_mode=box_coordinate_mode,
+            cartesian_gt_root=cartesian_gt_root,
+            polar_gt_root=polar_gt_root,
+            ignore_object_label_minus_one=ignore_object_label_minus_one,
         )
         dataset_sequences = (args.sequence,)
         dataset_source = "single_sequence"
@@ -981,6 +1102,10 @@ def main():
             scope_mode=args.vis_scope,
             train_sequences=train_sequences,
             val_sequences=val_sequences,
+            box_coordinate_mode=box_coordinate_mode,
+            cartesian_gt_root=cartesian_gt_root,
+            polar_gt_root=polar_gt_root,
+            ignore_object_label_minus_one=ignore_object_label_minus_one,
         )
         dataset = val_dataset
         dataset_sequences = get_dataset_sequences_for_split(
@@ -1001,6 +1126,8 @@ def main():
         device=device,
         checkpoint=checkpoint,
         num_classes=num_classes,
+        box_coordinate_mode=box_coordinate_mode,
+        loss_mode=loss_mode,
     )
     model = load_checkpoint(model, checkpoint=checkpoint)
 
@@ -1033,6 +1160,7 @@ def main():
             heatmap_score_mode=args.heatmap_score_mode,
             yolox_nms_iou=args.yolox_nms_iou,
             scope_mode=args.vis_scope,
+            box_coordinate_mode=box_coordinate_mode,
         )
 
         fig, ax = plt.subplots(figsize=(10, 8))

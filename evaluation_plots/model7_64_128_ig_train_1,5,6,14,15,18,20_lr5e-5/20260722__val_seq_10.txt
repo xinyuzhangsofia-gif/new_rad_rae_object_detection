@@ -1,0 +1,32 @@
+model_type: model7_64_128_ig_train_1,5,6,14,15,18,20_lr5e-5
+train_sequences: (1, 5, 6, 14, 15, 18, 20)
+val_sequences: (10,)
+eval_scope: full
+include_bus_as_target: False
+checkpoint_include_bus_as_target: False
+gt_object_ignore_override_path: None
+train_control_split_enabled: False
+ap_score_thresh: 0.01
+score_thresh: 0.3
+train_frames: 4164
+test_frames: 1203
+train_ratio_frames: 0.7758524315259921
+train_bbox_total: 9613
+train_bbox_sedan: 9480
+train_bbox_bus: 133
+test_bbox_total: 3198
+test_bbox_sedan: 2482
+test_bbox_bus: 716
+train_ratio_bboxes: 0.7503707751151354
+
+custom_iou_range: iou=0.30 -> 0.50 (step=0.05)
+custom_iou_range_metrics: c_bev_mAP=BEV mAP, c_3d_mAP=3D mAP
+best_epoch_bev@0.3: epoch 13 (bev@0.3=31.8138)
+best_epoch_3d@0.3: epoch 13 (3d@0.3=8.1608)
+best_epoch_custom_bev_mAP: epoch 13 (custom_bev_mAP=0.1840)
+best_epoch_custom_3d_mAP: epoch 13 (custom_3d_mAP=0.0276)
+best_epoch_polar_bev_mAP: epoch 13 (polar_bev_mAP=0.2404)
+
+epoch   val_loss    val_box    val_cls     val_hm    val_obj     val_l1    val_gwd   bev@0.3   bev@0.5    3d@0.3    3d@0.5        p        r       f1   pbev@0.3   pbev@0.5   c_bev_mAP   c_3d_mAP  ign_sup
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+   13    23.4365     1.1409    22.2957    22.2957     0.0000     0.0000     0.4696   31.8138    7.6929    8.1608    0.3209   0.3259   0.5698   0.4146     0.3515     0.1293      0.1840     0.0276        0

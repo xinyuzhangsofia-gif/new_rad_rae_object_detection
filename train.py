@@ -39,6 +39,7 @@ from training_utils.training_loop import (
 )
 from train_cfg import TRAIN_CONFIG
 from train_mode_utils import (
+    apply_training_coordinate_mode,
     apply_task_configuration,
     apply_model15_lr_defaults,
     build_model15_lr_scheduler,
@@ -46,29 +47,36 @@ from train_mode_utils import (
     prepare_controlled_train_data,
     resolve_loss_mode,
     resolve_run_model_type,
+    model_uses_separate_quality_loss,
     use_official_model15_lr_mode,
 )
 from zxy_config import DataConfig
 
 
-def build_train_args():
-    args = SimpleNamespace(**TRAIN_CONFIG)
+def build_train_args(train_config=None):
+    config = TRAIN_CONFIG if train_config is None else train_config
+    args = SimpleNamespace(**config)
     if args.train_scope not in SCOPE_CHOICES:
         raise ValueError(f"train_scope must be one of {SCOPE_CHOICES}, got {args.train_scope!r}")
-    if args.split_mode not in ("random", "file", "sequence"):
+    if args.split_mode not in ("random", "file", "sequence", "sequence_tail"):
         raise ValueError(
-            f"split_mode must be 'random', 'file', or 'sequence', got {args.split_mode!r}"
+            "split_mode must be 'random', 'file', 'sequence', or "
+            f"'sequence_tail', got {args.split_mode!r}"
         )
     if args.model_type not in MODEL_TYPES:
         raise ValueError(f"Unknown or unsupported model_type: {args.model_type}")
     return args
 
 
-def main():
+def main(train_config=None):
     if len(sys.argv) > 1:
-        raise ValueError("train.py reads settings from train_cfg.py. Edit train_cfg.py, then run: python train.py")
+        raise ValueError(
+            "Training reads settings from train_cfg.py or train_cfg_v2.py; "
+            "edit the selected config file instead of passing command-line arguments."
+        )
 
-    args = build_train_args()
+    args = build_train_args(train_config=train_config)
+    args = apply_training_coordinate_mode(args)
     if args.checkpoint_epoch_step <= 0:
         raise ValueError("checkpoint_epoch_step must be greater than 0")
     if (
@@ -98,13 +106,59 @@ def main():
     )
 
     print(f"Training classes: {args.class_names}")
+    print(f"Box coordinate mode: {args.box_coordinate_mode}")
+    if args.cartesian_training_workflow == "radenet_official_in_model7":
+        print(
+            "Model7 Cartesian detector: original RADE-Net head implemented "
+            "directly inside model7"
+        )
+    elif args.cartesian_training_workflow == "centerpoint_cartesian_in_model7":
+        print(
+            "Model7 Cartesian detector: CenterPoint decoder with metric "
+            "Cartesian box regression"
+        )
+    print(
+        "Training evaluator: "
+        + (
+            "official Cartesian rotated BEV"
+            if args.box_coordinate_mode == "cartesian"
+            else "Polar R-A axis-aligned BEV"
+        )
+    )
     print(f"Bus target enabled: {args.include_bus_as_target}")
+    print(
+        "Ignore object_label=-1: "
+        f"{args.ignore_object_label_minus_one}"
+    )
     print(f"Ignore-mask classes: {args.ignore_class_names}")
     print(
         f"Ignore-mask region: GT box * {args.ignore_mask_expand_ratio} + margin {args.ignore_mask_margin}"
     )
+    loss_mode = resolve_loss_mode(
+        args.model_type,
+        box_coordinate_mode=args.box_coordinate_mode,
+        loss_mode=args.loss_mode,
+    )
+    print(f"Loss mode: {loss_mode} (configured: {args.loss_mode})")
+    if loss_mode == "centerpoint":
+        print(
+            "CenterPoint box loss: offset + height + size + yaw + "
+            f"{args.centerpoint_gwd_loss_weight:g} * GWD"
+        )
+        if model_uses_separate_quality_loss(args.model_type):
+            print(f"Separate quality loss: enabled, weight={args.quality_loss_weight:g}")
+        else:
+            print("Separate quality loss: inactive for this model")
+    if not getattr(args, "training_eval_enabled", True):
+        print("Best checkpoint selection: disabled (epoch checkpoints only)")
     if args.train_control_split_enabled:
         print(f"Train control split: {args.train_control_split_dir}")
+    if args.split_mode == "sequence_tail":
+        print(
+            "Chronological internal validation: "
+            f"last {args.sequence_tail_val_ratio:.1%} per train sequence, "
+            f"drop {args.sequence_tail_boundary_drop_frames} boundary frame(s)"
+        )
     if args.gt_object_ignore_override_path is not None:
         print(f"GT object ignore override: {args.gt_object_ignore_override_path}")
     if use_official_model15_lr_mode(args.model_type):
@@ -129,6 +183,16 @@ def main():
         val_sequences=args.val_sequences,
         train_control_split_enabled=args.train_control_split_enabled,
         train_control_split_dir=args.train_control_split_dir,
+        sequence_tail_val_ratio=getattr(args, "sequence_tail_val_ratio", 0.1),
+        sequence_tail_boundary_drop_frames=getattr(
+            args,
+            "sequence_tail_boundary_drop_frames",
+            0,
+        ),
+        box_coordinate_mode=args.box_coordinate_mode,
+        cartesian_gt_root=args.cartesian_gt_root,
+        polar_gt_root=args.polar_gt_root,
+        ignore_object_label_minus_one=args.ignore_object_label_minus_one,
     )
     if len(val_dataset) == 0:
         raise ValueError("Validation split is empty.")
@@ -137,6 +201,8 @@ def main():
         model_type=args.model_type,
         device=device,
         num_classes=args.num_classes,
+        box_coordinate_mode=args.box_coordinate_mode,
+        loss_mode=loss_mode,
     )
     initialize_model_from_checkpoint(
         model=model,
@@ -192,25 +258,44 @@ def main():
         num_classes=args.num_classes,
         class_names=args.class_names,
         model_type=args.run_model_type,
+        configured_model_type=args.configured_model_type,
+        cartesian_training_workflow=args.cartesian_training_workflow,
+        loss_mode=loss_mode,
         train_scope=args.train_scope,
         split_mode=args.split_mode,
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
         training_eval_enabled=getattr(args, "training_eval_enabled", True),
-        best_metric_key=getattr(args, "best_metric_key", "auto"),
+        best_metric_key=(
+            getattr(args, "best_metric_key", "auto")
+            if getattr(args, "training_eval_enabled", True)
+            else None
+        ),
         official_eval_enabled=getattr(args, "official_eval_enabled", False),
         official_eval_version=getattr(args, "official_eval_version", "revised"),
         official_eval_iou_backend=getattr(args, "official_eval_iou_backend", "auto"),
         official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
+        polar_eval_enabled=getattr(args, "polar_eval_enabled", False),
+        polar_iou_thresholds=getattr(args, "polar_iou_thresholds", None),
         coco_style_eval_enabled=getattr(args, "coco_style_eval_enabled", False),
         nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
         gt_object_ignore_override_path=getattr(args, "gt_object_ignore_override_path", None),
         train_control_split_enabled=getattr(args, "train_control_split_enabled", False),
         train_control_split_dir=getattr(args, "train_control_split_dir", None),
+        sequence_tail_val_ratio=getattr(args, "sequence_tail_val_ratio", None),
+        sequence_tail_boundary_drop_frames=getattr(
+            args,
+            "sequence_tail_boundary_drop_frames",
+            None,
+        ),
+        centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
+        quality_loss_weight=args.quality_loss_weight,
+        quality_loss_active=model_uses_separate_quality_loss(args.model_type),
+        box_coordinate_mode=args.box_coordinate_mode,
+        cartesian_gt_root=args.cartesian_gt_root,
     )
 
     for epoch in range(args.epochs):
-        loss_mode = resolve_loss_mode(args.model_type)
         train_metrics = train_one_epoch(
             model=model,
             dataloader=train_loader,
@@ -222,12 +307,13 @@ def main():
             box_loss_weight=1.0,
             cls_loss_weight=1.0,
             heatmap_radius=args.heatmap_radius,
-            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
+            centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
             quality_loss_weight=args.quality_loss_weight,
             ignore_mask_margin=args.ignore_mask_margin,
             ignore_mask_expand_ratio=args.ignore_mask_expand_ratio,
             loss_mode=loss_mode,
             num_classes=args.num_classes,
+            box_coordinate_mode=args.box_coordinate_mode,
         )
         
         val_loss_metrics = validate_loss(
@@ -237,12 +323,13 @@ def main():
             box_loss_weight=1.0,
             cls_loss_weight=1.0,
             heatmap_radius=args.heatmap_radius,
-            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
+            centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
             quality_loss_weight=args.quality_loss_weight,
             ignore_mask_margin=args.ignore_mask_margin,
             ignore_mask_expand_ratio=args.ignore_mask_expand_ratio,
             loss_mode=loss_mode,
             num_classes=args.num_classes,
+            box_coordinate_mode=args.box_coordinate_mode,
         )
 
         eval_metrics = None
@@ -266,6 +353,13 @@ def main():
                 nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
                 ap_score_thresh=getattr(args, "ap_score_thresh", 0.01),
                 detection_score_thresh=getattr(args, "score_thresh", 0.3),
+                polar_eval_enabled=getattr(args, "polar_eval_enabled", False),
+                polar_iou_thresholds=getattr(
+                    args,
+                    "polar_iou_thresholds",
+                    (0.3, 0.5),
+                ),
+                box_coordinate_mode=args.box_coordinate_mode,
             )
 
         val_metrics, f1 = build_epoch_eval_metrics(
@@ -291,7 +385,12 @@ def main():
             train_metrics=train_metrics, val_metrics=val_metrics, f1=f1,
             learning_rate=learning_rate,
             total_epochs=args.epochs,
-            checkpoint_epoch_step=args.checkpoint_epoch_step
+            checkpoint_epoch_step=args.checkpoint_epoch_step,
+            best_selection_enabled=getattr(
+                args,
+                "training_eval_enabled",
+                True,
+            ),
         )
         
         append_training_history(
@@ -300,7 +399,12 @@ def main():
         )
         
     writer.close()
-    save_global_best_checkpoint(best_state=best_state, checkpoint_dirs=checkpoint_dirs, checkpoint_key=checkpoint_key)
+    if getattr(args, "training_eval_enabled", True):
+        save_global_best_checkpoint(
+            best_state=best_state,
+            checkpoint_dirs=checkpoint_dirs,
+            checkpoint_key=checkpoint_key,
+        )
 
 if __name__ == "__main__":
     main()

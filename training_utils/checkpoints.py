@@ -204,9 +204,6 @@ def build_checkpoint_payload(
         "train_metrics": train_metrics,
         "val_metrics": val_metrics,
         "f1": f1,
-        "mAP": val_metrics.get("mAP", 0.0),
-        "selection_metric_key": val_metrics.get("selection_metric_key", "mAP"),
-        "selection_metric_value": val_metrics.get("selection_metric_value", val_metrics.get("mAP", 0.0)),
         "learning_rate": learning_rate,
         "is_best": is_best,
         "config": {
@@ -217,14 +214,25 @@ def build_checkpoint_payload(
             "lr": args.lr,
             "max_detections": args.max_detections,
             "heatmap_radius": getattr(args, "heatmap_radius", None),
-            "centerpoint_giou_loss_weight": getattr(
+            "centerpoint_gwd_loss_weight": getattr(
                 args,
-                "centerpoint_giou_loss_weight",
+                "centerpoint_gwd_loss_weight",
                 None,
             ),
             "quality_loss_weight": getattr(args, "quality_loss_weight", None),
             "num_classes": args.num_classes,
             "model_type": getattr(args, "model_type", None),
+            "configured_model_type": getattr(
+                args,
+                "configured_model_type",
+                getattr(args, "model_type", None),
+            ),
+            "cartesian_training_workflow": getattr(
+                args,
+                "cartesian_training_workflow",
+                None,
+            ),
+            "loss_mode": getattr(args, "loss_mode", "auto"),
             "run_model_type": getattr(args, "run_model_type", getattr(args, "model_type", None)),
             "class_names": getattr(args, "class_names", None),
             "class_to_idx": getattr(args, "class_to_idx", None),
@@ -238,18 +246,48 @@ def build_checkpoint_payload(
             "init_from_checkpoint": getattr(args, "init_from_checkpoint", None),
             "train_ratio": args.train_ratio,
             "train_scope": getattr(args, "train_scope", "full"),
+            "box_coordinate_mode": getattr(
+                args,
+                "box_coordinate_mode",
+                "polar",
+            ),
+            "cartesian_gt_root": getattr(
+                args,
+                "cartesian_gt_root",
+                None,
+            ),
             "training_eval_enabled": getattr(args, "training_eval_enabled", True),
-            "best_metric_key": getattr(args, "best_metric_key", "auto"),
+            "best_metric_key": (
+                getattr(args, "best_metric_key", "auto")
+                if getattr(args, "training_eval_enabled", True)
+                else None
+            ),
             "official_eval_enabled": getattr(args, "official_eval_enabled", False),
             "official_eval_version": getattr(args, "official_eval_version", "revised"),
             "official_eval_iou_backend": getattr(args, "official_eval_iou_backend", "auto"),
             "official_eval_iou_mode": getattr(args, "official_eval_iou_mode", "easy"),
+            "polar_eval_enabled": getattr(
+                args,
+                "polar_eval_enabled",
+                False,
+            ),
+            "polar_iou_thresholds": getattr(
+                args,
+                "polar_iou_thresholds",
+                None,
+            ),
             "coco_style_eval_enabled": getattr(args, "coco_style_eval_enabled", False),
             "nuscenes_style_eval_enabled": getattr(args, "nuscenes_style_eval_enabled", False),
             "split_mode": getattr(args, "split_mode", None),
             "split_dir": getattr(args, "split_dir", None),
             "train_sequences": getattr(args, "train_sequences", None),
             "val_sequences": getattr(args, "val_sequences", None),
+            "sequence_tail_val_ratio": getattr(args, "sequence_tail_val_ratio", None),
+            "sequence_tail_boundary_drop_frames": getattr(
+                args,
+                "sequence_tail_boundary_drop_frames",
+                None,
+            ),
             "controled_sequences": getattr(args, "controled_sequences", None),
             "reference_sequences": getattr(args, "reference_sequences", None),
             "controlled_split_base_dir": getattr(args, "controlled_split_base_dir", None),
@@ -260,6 +298,14 @@ def build_checkpoint_payload(
             "limit_samples": args.limit_samples,
         },
     }
+
+    if "selection_metric_key" in val_metrics:
+        payload["selection_metric_key"] = val_metrics["selection_metric_key"]
+        payload["selection_metric_value"] = val_metrics[
+            "selection_metric_value"
+        ]
+    if "mAP" in val_metrics:
+        payload["mAP"] = val_metrics["mAP"]
 
     if clone_for_memory:
         payload = clone_checkpoint_payload_for_memory(payload)

@@ -2,6 +2,11 @@ import os
 
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
+from coordinate_modes import (
+    BOX_COORDINATE_CARTESIAN,
+    BOX_COORDINATE_POLAR,
+    validate_box_coordinate_mode,
+)
 from dataset import CLASS_NAMES, CLASS_TO_IDX
 from training_utils.checkpoint_init import (
     adapt_checkpoint_to_sedan_only,
@@ -22,6 +27,8 @@ SEDAN_CLASS_NAME = CLASS_NAMES[0]
 DEFAULT_GT_OBJECT_IGNORE_OVERRIDE_FILENAME = "object_ignore_override.json"
 OFFICIAL_MODEL15_BASE_LR = 0.001
 OFFICIAL_MODEL15_MIN_LR = 0.00001
+CARTESIAN_RADENET_MODELS = {"model7", "model15", "model16"}
+LOSS_MODE_CHOICES = {"auto", "radenet", "centerpoint"}
 
 
 def normalize_bool_flag(value, name):
@@ -45,6 +52,82 @@ def normalize_optional_path(value):
     if value == "":
         return None
     return value
+
+
+def normalize_loss_mode(value):
+    """Normalize and validate the two user-selectable loss workflows.
+
+    ``radenet`` preserves the official RADE-Net loss behavior, including its
+    detached-mean term normalization.  ``centerpoint`` uses the
+    CenterPoint-style heatmap/regression/GWD loss without that normalization.
+    """
+    if value is None:
+        return "auto"
+    normalized = str(value).strip().lower()
+    if normalized == "":
+        return "auto"
+    if normalized not in LOSS_MODE_CHOICES:
+        raise ValueError(
+            "loss_mode must be one of 'auto', 'radenet', or 'centerpoint', "
+            f"got {value!r}"
+        )
+    return normalized
+
+
+def apply_training_coordinate_mode(args):
+    """Make the selected GT, regression and training-time evaluator agree."""
+    args.loss_mode = normalize_loss_mode(
+        getattr(args, "loss_mode", "auto")
+    )
+    args.box_coordinate_mode = validate_box_coordinate_mode(
+        getattr(args, "box_coordinate_mode", BOX_COORDINATE_POLAR)
+    )
+    args.cartesian_gt_root = normalize_optional_path(
+        getattr(args, "cartesian_gt_root", None)
+    )
+    args.polar_gt_root = normalize_optional_path(
+        getattr(args, "polar_gt_root", None)
+    )
+    args.polar_iou_thresholds = tuple(
+        float(value)
+        for value in getattr(args, "polar_iou_thresholds", (0.3, 0.5))
+    )
+    configured_model_type = str(
+        getattr(args, "configured_model_type", getattr(args, "model_type", ""))
+    )
+    args.configured_model_type = configured_model_type
+
+    if args.box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        if args.cartesian_gt_root is None:
+            raise ValueError(
+                "box_coordinate_mode='cartesian' requires cartesian_gt_root."
+            )
+        if configured_model_type not in CARTESIAN_RADENET_MODELS:
+            raise ValueError(
+                "Cartesian mode uses the original RADE-Net Cartesian detection "
+                "workflow. Set model_type='model7' to use the RADE-Net head "
+                "implemented directly in model7, or select model15/model16."
+            )
+        args.model_type = configured_model_type
+        if configured_model_type == "model7" and args.loss_mode == "centerpoint":
+            args.cartesian_training_workflow = "centerpoint_cartesian_in_model7"
+        else:
+            args.cartesian_training_workflow = (
+                "radenet_official_in_model7"
+                if configured_model_type == "model7"
+                else "radenet_official"
+            )
+        args.official_eval_enabled = True
+        args.polar_eval_enabled = False
+    else:
+        args.model_type = configured_model_type
+        args.cartesian_training_workflow = None
+        args.official_eval_enabled = False
+        args.polar_eval_enabled = True
+        if getattr(args, "best_metric_key", "auto") in (None, "", "auto"):
+            args.best_metric_key = "polar_bev_mAP_0.3"
+
+    return args
 
 
 def resolve_gt_object_ignore_override_path(
@@ -126,7 +209,38 @@ def resolve_effective_ignore_class_names(configured_ignore_class_names, include_
     return tuple(ignore_names)
 
 
+def resolve_centerpoint_gwd_loss_weight(args, default=2.0):
+    """Normalize the GWD weight while accepting legacy configs mislabeled as GIoU."""
+    gwd_weight = getattr(args, "centerpoint_gwd_loss_weight", None)
+    legacy_giou_weight = getattr(args, "centerpoint_giou_loss_weight", None)
+    if gwd_weight is None:
+        gwd_weight = default if legacy_giou_weight is None else legacy_giou_weight
+    elif (
+        legacy_giou_weight is not None
+        and float(gwd_weight) != float(legacy_giou_weight)
+    ):
+        raise ValueError(
+            "centerpoint_gwd_loss_weight and legacy "
+            "centerpoint_giou_loss_weight disagree"
+        )
+
+    args.centerpoint_gwd_loss_weight = float(gwd_weight)
+    if hasattr(args, "centerpoint_giou_loss_weight"):
+        delattr(args, "centerpoint_giou_loss_weight")
+    return args
+
+
+def model_uses_separate_quality_loss(model_type):
+    """Only model6 emits the quality logits consumed by CenterPoint quality loss."""
+    return str(model_type) == "model6"
+
+
 def apply_task_configuration(args):
+    args = resolve_centerpoint_gwd_loss_weight(args)
+    args.ignore_object_label_minus_one = normalize_bool_flag(
+        getattr(args, "ignore_object_label_minus_one", False),
+        name="ignore_object_label_minus_one",
+    )
     args.train_control_split_enabled = normalize_bool_flag(
         getattr(args, "train_control_split_enabled", False),
         name="train_control_split_enabled",
@@ -203,9 +317,45 @@ def resolve_run_model_type(model_type, include_bus_as_target):
     return f"{model_type}_sedan_only"
 
 
-def resolve_loss_mode(model_type):
+def resolve_loss_mode(
+        model_type,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        loss_mode="auto",
+    ):
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    requested_loss_mode = normalize_loss_mode(loss_mode)
+
+    if requested_loss_mode == "radenet":
+        if model_type not in CARTESIAN_RADENET_MODELS:
+            raise ValueError(
+                f"loss_mode='radenet' is not supported for {model_type}; "
+                "use a RADE-Net model (model7, model15, or model16)."
+            )
+        if (
+            model_type == "model7"
+            and box_coordinate_mode != BOX_COORDINATE_CARTESIAN
+        ):
+            raise ValueError(
+                "model7 with loss_mode='radenet' requires "
+                "box_coordinate_mode='cartesian'."
+            )
+        return "radenet"
+
+    if requested_loss_mode == "centerpoint":
+        if model_type in {"model12", "model14", "model15", "model16"}:
+            raise ValueError(
+                f"loss_mode='centerpoint' is not supported for {model_type}; "
+                "this model uses a different detection head."
+            )
+        return "centerpoint"
+
     if model_type in {"model12", "model14"}:
         return "yolox"
+    if (
+        model_type == "model7"
+        and box_coordinate_mode == BOX_COORDINATE_CARTESIAN
+    ):
+        return "radenet"
     if model_type in {"model15", "model16"}:
         return "radenet"
     return "centerpoint"

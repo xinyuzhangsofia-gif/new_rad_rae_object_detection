@@ -11,7 +11,7 @@ Empty rate definition: empty_frames / test_frames.
 | 12 | 2001 | 410 | 34.40% | 23.9371 (e13) | 30.1556 (e6) | 28.4903 (e29) | 11.9761 (e13) | 16.7629 (e6) | 13.2779 (e19) |
 
 Notes:
-- Model7 source: `evaluation_plots/model7_64_128_ig_train_1,5,6,14,15,18,20/*.txt`
-- Model8 source: `evaluation_plots/model8_128_128_ig_train_1,5,6,14,15,18,20/*.txt`
-- Model15 source: `evaluation_plots/model15_128_128_ig_train_1,5,6,14,15,18,20/*.txt`
+- Model7 source: `evaluation_plots/model7_64_128_ig_train_1,5,6,14,15,18,20_lr5e-5/*.txt`
+- Model8 source: `evaluation_plots/model8_128_128_ig_train_1,5,6,14,15,18,20_lr1e-4/*.txt`
+- Model15 source: `evaluation_plots/model15_128_128_ig_train_1,5,6,14,15,18,20_lr1e-4/*.txt`
 - In this table, each BEV/3D entry keeps its own best epoch, so epochs inside the same row can differ between BEV and 3D.

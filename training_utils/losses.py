@@ -4,13 +4,19 @@ import torch
 import torch.nn.functional as F
 
 from cfg_model import denormalize_rae_boxes_to_local_scope, get_rae_scope_start_and_shape
+from coordinate_modes import (
+    BOX_COORDINATE_CARTESIAN,
+    BOX_COORDINATE_POLAR,
+    validate_box_coordinate_mode,
+)
 from training_utils.yolox_utils import (
-    box_giou_2d,
     decode_yolox_boxes,
     simota_assign,
     yolox_grid_centers,
 )
 from training_utils.radenet_utils import (
+    centerpoint_outputs_to_metric_regression,
+    feature_indices_to_cartesian_xy,
     raw_local_rae_boxes_to_metric_boxes,
     regression_cell_to_metric_box,
 )
@@ -63,28 +69,6 @@ def normalized_rae_boxes_to_gwd_boxes(boxes, scope_mode=None, full_rae_shape=Non
         ],
         dim=-1,
     )
-
-
-def pairwise_box_giou_2d(boxes1, boxes2):
-    if boxes1.shape[0] == 0 or boxes2.shape[0] == 0:
-        return torch.zeros((boxes1.shape[0], boxes2.shape[0]), device=boxes1.device)
-
-    left_top = torch.max(boxes1[:, None, :2], boxes2[None, :, :2])
-    right_bottom = torch.min(boxes1[:, None, 2:], boxes2[None, :, 2:])
-    wh = (right_bottom - left_top).clamp(min=0)
-    inter = wh[:, :, 0] * wh[:, :, 1]
-
-    area1 = (boxes1[:, 2] - boxes1[:, 0]).clamp(min=0) * (boxes1[:, 3] - boxes1[:, 1]).clamp(min=0)
-    area2 = (boxes2[:, 2] - boxes2[:, 0]).clamp(min=0) * (boxes2[:, 3] - boxes2[:, 1]).clamp(min=0)
-    union = area1[:, None] + area2[None, :] - inter + 1e-6
-    iou = inter / union
-
-    enclose_left_top = torch.min(boxes1[:, None, :2], boxes2[None, :, :2])
-    enclose_right_bottom = torch.max(boxes1[:, None, 2:], boxes2[None, :, 2:])
-    enclose_wh = (enclose_right_bottom - enclose_left_top).clamp(min=0)
-    enclose_area = enclose_wh[:, :, 0] * enclose_wh[:, :, 1] + 1e-6
-
-    return iou - (enclose_area - union) / enclose_area
 
 
 def pairwise_box_iou_2d(boxes1, boxes2):
@@ -385,7 +369,18 @@ def gaussian_wasserstein_distance_batch(pred_boxes, gt_boxes, tau=1.65):
 
 
 def _normalize_radenet_loss_term(loss_term):
-    return loss_term / torch.clamp(loss_term.detach(), min=1e-6)
+    """Apply the official RADE-Net per-term loss normalization.
+
+    The official implementation uses ``loss / loss.detach().mean()`` for
+    each scalar loss term.  The detached denominator keeps the normalization
+    from changing the forward value's gradient dependence.  This project has
+    empty radar frames, so retain a finite zero-term guard; the guard is only
+    active when the term is effectively zero.
+    """
+    detached_mean = loss_term.detach().mean()
+    if torch.abs(detached_mean) <= 1e-6:
+        return loss_term
+    return loss_term / detached_mean
 
 
 def _gather_regression_at_centers(regression_map, center_indices):
@@ -402,6 +397,8 @@ def radenet_detection_loss(
         gt_labels_list,
         scope_modes,
         full_rae_shapes,
+        gt_metric_boxes_list=None,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
         gt_ignore_boxes_raw_list=None,
         num_classes=DEFAULT_NUM_CLASSES,
         gaussian_sigma=3.0,
@@ -410,6 +407,14 @@ def radenet_detection_loss(
     ):
     if "heatmap" not in outputs or "regression" not in outputs:
         raise KeyError("RADE-Net loss requires model outputs to contain 'heatmap' and 'regression'.")
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    if (
+        box_coordinate_mode == BOX_COORDINATE_CARTESIAN
+        and gt_metric_boxes_list is None
+    ):
+        raise ValueError(
+            "Cartesian RADE-Net loss requires exact gt_metric_boxes_list."
+        )
 
     heatmap = outputs["heatmap"][:, :num_classes]
     regression = outputs["regression"]
@@ -454,6 +459,11 @@ def radenet_detection_loss(
     for batch_idx in range(batch_size):
         raw_boxes = gt_boxes_raw_list[batch_idx].to(device)
         labels = gt_labels_list[batch_idx].to(device)
+        if raw_boxes.shape[0] != labels.shape[0]:
+            raise ValueError(
+                "RADE-Net raw GT box/label count mismatch at batch "
+                f"{batch_idx}: {raw_boxes.shape[0]} vs {labels.shape[0]}"
+            )
         valid = (labels >= 0) & (labels < num_classes)
         raw_boxes = raw_boxes[valid]
         if raw_boxes.numel() == 0:
@@ -462,11 +472,29 @@ def radenet_detection_loss(
             smooth_l1_losses.append(zero)
             continue
 
-        gt_metric_boxes = raw_local_rae_boxes_to_metric_boxes(
-            raw_boxes=raw_boxes,
-            scope_mode=scope_modes[batch_idx],
-            full_rae_shape=full_rae_shapes[batch_idx],
-        )
+        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            metric_boxes = gt_metric_boxes_list[batch_idx].to(device)
+            if metric_boxes.shape[0] != labels.shape[0]:
+                raise ValueError(
+                    "RADE-Net metric GT box/label count mismatch at batch "
+                    f"{batch_idx}: {metric_boxes.shape[0]} vs {labels.shape[0]}"
+                )
+            metric_boxes = metric_boxes[valid]
+            yaw = metric_boxes[:, 6]
+            gt_metric_boxes = torch.cat(
+                [
+                    metric_boxes[:, :6],
+                    torch.sin(yaw).unsqueeze(-1),
+                    torch.cos(yaw).unsqueeze(-1),
+                ],
+                dim=-1,
+            )
+        else:
+            gt_metric_boxes = raw_local_rae_boxes_to_metric_boxes(
+                raw_boxes=raw_boxes,
+                scope_mode=scope_modes[batch_idx],
+                full_rae_shape=full_rae_shapes[batch_idx],
+            )
 
         _, scope_shape = get_rae_scope_start_and_shape(scope_modes[batch_idx], full_rae_shapes[batch_idx])
         scope_h = int(scope_shape[0])
@@ -479,19 +507,25 @@ def radenet_detection_loss(
         center_indices = torch.stack([center_y, center_x], dim=-1)
 
         pred_reg = _gather_regression_at_centers(regression[batch_idx], center_indices)
-        pred_metric_boxes = regression_cell_to_metric_box(
-            pred_reg=pred_reg,
+        base_x, base_y = feature_indices_to_cartesian_xy(
             y_idx=center_y,
             x_idx=center_x,
             feature_shape=(height, width),
             scope_mode=scope_modes[batch_idx],
             full_rae_shape=full_rae_shapes[batch_idx],
         )
-
-        pred_gwd_boxes = torch.cat(
+        # Original RADE-Net regression target:
+        # [base_x + dx, base_y + dy, dz, l, w, h, sin(yaw), cos(yaw)].
+        pred_gwd_boxes = torch.stack(
             [
-                pred_metric_boxes[:, :6],
-                F.normalize(pred_reg[:, 6:8], dim=-1),
+                base_x + pred_reg[:, 0],
+                base_y + pred_reg[:, 1],
+                pred_reg[:, 2],
+                pred_reg[:, 3],
+                pred_reg[:, 4],
+                pred_reg[:, 5],
+                pred_reg[:, 6],
+                pred_reg[:, 7],
             ],
             dim=-1,
         )
@@ -620,6 +654,285 @@ def build_centerpoint_targets(
     return heatmap_targets, reg_targets, reg_mask
 
 
+def _raw_index_to_feature_index(raw_index, scope_size, feature_size):
+    if feature_size <= 1 or scope_size <= 1:
+        return 0
+    scaled = float(raw_index) * float(feature_size - 1) / float(scope_size - 1)
+    return max(0, min(feature_size - 1, int(round(scaled))))
+
+
+def build_cartesian_centerpoint_targets(
+        gt_boxes_raw_list,
+        gt_metric_boxes_list,
+        gt_labels_list,
+        cls_logits,
+        regression_map,
+        scope_modes,
+        full_rae_shapes,
+        num_classes,
+        radius=3,
+    ):
+    """Build an R-A heatmap plus exact metric Cartesian box targets."""
+    batch_size, _, heatmap_h, heatmap_w = cls_logits.shape
+    _, _, reg_h, reg_w = regression_map.shape
+    device = cls_logits.device
+    heatmap_targets = torch.zeros(
+        (batch_size, num_classes, heatmap_h, heatmap_w),
+        device=device,
+    )
+    metric_targets = torch.zeros(
+        (batch_size, 7, reg_h, reg_w),
+        device=device,
+    )
+    reg_mask = torch.zeros((batch_size, 1, reg_h, reg_w), device=device)
+
+    for batch_idx in range(batch_size):
+        raw_boxes = gt_boxes_raw_list[batch_idx].to(device)
+        metric_boxes = gt_metric_boxes_list[batch_idx].to(device)
+        labels = gt_labels_list[batch_idx].to(device)
+        if not (
+            raw_boxes.shape[0] == metric_boxes.shape[0] == labels.shape[0]
+        ):
+            raise ValueError(
+                "Cartesian GT raw/metric/label counts disagree for batch "
+                f"{batch_idx}: raw={raw_boxes.shape[0]}, "
+                f"metric={metric_boxes.shape[0]}, labels={labels.shape[0]}"
+            )
+
+        _, scope_shape = get_rae_scope_start_and_shape(
+            scope_modes[batch_idx],
+            full_rae_shapes[batch_idx],
+        )
+        scope_h = int(scope_shape[0])
+        scope_w = int(scope_shape[1])
+
+        for raw_box, metric_box, cls_id_tensor in zip(
+                raw_boxes,
+                metric_boxes,
+                labels,
+            ):
+            cls_id = int(cls_id_tensor.item())
+            if cls_id < 0 or cls_id >= num_classes:
+                continue
+
+            heatmap_y = _raw_index_to_feature_index(
+                raw_box[0].item(),
+                scope_h,
+                heatmap_h,
+            )
+            heatmap_x = _raw_index_to_feature_index(
+                raw_box[1].item(),
+                scope_w,
+                heatmap_w,
+            )
+            draw_gaussian(
+                heatmap=heatmap_targets[batch_idx, cls_id],
+                center_y=heatmap_y,
+                center_x=heatmap_x,
+                radius=radius,
+            )
+
+            reg_y = _raw_index_to_feature_index(
+                raw_box[0].item(),
+                scope_h,
+                reg_h,
+            )
+            reg_x = _raw_index_to_feature_index(
+                raw_box[1].item(),
+                scope_w,
+                reg_w,
+            )
+            metric_targets[batch_idx, :, reg_y, reg_x] = metric_box
+            reg_mask[batch_idx, :, reg_y, reg_x] = 1.0
+
+    return heatmap_targets, metric_targets, reg_mask
+
+
+def cartesian_centerpoint_detection_loss(
+        outputs,
+        gt_boxes_raw_list,
+        gt_metric_boxes_list,
+        gt_labels_list,
+        scope_modes,
+        full_rae_shapes,
+        gt_ignore_boxes_raw_list=None,
+        box_loss_weight=1.0,
+        cls_loss_weight=1.0,
+        gwd_loss_weight=2.0,
+        heatmap_radius=3,
+        num_classes=DEFAULT_NUM_CLASSES,
+        ignore_mask_margin=1.0,
+        ignore_mask_expand_ratio=1.0,
+    ):
+    """CenterPoint-style loss for metric Cartesian box branches.
+
+    This branch intentionally does not use RADE-Net's detached-mean
+    normalization.  Heatmap and each regression component use ordinary
+    masked means over valid targets; GWD is added with its fixed configured
+    weight.  The ``radenet_detection_loss`` function above remains unchanged
+    and preserves the original RADE-Net normalization for ``loss_mode``
+    ``"radenet"``.
+    """
+    cls_logits = outputs["cls_logits"][:, :num_classes]
+    regression_map = centerpoint_outputs_to_metric_regression(outputs)
+    heatmap_targets, metric_targets, reg_mask = (
+        build_cartesian_centerpoint_targets(
+            gt_boxes_raw_list=gt_boxes_raw_list,
+            gt_metric_boxes_list=gt_metric_boxes_list,
+            gt_labels_list=gt_labels_list,
+            cls_logits=cls_logits,
+            regression_map=regression_map,
+            scope_modes=scope_modes,
+            full_rae_shapes=full_rae_shapes,
+            num_classes=num_classes,
+            radius=heatmap_radius,
+        )
+    )
+
+    if gt_ignore_boxes_raw_list is None:
+        ignore_mask = torch.zeros(
+            (
+                cls_logits.shape[0],
+                1,
+                cls_logits.shape[-2],
+                cls_logits.shape[-1],
+            ),
+            device=cls_logits.device,
+        )
+    else:
+        ignore_mask = build_raw_ignore_mask(
+            gt_ignore_boxes_raw_list=gt_ignore_boxes_raw_list,
+            scope_modes=scope_modes,
+            full_rae_shapes=full_rae_shapes,
+            height=cls_logits.shape[-2],
+            width=cls_logits.shape[-1],
+            device=cls_logits.device,
+            ignore_margin=ignore_mask_margin,
+            ignore_expand_ratio=ignore_mask_expand_ratio,
+        )
+    cls_valid_mask = 1.0 - ignore_mask
+    cls_valid_mask = torch.maximum(
+        cls_valid_mask,
+        heatmap_targets.amax(dim=1, keepdim=True).gt(0.0).float(),
+    )
+    cls_loss = heatmap_focal_loss(
+        logits=cls_logits,
+        targets=heatmap_targets,
+        valid_mask=cls_valid_mask,
+    )
+
+    center_losses = []
+    height_losses = []
+    size_losses = []
+    yaw_losses = []
+    gwd_losses = []
+    positive_mask = reg_mask.squeeze(1).bool()
+
+    for batch_idx in range(cls_logits.shape[0]):
+        positive_b = positive_mask[batch_idx]
+        if positive_b.sum() == 0:
+            continue
+
+        y_idx, x_idx = positive_b.nonzero(as_tuple=True)
+        pred_reg = regression_map[batch_idx].permute(1, 2, 0)[positive_b]
+        pred_metric = regression_cell_to_metric_box(
+            pred_reg=pred_reg,
+            y_idx=y_idx.to(pred_reg.dtype),
+            x_idx=x_idx.to(pred_reg.dtype),
+            feature_shape=regression_map.shape[-2:],
+            scope_mode=scope_modes[batch_idx],
+            full_rae_shape=full_rae_shapes[batch_idx],
+        )
+        gt_metric = metric_targets[batch_idx].permute(1, 2, 0)[positive_b]
+        pred_yaw_vector = F.normalize(pred_reg[:, 6:8], dim=-1)
+        gt_yaw_vector = torch.stack(
+            [
+                torch.sin(gt_metric[:, 6]),
+                torch.cos(gt_metric[:, 6]),
+            ],
+            dim=-1,
+        )
+
+        center_losses.append(
+            F.smooth_l1_loss(
+                pred_metric[:, :2],
+                gt_metric[:, :2],
+                reduction="mean",
+            )
+        )
+        height_losses.append(
+            F.smooth_l1_loss(
+                pred_metric[:, 2:3],
+                gt_metric[:, 2:3],
+                reduction="mean",
+            )
+        )
+        size_losses.append(
+            F.smooth_l1_loss(
+                pred_metric[:, 3:6],
+                gt_metric[:, 3:6],
+                reduction="mean",
+            )
+        )
+        yaw_losses.append(
+            F.smooth_l1_loss(
+                pred_yaw_vector,
+                gt_yaw_vector,
+                reduction="mean",
+            )
+        )
+
+        pred_gwd_boxes = torch.cat(
+            [pred_metric[:, :6], pred_yaw_vector],
+            dim=-1,
+        )
+        gt_gwd_boxes = torch.cat(
+            [gt_metric[:, :6], gt_yaw_vector],
+            dim=-1,
+        )
+        _, gwd_values = gaussian_wasserstein_distance_batch(
+            pred_gwd_boxes,
+            gt_gwd_boxes,
+        )
+        gwd_losses.append(gwd_values.mean())
+
+    zero = cls_logits.new_tensor(0.0)
+
+    def mean_or_zero(values):
+        return torch.stack(values).mean() if values else zero
+
+    offset_loss = mean_or_zero(center_losses)
+    height_loss = mean_or_zero(height_losses)
+    size_loss = mean_or_zero(size_losses)
+    yaw_loss = mean_or_zero(yaw_losses)
+    gwd_loss = mean_or_zero(gwd_losses)
+    box_loss = (
+        offset_loss
+        + height_loss
+        + size_loss
+        + yaw_loss
+        + (gwd_loss_weight * gwd_loss)
+    )
+    total_loss = (
+        (box_loss_weight * box_loss)
+        + (cls_loss_weight * cls_loss)
+    )
+
+    return total_loss, {
+        "total_loss": total_loss.item(),
+        "box_loss": box_loss.item(),
+        "cls_loss": cls_loss.item(),
+        "heatmap_loss": cls_loss.item(),
+        "offset_loss": offset_loss.item(),
+        "height_loss": height_loss.item(),
+        "size_loss": size_loss.item(),
+        "yaw_loss": yaw_loss.item(),
+        "gwd_loss": gwd_loss.item(),
+        "num_center_targets": int(reg_mask.sum().item()),
+        "ignore_pixels": int(ignore_mask.sum().item()),
+    }
+
+
 def masked_l1_loss(pred, target, mask):
     mask = mask.expand_as(pred)
     denom = torch.clamp(mask.sum(), min=1.0)
@@ -658,22 +971,6 @@ def dense_centerpoint_outputs_to_boxes(outputs):
         ],
         dim=1
     ).clamp(min=1e-4, max=1.0 - 1e-4)
-
-
-def centerpoint_giou_loss(outputs, target_boxes, mask):
-    positive_mask = mask.squeeze(1).bool()
-    if positive_mask.sum() == 0:
-        return outputs["cls_logits"].new_tensor(0.0)
-
-    pred_box_map = dense_centerpoint_outputs_to_boxes(outputs)
-    pred_boxes = pred_box_map.permute(0, 2, 3, 1)[positive_mask]
-    gt_boxes = target_boxes.permute(0, 2, 3, 1)[positive_mask]
-
-    pred_ra_boxes = boxes_3d_to_ra_xyxy(pred_boxes)
-    gt_ra_boxes = boxes_3d_to_ra_xyxy(gt_boxes)
-    gious = pairwise_box_giou_2d(pred_ra_boxes, gt_ra_boxes).diag()
-
-    return (1.0 - gious).mean()
 
 
 def centerpoint_gwd_loss(outputs, target_boxes, mask, scope_modes=None, full_rae_shapes=None):
@@ -814,7 +1111,7 @@ def centerpoint_detection_loss(
         full_rae_shapes=None,
         box_loss_weight=1.0,
         cls_loss_weight=1.0,
-        giou_loss_weight=2.0,
+        gwd_loss_weight=2.0,
         quality_loss_weight=0.25,
         heatmap_radius=3,
         num_classes=DEFAULT_NUM_CLASSES,
@@ -890,53 +1187,54 @@ def centerpoint_detection_loss(
         target=reg_targets["yaw"],
         mask=reg_mask
     )
-    # Old axis-aligned GIoU path, kept for quick rollback:
-    # giou_loss = centerpoint_giou_loss(
-    #     outputs=outputs,
-    #     target_boxes=reg_targets["box"],
-    #     mask=reg_mask
-    # )
-    giou_loss = centerpoint_gwd_loss(
+    gwd_loss = centerpoint_gwd_loss(
         outputs=outputs,
         target_boxes=reg_targets["box"],
         mask=reg_mask,
         scope_modes=scope_modes,
         full_rae_shapes=full_rae_shapes,
     )
-    quality_loss = centerpoint_quality_loss(
-        outputs=outputs,
-        target_boxes=reg_targets["box"],
-        mask=reg_mask
+    quality_loss_active = (
+        "quality_logits" in outputs
+        or "objectness_logits" in outputs
     )
+    quality_loss = None
+    if quality_loss_active:
+        quality_loss = centerpoint_quality_loss(
+            outputs=outputs,
+            target_boxes=reg_targets["box"],
+            mask=reg_mask
+        )
 
     box_loss = (
         offset_loss
         + height_loss
         + size_loss
         + yaw_loss
-        + (giou_loss_weight * giou_loss)
+        + (gwd_loss_weight * gwd_loss)
     )
     total_loss = (
         (box_loss_weight * box_loss)
         + (cls_loss_weight * cls_loss)
-        + (quality_loss_weight * quality_loss)
     )
+    if quality_loss_active:
+        total_loss = total_loss + (quality_loss_weight * quality_loss)
 
     loss_dict = {
         "total_loss": total_loss.item(),
         "box_loss": box_loss.item(),
         "cls_loss": cls_loss.item(),
         "heatmap_loss": cls_loss.item(),
-        "quality_loss": quality_loss.item(),
         "offset_loss": offset_loss.item(),
         "height_loss": height_loss.item(),
         "size_loss": size_loss.item(),
         "yaw_loss": yaw_loss.item(),
-        "giou_loss": giou_loss.item(),
-        "gwd_loss": giou_loss.item(),
+        "gwd_loss": gwd_loss.item(),
         "num_center_targets": int(reg_mask.sum().item()),
         "ignore_pixels": int(ignore_mask.sum().item()),
     }
+    if quality_loss_active:
+        loss_dict["quality_loss"] = quality_loss.item()
 
     return total_loss, loss_dict
 
@@ -1019,12 +1317,6 @@ def yolox_detection_loss(
 
             matched_gt_boxes = gt_boxes[matched_gt_idx]
             pred_pos_boxes = pred_boxes[batch_idx, matched_pred_idx]
-            # Old axis-aligned GIoU path, kept for quick rollback:
-            # giou = box_giou_2d(
-            #     boxes_3d_to_ra_xyxy(pred_pos_boxes),
-            #     boxes_3d_to_ra_xyxy(matched_gt_boxes),
-            # )
-            # total_box_loss = total_box_loss + (1.0 - giou).sum()
             scope_mode = None if scope_modes is None else scope_modes[batch_idx]
             full_rae_shape = None if full_rae_shapes is None else full_rae_shapes[batch_idx]
             pred_gwd_boxes = normalized_rae_boxes_to_gwd_boxes(

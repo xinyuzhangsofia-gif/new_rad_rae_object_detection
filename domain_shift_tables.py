@@ -24,9 +24,9 @@ OVERALL_SCORE_FORMULA = (
 )
 
 TABLE_SPECS = (
-    ("best_bev", "table1_best_bev.csv"),
-    ("best_3d", "table2_best_3d.csv"),
-    ("best_overall", "table3_best_overall.csv"),
+    ("best_bev", "table1_best_bev.txt"),
+    ("best_3d", "table2_best_3d.txt"),
+    ("best_overall", "table3_best_overall.txt"),
 )
 TABLE_CORNER_HEADER = "Source -> Target (APBEV/AP3D)"
 LEGACY_TABLE_CORNER_HEADER = "Target domain"
@@ -281,8 +281,12 @@ def build_model_configuration(
     batch_size = checkpoint_config.get("batch_size")
     seed = checkpoint_config.get("seed")
     heatmap_radius = checkpoint_config.get("heatmap_radius")
-    giou_loss_weight = checkpoint_config.get("centerpoint_giou_loss_weight")
+    gwd_loss_weight = checkpoint_config.get(
+        "centerpoint_gwd_loss_weight",
+        checkpoint_config.get("centerpoint_giou_loss_weight"),
+    )
     quality_loss_weight = checkpoint_config.get("quality_loss_weight")
+    quality_loss_active = str(model_type) == "model6"
 
     learning_rate_name = (
         "unknown"
@@ -291,14 +295,21 @@ def build_model_configuration(
     )
     batch_size_name = "unknown" if batch_size is None else str(int(batch_size))
     seed_name = "unknown" if seed is None else str(int(seed))
-    if None in (heatmap_radius, giou_loss_weight, quality_loss_weight):
+    if None in (heatmap_radius, gwd_loss_weight):
         loss_name = "unknown"
     else:
-        loss_name = "_".join((
+        loss_parts = [
             f"hm{int(heatmap_radius)}",
-            f"giou{_format_float_for_name(float(giou_loss_weight))}",
-            f"q{_format_float_for_name(float(quality_loss_weight))}",
-        ))
+            f"gwd{_format_float_for_name(float(gwd_loss_weight))}",
+        ]
+        if quality_loss_active:
+            quality_name = (
+                "unknown"
+                if quality_loss_weight is None
+                else _format_float_for_name(float(quality_loss_weight))
+            )
+            loss_parts.append(f"q{quality_name}")
+        loss_name = "_".join(loss_parts)
     config_name = (
         f"{base_name}_lr{learning_rate_name}_bs{batch_size_name}_"
         f"seed{seed_name}_loss_{loss_name}"
@@ -323,8 +334,11 @@ def build_model_configuration(
             checkpoint_config.get("num_boxes"),
         ),
         "heatmap_radius": heatmap_radius,
-        "centerpoint_giou_loss_weight": giou_loss_weight,
-        "quality_loss_weight": quality_loss_weight,
+        "centerpoint_gwd_loss_weight": gwd_loss_weight,
+        "quality_loss_active": quality_loss_active,
+        "quality_loss_weight": (
+            quality_loss_weight if quality_loss_active else None
+        ),
         "train_scope": checkpoint_config.get("train_scope"),
         "train_ratio": checkpoint_config.get("train_ratio"),
         "seed": seed,
@@ -410,11 +424,14 @@ def _load_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
     return loaded
 
 
-def _read_comparison_table(path: Path) -> tuple[list[str], list[list[str]]]:
-    if not path.is_file():
-        return [TABLE_CORNER_HEADER], []
-    with path.open("r", encoding="utf-8", newline="") as input_file:
-        rows = list(csv.reader(input_file))
+def _is_text_table_separator(line: str) -> bool:
+    return bool(re.fullmatch(r"[-+| ]+", line)) and "-" in line
+
+
+def _normalize_comparison_table_rows(
+    rows: list[list[str]],
+    path: Path,
+) -> tuple[list[str], list[list[str]]]:
     if not rows:
         return [TABLE_CORNER_HEADER], []
     header = list(rows[0])
@@ -432,12 +449,77 @@ def _read_comparison_table(path: Path) -> tuple[list[str], list[list[str]]]:
     return header, normalized_rows
 
 
+def _read_comparison_table(
+    path: Path,
+) -> tuple[list[str], list[list[str]], list[str]]:
+    if not path.is_file():
+        return [TABLE_CORNER_HEADER], [], []
+    raw_rows = []
+    context_lines = []
+    table_started = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not table_started and TABLE_CORNER_HEADER in stripped:
+            table_started = True
+        elif not table_started:
+            # Preserve indentation for multiline context lists.
+            context_lines.append(line.rstrip())
+            continue
+        if _is_text_table_separator(stripped):
+            continue
+        if "|" in line:
+            raw_rows.append([cell.strip() for cell in line.split("|")])
+        elif not raw_rows:
+            raw_rows.append([stripped])
+    header, rows = _normalize_comparison_table_rows(raw_rows, path)
+    return header, rows, context_lines
+
+
 def _paper_target_label(label: str) -> str:
-    return f"-> {label}"
+    return f"-> {_short_domain_label(label)}"
 
 
 def _paper_source_label(label: str) -> str:
-    return f"{label} ->"
+    return f"{_short_domain_label(label)} ->"
+
+
+def _short_domain_label(label: str) -> str:
+    normalized = str(label).strip()
+    if normalized.startswith("-> "):
+        normalized = normalized[3:].strip()
+    if normalized.endswith(" ->"):
+        normalized = normalized[:-3].strip()
+    return re.sub(r"\s+\(Sequences:.*\)$", "", normalized)
+
+
+def _merge_context_lines(
+    existing_lines: Iterable[str],
+    incoming_lines: Iterable[str],
+) -> list[str]:
+    merged = []
+    for line in [*existing_lines, *incoming_lines]:
+        normalized = str(line)
+        if normalized.strip() and normalized not in merged:
+            merged.append(normalized)
+    return merged
+
+
+def _remove_context_block(lines: Iterable[str], key: str) -> list[str]:
+    result = []
+    skipping_items = False
+    for line in lines:
+        normalized = str(line)
+        stripped = normalized.strip()
+        if stripped == key or stripped.startswith(f"{key} "):
+            skipping_items = True
+            continue
+        if skipping_items and normalized.lstrip().startswith("- "):
+            continue
+        skipping_items = False
+        result.append(normalized)
+    return result
 
 
 def _format_table_cell(selection: Mapping[str, Any]) -> str:
@@ -508,54 +590,111 @@ def _write_comparison_table(
     path: Path,
     header: list[str],
     rows: list[list[str]],
+    context_lines: Iterable[str] = (),
 ) -> None:
-    output = io.StringIO(newline="")
-    writer = csv.writer(output)
-    writer.writerow(header)
-    writer.writerows(rows)
-    _atomic_write_text(path, output.getvalue())
+    all_rows = [header, *rows]
+    column_count = max((len(row) for row in all_rows), default=1)
+    normalized_rows = [
+        [str(cell) for cell in row] + [""] * (column_count - len(row))
+        for row in all_rows
+    ]
+    widths = [
+        max(len(row[column_index]) for row in normalized_rows)
+        for column_index in range(column_count)
+    ]
+
+    def render_row(row: list[str]) -> str:
+        return " | ".join(
+            value.ljust(widths[index])
+            for index, value in enumerate(row)
+        ).rstrip()
+
+    normalized_context = list(context_lines)
+    for context_key in ("source_domains:", "target_domains:"):
+        normalized_context = _remove_context_block(
+            normalized_context,
+            context_key,
+        )
+    if len(header) > 1:
+        normalized_context.append("source_domains:")
+        normalized_context.extend(f"  - {label}" for label in header[1:])
+    if rows:
+        normalized_context.append("target_domains:")
+        normalized_context.extend(f"  - {row[0]}" for row in rows)
+    normalized_context = [
+        line for line in normalized_context if str(line).strip()
+    ]
+    output_lines = normalized_context
+    if output_lines:
+        output_lines.append("")
+    output_lines.append(render_row(normalized_rows[0]))
+    output_lines.append("-+-".join("-" * width for width in widths))
+    output_lines.extend(render_row(row) for row in normalized_rows[1:])
+    _atomic_write_text(path, "\n".join(output_lines) + "\n")
 
 
 def remove_target_from_comparison_table(
     path: str | os.PathLike[str],
     target_label: str,
+    context_lines: Iterable[str] = (),
 ) -> int:
     table_path = Path(path)
     if not table_path.is_file():
-        _write_comparison_table(table_path, [TABLE_CORNER_HEADER], [])
+        _write_comparison_table(
+            table_path,
+            [TABLE_CORNER_HEADER],
+            [],
+            context_lines,
+        )
         return 0
-    header, rows = _read_comparison_table(table_path)
+    header, rows, existing_context_lines = _read_comparison_table(table_path)
     target_row_label = _paper_target_label(target_label)
     filtered_rows = [
         row for row in rows if not row or row[0] != target_row_label
     ]
     removed_count = len(rows) - len(filtered_rows)
     if removed_count:
-        _write_comparison_table(table_path, header, filtered_rows)
+        _write_comparison_table(
+            table_path,
+            header,
+            filtered_rows,
+            _merge_context_lines(existing_context_lines, context_lines),
+        )
     return removed_count
 
 
-def migrate_comparison_table_layout(path: str | os.PathLike[str]) -> bool:
+def add_comparison_table_context(
+    path: str | os.PathLike[str],
+    context_lines: Iterable[str],
+) -> None:
     table_path = Path(path)
-    if not table_path.is_file():
-        return False
-    with table_path.open("r", encoding="utf-8", newline="") as input_file:
-        first_row = next(csv.reader(input_file), [])
-    needs_migration = (
-        bool(first_row)
-        and (
-            first_row[0] == LEGACY_TABLE_CORNER_HEADER
-            or (
-                first_row[0] == TABLE_CORNER_HEADER
-                and any(label.startswith("-> ") for label in first_row[1:])
-            )
-        )
+    header, rows, existing_context_lines = _read_comparison_table(table_path)
+    short_header = [
+        header[0],
+        *[_paper_source_label(label) for label in header[1:]],
+    ]
+    short_rows = [
+        [_paper_target_label(row[0]), *row[1:]]
+        for row in rows
+    ]
+    _write_comparison_table(
+        table_path,
+        short_header,
+        short_rows,
+        _merge_context_lines(existing_context_lines, context_lines),
     )
-    if not needs_migration:
-        return False
-    header, rows = _read_comparison_table(table_path)
-    _write_comparison_table(table_path, header, rows)
-    return True
+
+
+def convert_legacy_csv_table(
+    csv_path: str | os.PathLike[str],
+    text_path: str | os.PathLike[str],
+) -> None:
+    source_path = Path(csv_path)
+    target_path = Path(text_path)
+    with source_path.open("r", encoding="utf-8", newline="") as input_file:
+        rows = list(csv.reader(input_file))
+    header, normalized_rows = _normalize_comparison_table_rows(rows, source_path)
+    _write_comparison_table(target_path, header, normalized_rows)
 
 
 def _update_comparison_table(
@@ -563,8 +702,9 @@ def _update_comparison_table(
     source_label: str,
     target_label: str,
     cell_value: str | None,
+    context_lines: Iterable[str] = (),
 ) -> None:
-    header, rows = _read_comparison_table(path)
+    header, rows, existing_context_lines = _read_comparison_table(path)
     source_column_label = _paper_source_label(source_label)
     if source_column_label not in header:
         header.append(source_column_label)
@@ -585,7 +725,12 @@ def _update_comparison_table(
     if cell_value is not None:
         target_row[source_index] = cell_value
 
-    _write_comparison_table(path, header, rows)
+    _write_comparison_table(
+        path,
+        header,
+        rows,
+        _merge_context_lines(existing_context_lines, context_lines),
+    )
 
 
 def _record_file_name(
@@ -597,6 +742,46 @@ def _record_file_name(
     target_text = "-".join(str(value) for value in target_sequences)
     controlled_suffix = "_controlled" if controlled else ""
     return f"source_seq{source_text}{controlled_suffix}__target_seq{target_text}.json"
+
+
+def _comparison_table_context(
+    metadata: Mapping[str, Any],
+    evaluation_group: str,
+    criterion: str,
+    source_label: str,
+    target_label: str,
+) -> list[str]:
+    selection_metrics = {
+        "best_bev": "official_bev_mAP_0.3",
+        "best_3d": "official_3d_mAP_0.3",
+        "best_overall": OVERALL_SCORE_FORMULA,
+    }
+    return [
+        f"model_type: {metadata.get('model_type', 'unknown')}",
+        f"model_variant: {metadata.get('model_type', 'unknown')}",
+        f"model_configuration: {metadata.get('model_configuration_name', 'unknown')}",
+        f"evaluation_group: {evaluation_group}",
+        f"include_bus_as_target: {evaluation_group == 'before'}",
+        f"bus_ignored_during_evaluation: {evaluation_group == 'after'}",
+        f"train_sequences: {metadata.get('train_sequences', 'unknown')}",
+        f"val_sequences: {metadata.get('val_sequences', 'unknown')}",
+        f"train_control_split_enabled: {bool(metadata.get('train_control_split_enabled', False))}",
+        f"eval_scope: {metadata.get('eval_scope', 'unknown')}",
+        f"ap_score_thresh: {metadata.get('ap_score_thresh', 'unknown')}",
+        f"score_thresh: {metadata.get('score_thresh', 'unknown')}",
+        f"source_evaluation_txt: {metadata.get('source_txt_path', 'unknown')}",
+        f"current_source_domain: {source_label}",
+        f"current_target_domain: {target_label}",
+        "source_domain_details:",
+        f"  - {source_label}",
+        "target_domain_details:",
+        f"  - {target_label}",
+        f"table_selection: {criterion}",
+        f"selection_metric: {selection_metrics[criterion]}",
+        "selection_rule: one best epoch per source-target pair",
+        "metric_pair: BEV@0.3/3D@0.3",
+        "normal_only_target_rows: excluded",
+    ]
 
 
 def update_domain_shift_tables(
@@ -652,7 +837,7 @@ def update_domain_shift_tables(
             target_sequences,
             controlled=False,
         )
-        target_recorded_in_csv = target_domain["weather_conditions"] != [
+        target_recorded_in_table = target_domain["weather_conditions"] != [
             "normal"
         ]
 
@@ -688,7 +873,8 @@ def update_domain_shift_tables(
                     "batch_size",
                     "seed",
                     "heatmap_radius",
-                    "centerpoint_giou_loss_weight",
+                    "centerpoint_gwd_loss_weight",
+                    "quality_loss_active",
                     "quality_loss_weight",
                 )
             },
@@ -707,12 +893,20 @@ def update_domain_shift_tables(
             candidate_group_dir.mkdir(parents=True, exist_ok=True)
             for criterion, file_name in TABLE_SPECS:
                 table_path = candidate_group_dir / file_name
+                context_lines = _comparison_table_context(
+                    metadata,
+                    group_name,
+                    criterion,
+                    source_domain["label"],
+                    target_domain["label"],
+                )
                 if group_name == evaluation_group:
                     table_paths[criterion] = str(table_path)
-                if not target_recorded_in_csv:
+                if not target_recorded_in_table:
                     remove_target_from_comparison_table(
                         table_path,
                         target_domain["label"],
+                        context_lines,
                     )
                     continue
                 cell_value = None
@@ -723,6 +917,7 @@ def update_domain_shift_tables(
                     source_label=source_domain["label"],
                     target_label=target_domain["label"],
                     cell_value=cell_value,
+                    context_lines=context_lines,
                 )
 
         group_dir = configuration_dir / evaluation_group
@@ -768,7 +963,7 @@ def update_domain_shift_tables(
         "evaluation_group": evaluation_group,
         "source_domain": source_domain["label"],
         "target_domain": target_domain["label"],
-        "target_recorded_in_csv": target_recorded_in_csv,
+        "target_recorded_in_table": target_recorded_in_table,
         "selections": selections,
         "table_paths": table_paths,
         "record_path": str(record_path),

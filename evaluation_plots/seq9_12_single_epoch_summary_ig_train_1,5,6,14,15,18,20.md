@@ -17,8 +17,8 @@ Empty rate definition: empty_frames / test_frames.
 | 12 | 2001 | 410 | 34.40% | 23.9371 | 30.1556 | - | 11.9761 | 16.7629 | - |
 
 Notes:
-- Model7 source files: `evaluation_plots/model7_64_128_ig_train_1,5,6,14,15,18,20/*.txt`
-- Model8 source files: `evaluation_plots/model8_128_128_ig_train_1,5,6,14,15,18,20/*.txt`
-- Model15 source files: `evaluation_plots/model15_128_128_ig_train_1,5,6,14,15,18,20/*.txt`
+- Model7 source files: `evaluation_plots/model7_64_128_ig_train_1,5,6,14,15,18,20_lr5e-5/*.txt`
+- Model8 source files: `evaluation_plots/model8_128_128_ig_train_1,5,6,14,15,18,20_lr1e-4/*.txt`
+- Model15 source files: `evaluation_plots/model15_128_128_ig_train_1,5,6,14,15,18,20_lr1e-4/*.txt`
 - `model15` currently has no `val_seq_12` txt under `evaluation_plots`, so seq12 stays blank.
 - The model15 representative epoch was selected using the available seq9, seq10, seq11 results only.

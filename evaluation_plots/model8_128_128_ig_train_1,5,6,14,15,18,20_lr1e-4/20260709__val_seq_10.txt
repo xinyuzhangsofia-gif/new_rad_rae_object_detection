@@ -1,0 +1,41 @@
+checkpoint_root: checkpoints/sedan_only_detection/0708__model8_sedan_only__seq1_5-6_14-15_18_20_4_10
+end_epoch: 10
+model_type: model8
+model_variant: model8_128_128_ig_train_1,5,6,14,15,18,20_lr1e-4
+split_mode: sequence
+split_dir: split
+train_sequences: (1, 5, 6, 14, 15, 18, 20)
+val_sequences: (10,)
+include_bus_as_target: False
+eval_scope: full
+heatmap_score_mode: peak_times_local_mean
+eval_ignore_suppress_enabled: True
+eval_ignore_expand_ratio: 1.5
+eval_ignore_suppress_margin: 1.0
+device: cuda:1
+train_frames: 4164
+test_frames: 1203
+train_ratio_frames: 0.7758524315259921
+train_bbox_total: 9613
+train_bbox_sedan: 9480
+train_bbox_bus: 133
+test_bbox_total: 3198
+test_bbox_sedan: 2482
+test_bbox_bus: 716
+train_ratio_bboxes: 0.7503707751151354
+
+best_epoch_bev@0.3: epoch 5 (bev@0.3=27.4785)
+best_epoch_3d@0.3: epoch 9 (3d@0.3=10.5158)
+
+epoch   val_loss    val_box     val_hm   bev@0.3   bev@0.5    3d@0.3    3d@0.5        p        r       f1  ign_sup
+------------------------------------------------------------------------------------------------------------------
+    1     8.0388     1.8461     6.1927    0.7777    0.0000    0.3252    0.0000   0.1549   0.0089   0.0168       84
+    2    11.8878     3.9605     7.9274    0.0000    0.0000    0.0000    0.0000   0.0000   0.0000   0.0000        0
+    3     6.1304     1.4997     4.6307    6.6742    0.0000    1.8404    0.0000   0.3869   0.1263   0.1904      282
+    4     6.2058     1.4945     4.7114    5.1687    0.0000    3.2076    0.0000   0.2631   0.0872   0.1309      157
+    5    18.1534     1.2778    16.8756   27.4785    0.0000    8.8939    0.0000   0.4248   0.5165   0.4662      458
+    6    21.3480     1.2580    20.0901   17.3819    0.0000    5.3389    0.0000   0.2921   0.3692   0.3262      520
+    7     7.1335     1.7256     5.4079    3.5366    0.0000    1.9172    0.0000   0.3625   0.0702   0.1176      116
+    8     5.2448     1.6119     3.6329    5.2315    0.0000    3.6867    0.0000   0.5316   0.0747   0.1309       14
+    9    21.4754     1.8539    19.6215   22.4485    0.0000   10.5158    0.0000   0.3902   0.3241   0.3541      466
+   10    19.5835     1.3097    18.2738   11.8672    0.0000    3.6009    0.0000   0.2590   0.3531   0.2988      557

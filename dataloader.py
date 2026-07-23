@@ -1,9 +1,14 @@
+import math
 import os
 
 import torch
 from torch.utils.data import DataLoader, Subset
 
 from cfg_model import SCOPE_FULL
+from coordinate_modes import (
+    BOX_COORDINATE_POLAR,
+    validate_box_coordinate_mode,
+)
 from dataset import (
     KRadarGTDetectionDataset,
     KRadarMultiSequenceGTDetectionDataset,
@@ -72,15 +77,18 @@ def get_dataset_sequences_for_split(
         train_sequences=None,
         val_sequences=None,
     ):
-    if split_mode != "sequence":
+    if split_mode not in {"sequence", "sequence_tail"}:
         return get_config_sequences(cfg)
 
     train_sequences = normalize_sequence_list(train_sequences, name="train_sequences")
+    if train_sequences is None:
+        raise ValueError("sequence split requires train_sequences.")
+    if split_mode == "sequence_tail":
+        return unique_sequences(train_sequences)
+
     val_sequences = normalize_sequence_list(val_sequences, name="val_sequences")
-    if train_sequences is None or val_sequences is None:
-        raise ValueError(
-            "sequence split requires both train_sequences and val_sequences."
-        )
+    if val_sequences is None:
+        raise ValueError("sequence split requires val_sequences.")
 
     return unique_sequences(train_sequences, val_sequences)
 
@@ -93,7 +101,12 @@ def build_detection_dataset_for_sequence(
         ignore_class_names=None,
         gt_object_ignore_override_path=None,
         scope_mode=SCOPE_FULL,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        cartesian_gt_root=None,
+        polar_gt_root=None,
+        ignore_object_label_minus_one=False,
     ):
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     radar_dataset = KRadarRADRAEDataset(
         get_rad_rae_npy_root_dir(),
         sequence,
@@ -102,13 +115,24 @@ def build_detection_dataset_for_sequence(
 
     dataset = KRadarGTDetectionDataset(
         radar_dataset=radar_dataset,
-        gt_txt_path=get_gt_txt_path(cfg, sequence=sequence),
+        gt_txt_path=(
+            get_gt_txt_path(
+                cfg,
+                sequence=sequence,
+                polar_gt_root=polar_gt_root,
+            )
+            if box_coordinate_mode == BOX_COORDINATE_POLAR
+            else None
+        ),
         class_to_idx=class_to_idx,
         sequence=sequence,
         ignore_unmapped_classes=ignore_unmapped_classes,
         ignore_class_names=ignore_class_names,
         gt_object_ignore_override_path=gt_object_ignore_override_path,
         scope_mode=scope_mode,
+        box_coordinate_mode=box_coordinate_mode,
+        cartesian_gt_root=cartesian_gt_root,
+        ignore_object_label_minus_one=ignore_object_label_minus_one,
     )
     override_summary = getattr(dataset, "object_ignore_override_summary", None)
     if override_summary and override_summary.get("override_path"):
@@ -148,7 +172,14 @@ def build_train_val_dataloaders(
     val_sequences=None,
     train_control_split_enabled=False,
     train_control_split_dir=None,
+    sequence_tail_val_ratio=0.1,
+    sequence_tail_boundary_drop_frames=0,
+    box_coordinate_mode=BOX_COORDINATE_POLAR,
+    cartesian_gt_root=None,
+    polar_gt_root=None,
+    ignore_object_label_minus_one=False,
 ):
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     dataset_sequences = get_dataset_sequences_for_split(
         cfg=cfg,
         split_mode=split_mode,
@@ -164,6 +195,10 @@ def build_train_val_dataloaders(
             ignore_class_names=ignore_class_names,
             gt_object_ignore_override_path=None,
             scope_mode=scope_mode,
+            box_coordinate_mode=box_coordinate_mode,
+            cartesian_gt_root=cartesian_gt_root,
+            polar_gt_root=polar_gt_root,
+            ignore_object_label_minus_one=ignore_object_label_minus_one,
         )
         for sequence in dataset_sequences
     ]
@@ -181,6 +216,10 @@ def build_train_val_dataloaders(
                 ignore_class_names=ignore_class_names,
                 gt_object_ignore_override_path=gt_object_ignore_override_path,
                 scope_mode=scope_mode,
+                box_coordinate_mode=box_coordinate_mode,
+                cartesian_gt_root=cartesian_gt_root,
+                polar_gt_root=polar_gt_root,
+                ignore_object_label_minus_one=ignore_object_label_minus_one,
             )
             for sequence in dataset_sequences
         ]
@@ -213,6 +252,13 @@ def build_train_val_dataloaders(
             full_dataset=full_dataset,
             train_sequences=train_sequences,
             val_sequences=val_sequences,
+            limit_samples=limit_samples,
+        )
+    elif split_mode == "sequence_tail":
+        train_indices, val_indices = build_sequence_tail_split_indices(
+            full_dataset=full_dataset,
+            val_ratio=sequence_tail_val_ratio,
+            boundary_drop_frames=sequence_tail_boundary_drop_frames,
             limit_samples=limit_samples,
         )
     else:
@@ -406,6 +452,65 @@ def build_order_split_indices(full_dataset, train_ratio, limit_samples):
         train_size = int(len(sequence_indices) * train_ratio)
         train_indices.extend(sequence_indices[:train_size])
         val_indices.extend(sequence_indices[train_size:])
+
+    return train_indices, val_indices
+
+
+def build_sequence_tail_split_indices(
+        full_dataset,
+        val_ratio=0.1,
+        boundary_drop_frames=0,
+        limit_samples=None,
+    ):
+    """Split every sequence chronologically, reserving its final tail for validation.
+
+    The configured boundary gap is removed from the end of the training portion.
+    The validation tail itself remains contiguous and is never used for training.
+    """
+    val_ratio = float(val_ratio)
+    if not 0.0 < val_ratio < 1.0:
+        raise ValueError(
+            f"val_ratio must be between 0 and 1, got {val_ratio!r}"
+        )
+
+    boundary_drop_frames = int(boundary_drop_frames)
+    if boundary_drop_frames < 0:
+        raise ValueError(
+            "boundary_drop_frames must be non-negative."
+        )
+
+    train_indices = []
+    val_indices = []
+    remaining_limit = limit_samples
+
+    for sequence_range in full_dataset.get_sequence_ranges():
+        start = int(sequence_range["start"])
+        end = int(sequence_range["end"])
+        sequence_indices = list(range(start, end))
+
+        if remaining_limit is not None:
+            if remaining_limit <= 0:
+                break
+            sequence_indices = sequence_indices[:remaining_limit]
+            remaining_limit -= len(sequence_indices)
+
+        sequence_length = len(sequence_indices)
+        if sequence_length == 0:
+            continue
+
+        val_size = max(1, int(math.ceil(sequence_length * val_ratio)))
+        split_offset = sequence_length - val_size
+        train_end_offset = split_offset - boundary_drop_frames
+        if train_end_offset <= 0:
+            raise ValueError(
+                "sequence_tail split leaves no training frames for "
+                f"sequence {sequence_range['sequence']}: "
+                f"length={sequence_length}, val_size={val_size}, "
+                f"boundary_drop_frames={boundary_drop_frames}"
+            )
+
+        train_indices.extend(sequence_indices[:train_end_offset])
+        val_indices.extend(sequence_indices[split_offset:])
 
     return train_indices, val_indices
 

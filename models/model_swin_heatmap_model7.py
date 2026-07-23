@@ -3,6 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models.swin_transformer import SwinTransformer
 
+from coordinate_modes import (
+    BOX_COORDINATE_CARTESIAN,
+    BOX_COORDINATE_POLAR,
+    validate_box_coordinate_mode,
+)
 from .model_deform_heatmap_model4 import (
     CenterPointDecoder,
     ConvBNAct,
@@ -151,9 +156,81 @@ class RADRAESwinFPNFusionModel(nn.Module):
         }
 
 
+class Model7RADEHeatmapHead(nn.Module):
+    """Original RADE-Net expanded heatmap head, copied into model7."""
+
+    def __init__(self, in_channels, hidden_channels, num_classes):
+        super().__init__()
+        self.head = nn.Sequential(
+            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(32, hidden_channels),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(32, hidden_channels),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(32, hidden_channels),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(hidden_channels, num_classes, kernel_size=1),
+        )
+
+    def forward(self, x):
+        return torch.sigmoid(self.head(x))
+
+
+class Model7RADERegressionHead(nn.Module):
+    """Original RADE-Net [dx,dy,dz,l,w,h,sin(yaw),cos(yaw)] head."""
+
+    def __init__(self, in_channels, hidden_channels):
+        super().__init__()
+        self.head = nn.Sequential(
+            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(32, hidden_channels),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(32, hidden_channels),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(32, hidden_channels),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(hidden_channels, 8, kernel_size=1),
+        )
+
+    def forward(self, x):
+        return self.head(x)
+
+
+class Model7RADECartesianDecoder(nn.Module):
+    """RADE-Net Cartesian detector implemented directly inside model7."""
+
+    def __init__(self, in_channels, hidden_channels, num_classes):
+        super().__init__()
+        self.heatmap_head = Model7RADEHeatmapHead(
+            in_channels=in_channels,
+            hidden_channels=hidden_channels,
+            num_classes=num_classes,
+        )
+        self.regression_head = Model7RADERegressionHead(
+            in_channels=in_channels,
+            hidden_channels=hidden_channels,
+        )
+
+    def forward(self, x):
+        return {
+            "heatmap": self.heatmap_head(x),
+            "regression": self.regression_head(x),
+        }
+
+
 class RADRAESwinFPNCenterPointModel(nn.Module):
     """
-    model7: model5-style FPN heatmap detector with Swin Transformer encoders.
+    model7 with one coordinate-aware detection implementation:
+
+    - Polar mode: the existing split CenterPoint decoder.
+    - Cartesian + RADE-Net: original RADE-Net heatmap and 8-channel Cartesian
+      regression heads copied directly into model7.
+    - Cartesian + CenterPoint: CenterPoint dense branches decoded as metric
+      Cartesian boxes by the Cartesian CenterPoint loss.
     """
 
     def __init__(
@@ -161,27 +238,61 @@ class RADRAESwinFPNCenterPointModel(nn.Module):
             d_in=64,
             e_in=37,
             num_classes=2,
-            decoder_hidden_channels=128,
-            fpn_channels=128,
-        ):
+        decoder_hidden_channels=128,
+        fpn_channels=128,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        loss_mode="auto",
+    ):
         super().__init__()
         self.num_classes = num_classes
+        self.box_coordinate_mode = validate_box_coordinate_mode(
+            box_coordinate_mode
+        )
         self.backbone = RADRAESwinFPNFusionModel(
             d_in=d_in,
             e_in=e_in,
             fpn_channels=fpn_channels,
         )
-        self.decoder = CenterPointDecoder(
-            in_channels=fpn_channels,
-            hidden_channels=decoder_hidden_channels,
-            num_classes=num_classes,
-        )
+        if self.box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            if loss_mode == "centerpoint":
+                # Cartesian CenterPoint uses the same dense branch contract
+                # as the other CenterPoint models, while its loss decodes the
+                # branches into metric Cartesian boxes.
+                self.decoder = CenterPointDecoder(
+                    in_channels=fpn_channels,
+                    hidden_channels=decoder_hidden_channels,
+                    num_classes=num_classes,
+                )
+                self.register_buffer(
+                    "_model7_cartesian_centerpoint_marker",
+                    torch.ones(1),
+                    persistent=True,
+                )
+            else:
+                self.decoder = Model7RADECartesianDecoder(
+                    in_channels=fpn_channels,
+                    hidden_channels=decoder_hidden_channels,
+                    num_classes=num_classes,
+                )
+                self.register_buffer(
+                    "_model7_cartesian_radenet_marker",
+                    torch.ones(1),
+                    persistent=True,
+                )
+        else:
+            self.decoder = CenterPointDecoder(
+                in_channels=fpn_channels,
+                hidden_channels=decoder_hidden_channels,
+                num_classes=num_classes,
+            )
 
     def forward(self, rad, rae):
         features = self.backbone(rad, rae)
         decoded = self.decoder(features["fused_feat"])
-        return {
+        outputs = {
             **features,
             **decoded,
-            "heatmap_logits": decoded["cls_logits"],
         }
+        if self.box_coordinate_mode == BOX_COORDINATE_POLAR:
+            outputs["heatmap_logits"] = decoded["cls_logits"]
+        return outputs

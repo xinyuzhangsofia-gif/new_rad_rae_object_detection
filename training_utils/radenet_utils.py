@@ -73,6 +73,12 @@ def raw_indices_to_cartesian(radius_idx, azimuth_idx, elevation_idx):
 
 
 def feature_indices_to_cartesian_xy(y_idx, x_idx, feature_shape, scope_mode, full_rae_shape):
+    """Decode an R-A heatmap cell to its planar Cartesian anchor.
+
+    RADE-Net defines the heatmap range as sqrt(x^2 + y^2). Elevation is not
+    part of this anchor transformation; z is predicted directly by the
+    regression head.
+    """
     raw_r, raw_a = feature_indices_to_global_raw_indices(
         y_idx=y_idx,
         x_idx=x_idx,
@@ -80,11 +86,14 @@ def feature_indices_to_cartesian_xy(y_idx, x_idx, feature_shape, scope_mode, ful
         scope_mode=scope_mode,
         full_rae_shape=full_rae_shape,
     )
-    x, y, _ = raw_indices_to_cartesian(
+    radius, azimuth_deg, _ = raw_indices_to_physical(
         radius_idx=raw_r,
         azimuth_idx=raw_a,
         elevation_idx=torch.zeros_like(raw_r),
     )
+    azimuth = torch.deg2rad(azimuth_deg)
+    x = radius * torch.cos(azimuth)
+    y = -radius * torch.sin(azimuth)
     return x, y
 
 
@@ -126,11 +135,17 @@ def raw_local_rae_boxes_to_metric_boxes(raw_boxes, scope_mode, full_rae_shape):
     return torch.stack([x, y, z, length, width, height, yaw_sin, yaw_cos], dim=-1)
 
 
-def metric_boxes_to_normalized_rae(metric_boxes, scope_mode, full_rae_shape):
+def metric_boxes_to_raw_local_rae(
+        metric_boxes,
+        scope_mode,
+        full_rae_shape,
+        use_planar_center_range=False,
+    ):
+    """Project metric Cartesian boxes to local raw RAE bins without clipping."""
     if metric_boxes.numel() == 0:
         return metric_boxes.new_zeros((0, 7))
 
-    starts, scope_shape = _scope_starts_and_shape(scope_mode, full_rae_shape)
+    starts, _ = _scope_starts_and_shape(scope_mode, full_rae_shape)
     x = metric_boxes[:, 0]
     y = metric_boxes[:, 1]
     z = metric_boxes[:, 2]
@@ -140,7 +155,12 @@ def metric_boxes_to_normalized_rae(metric_boxes, scope_mode, full_rae_shape):
     yaw = metric_boxes[:, 6]
 
     r_xy = torch.sqrt((x * x) + (y * y)).clamp(min=1e-6)
-    radius = torch.sqrt((r_xy * r_xy) + (z * z)).clamp(min=1e-6)
+    if use_planar_center_range:
+        # Original RADE-Net target: range = sqrt(x^2 + y^2). The heatmap is
+        # R-A only, while z is an independent Cartesian regression target.
+        radius = r_xy
+    else:
+        radius = torch.sqrt((r_xy * r_xy) + (z * z)).clamp(min=1e-6)
     azimuth_deg = torch.rad2deg(torch.atan2(-y, x))
     elevation_deg = torch.rad2deg(torch.atan2(z, r_xy))
 
@@ -151,18 +171,43 @@ def metric_boxes_to_normalized_rae(metric_boxes, scope_mode, full_rae_shape):
     local_r = global_r - float(starts[0])
     local_a = global_a - float(starts[1])
     local_e = global_e - float(starts[2])
-
     raw_r_width = length / RANGE_AXIS.step
     raw_a_width = torch.rad2deg(width / r_xy) / AZIMUTH_AXIS.step
     raw_e_width = torch.rad2deg(height / r_xy) / ELEVATION_AXIS.step
 
-    norm_r = local_r / max(int(scope_shape[0]), 1)
-    norm_a = local_a / max(int(scope_shape[1]), 1)
-    norm_e = local_e / max(int(scope_shape[2]), 1)
-    norm_r_width = raw_r_width / max(int(scope_shape[0]), 1)
-    norm_a_width = raw_a_width / max(int(scope_shape[1]), 1)
-    norm_e_width = raw_e_width / max(int(scope_shape[2]), 1)
-    yaw_norm = ((yaw + math.pi) % (2.0 * math.pi)) / (2.0 * math.pi)
+    return torch.stack(
+        [
+            local_r,
+            local_a,
+            local_e,
+            raw_r_width,
+            raw_a_width,
+            raw_e_width,
+            yaw,
+        ],
+        dim=-1,
+    )
+
+
+def metric_boxes_to_normalized_rae(metric_boxes, scope_mode, full_rae_shape):
+    if metric_boxes.numel() == 0:
+        return metric_boxes.new_zeros((0, 7))
+
+    _, scope_shape = _scope_starts_and_shape(scope_mode, full_rae_shape)
+    raw_boxes = metric_boxes_to_raw_local_rae(
+        metric_boxes=metric_boxes,
+        scope_mode=scope_mode,
+        full_rae_shape=full_rae_shape,
+    )
+    norm_r = raw_boxes[:, 0] / max(int(scope_shape[0]), 1)
+    norm_a = raw_boxes[:, 1] / max(int(scope_shape[1]), 1)
+    norm_e = raw_boxes[:, 2] / max(int(scope_shape[2]), 1)
+    norm_r_width = raw_boxes[:, 3] / max(int(scope_shape[0]), 1)
+    norm_a_width = raw_boxes[:, 4] / max(int(scope_shape[1]), 1)
+    norm_e_width = raw_boxes[:, 5] / max(int(scope_shape[2]), 1)
+    yaw_norm = ((raw_boxes[:, 6] + math.pi) % (2.0 * math.pi)) / (
+        2.0 * math.pi
+    )
 
     boxes = torch.stack(
         [
@@ -179,7 +224,28 @@ def metric_boxes_to_normalized_rae(metric_boxes, scope_mode, full_rae_shape):
     return boxes.clamp(min=1e-4, max=1.0 - 1e-4)
 
 
-def regression_cell_to_metric_box(pred_reg, y_idx, x_idx, feature_shape, scope_mode, full_rae_shape):
+def centerpoint_outputs_to_metric_regression(outputs):
+    """Pack the five dense CenterPoint branches into metric-regression order."""
+    return torch.cat(
+        [
+            outputs["center_offset"],
+            outputs["center_height"],
+            outputs["size"],
+            outputs["yaw"],
+        ],
+        dim=1,
+    )
+
+
+def regression_cell_to_metric_box(
+        pred_reg,
+        y_idx,
+        x_idx,
+        feature_shape,
+        scope_mode,
+        full_rae_shape,
+        absolute_dimensions=True,
+    ):
     base_x, base_y = feature_indices_to_cartesian_xy(
         y_idx=y_idx,
         x_idx=x_idx,
@@ -191,9 +257,16 @@ def regression_cell_to_metric_box(pred_reg, y_idx, x_idx, feature_shape, scope_m
     dx = pred_reg[..., 0]
     dy = pred_reg[..., 1]
     dz = pred_reg[..., 2]
-    length = pred_reg[..., 3].abs().clamp(min=1e-3)
-    width = pred_reg[..., 4].abs().clamp(min=1e-3)
-    height = pred_reg[..., 5].abs().clamp(min=1e-3)
+    if absolute_dimensions:
+        length = pred_reg[..., 3].abs().clamp(min=1e-3)
+        width = pred_reg[..., 4].abs().clamp(min=1e-3)
+        height = pred_reg[..., 5].abs().clamp(min=1e-3)
+    else:
+        # The original RADE-Net head regresses l/w/h directly without an
+        # activation. Keep that behavior for its Cartesian path.
+        length = pred_reg[..., 3]
+        width = pred_reg[..., 4]
+        height = pred_reg[..., 5]
     yaw_sin = pred_reg[..., 6]
     yaw_cos = pred_reg[..., 7]
     yaw = torch.atan2(yaw_sin, yaw_cos)

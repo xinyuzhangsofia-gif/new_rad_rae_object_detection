@@ -1,10 +1,15 @@
 from torch.utils.data import Dataset
+import math
 import torch
 import numpy as np
 from scipy.io import loadmat
 import glob
 import os
 from cfg_model import (
+    AZIMUTH_AXIS,
+    cartesian_to_rae,
+    ELEVATION_AXIS,
+    RANGE_AXIS,
     SCOPE_FULL,
     crop_rad_rae_to_scope,
     global_rae_boxes_to_local_scope,
@@ -12,8 +17,21 @@ from cfg_model import (
     normalize_rae_boxes_for_scope,
     validate_scope_mode,
 )
+from coordinate_modes import (
+    BOX_COORDINATE_CARTESIAN,
+    BOX_COORDINATE_POLAR,
+    validate_box_coordinate_mode,
+)
 from object_ignore_overrides import load_object_ignore_override_map
-from zxy_label_utils import read_gt_txt
+from training_utils.radenet_utils import (
+    metric_boxes_to_raw_local_rae,
+    raw_local_rae_boxes_to_metric_boxes,
+)
+from zxy_label_utils import (
+    read_cartesian_gt_txt,
+    read_gt_txt,
+    read_kradar_revised_label_dir,
+)
 
 
 CLASS_NAMES = {
@@ -83,29 +101,78 @@ class KRadarGTDetectionDataset(Dataset):
     def __init__(
             self,
             radar_dataset,
-            gt_txt_path,
+            gt_txt_path=None,
             class_to_idx=None,
             sequence=None,
             ignore_unmapped_classes=True,
             ignore_class_names=None,
             gt_object_ignore_override_path=None,
             scope_mode=SCOPE_FULL,
+            box_coordinate_mode=BOX_COORDINATE_POLAR,
+            cartesian_gt_root=None,
+            ignore_object_label_minus_one=False,
             ):
         super().__init__()
         self.radar_dataset = radar_dataset
-        self.gt_by_file_idx = read_gt_txt(gt_txt_path)
         self.scope_mode = validate_scope_mode(scope_mode)
+        self.box_coordinate_mode = validate_box_coordinate_mode(
+            box_coordinate_mode
+        )
+        self.sequence = sequence
+        self.ignore_object_label_minus_one = bool(
+            ignore_object_label_minus_one
+        )
+        if self.sequence is None:
+            self.sequence = getattr(radar_dataset, "sequence", None)
+        if self.sequence is None:
+            raise ValueError("KRadarGTDetectionDataset requires a sequence.")
+
+        self.gt_by_file_idx = None
+        self.gt_by_frame_name = None
+        self.num_invalid_object_labels_ignored = 0
+        # Keep the old metadata name for compatibility with existing logs.
+        self.num_invalid_cartesian_object_labels_ignored = 0
+        if self.box_coordinate_mode == BOX_COORDINATE_POLAR:
+            if gt_txt_path in (None, ""):
+                raise ValueError("Polar mode requires gt_txt_path.")
+            self.gt_by_file_idx = read_gt_txt(gt_txt_path)
+        else:
+            if cartesian_gt_root in (None, ""):
+                raise ValueError(
+                    "Cartesian mode requires cartesian_gt_root."
+                )
+            cartesian_gt_txt_path = os.path.join(
+                str(cartesian_gt_root),
+                str(int(self.sequence)),
+                "gt",
+                "gt.txt",
+            )
+            if os.path.isfile(cartesian_gt_txt_path):
+                # Flat Cartesian GT has the same one-based radar-frame
+                # indexing convention as Polar gt.txt.
+                self.gt_by_file_idx = read_cartesian_gt_txt(
+                    cartesian_gt_txt_path
+                )
+            else:
+                # Backward-compatible fallback for the official per-frame
+                # revised-label root.
+                self.gt_by_frame_name = read_kradar_revised_label_dir(
+                    label_root=cartesian_gt_root,
+                    sequence=self.sequence,
+                    radar_visibility_tokens=("R",),
+                )
+
+        if self.ignore_object_label_minus_one:
+            self._remove_invalid_object_labels()
+
         self.class_to_idx = None
         if class_to_idx is not None:
             self.class_to_idx = {
                 class_name: int(class_id)
                 for class_name, class_id in class_to_idx.items()
             }
-        self.sequence = sequence
         self.ignore_unmapped_classes = ignore_unmapped_classes
         self.ignore_class_names = set(ignore_class_names or [])
-        if self.sequence is None:
-            self.sequence = getattr(radar_dataset, "sequence", None)
         if self.class_to_idx is None:
             self.class_to_idx = CLASS_TO_IDX.copy()
         (
@@ -124,7 +191,19 @@ class KRadarGTDetectionDataset(Dataset):
         radar_data = self.radar_dataset[index]
         file_idx = radar_data["file_idx"]
         gt_frame_idx = radar_data["gt_frame_idx"]
-        all_objects = self.gt_by_file_idx.get(file_idx, [])
+        frame_name = radar_data["frame_name"]
+        if self.box_coordinate_mode == BOX_COORDINATE_POLAR:
+            all_objects = self.gt_by_file_idx.get(file_idx, [])
+        elif self.gt_by_file_idx is not None:
+            all_objects = self._prepare_cartesian_objects(
+                objects=self.gt_by_file_idx.get(file_idx, []),
+                full_rae_shape=radar_data["full_rae_shape"],
+            )
+        else:
+            all_objects = self._prepare_cartesian_objects(
+                objects=self.gt_by_frame_name.get(frame_name, []),
+                full_rae_shape=radar_data["full_rae_shape"],
+            )
         override_ignore_object_labels = self.object_ignore_override_map.get(
             file_idx,
             set(),
@@ -154,17 +233,24 @@ class KRadarGTDetectionDataset(Dataset):
         full_rae_shape = radar_data["full_rae_shape"]
         objects_in_fov = [
             obj for obj in objects
-            if self._object_center_in_rae_fov(obj, full_rae_shape)
+            if self._object_overlaps_rae_fov(obj, full_rae_shape)
             and self._object_center_in_scope(obj)
         ]
         ignore_objects_in_fov = [
             obj for obj in ignore_objects
-            if self._object_center_in_rae_fov(obj, full_rae_shape)
+            if self._object_overlaps_rae_fov(obj, full_rae_shape)
             and self._object_center_in_scope(obj)
         ]
 
-        gt_boxes, gt_boxes_raw = self._build_box_tensors(objects_in_fov, full_rae_shape)
-        gt_ignore_boxes, gt_ignore_boxes_raw = self._build_box_tensors(
+        gt_boxes, gt_boxes_raw, gt_metric_boxes = self._build_box_tensors(
+            objects_in_fov,
+            full_rae_shape,
+        )
+        (
+            gt_ignore_boxes,
+            gt_ignore_boxes_raw,
+            gt_ignore_metric_boxes,
+        ) = self._build_box_tensors(
             ignore_objects_in_fov,
             full_rae_shape,
         )
@@ -186,29 +272,73 @@ class KRadarGTDetectionDataset(Dataset):
             "rae": rae,
             "gt_boxes": gt_boxes,
             "gt_boxes_raw": gt_boxes_raw,
+            "gt_metric_boxes": gt_metric_boxes,
             "gt_ignore_boxes": gt_ignore_boxes,
             "gt_ignore_boxes_raw": gt_ignore_boxes_raw,
+            "gt_ignore_metric_boxes": gt_ignore_metric_boxes,
             "gt_ignore_class_names": gt_ignore_class_names,
             "gt_labels": gt_labels,
             "gt_frame_idx": gt_frame_idx,
             "file_idx": file_idx,
+            "frame_name": frame_name,
             "sequence": self.sequence,
             "sequence_id": f"{self.sequence}_{file_idx}",
             "rad_file": radar_data["rad_file"],
             "rae_file": radar_data["rae_file"],
             "scope_mode": self.scope_mode,
+            "box_coordinate_mode": self.box_coordinate_mode,
             "full_rae_shape": full_rae_shape,
             "num_gt_before_fov": len(objects),
             "num_gt_after_fov": len(objects_in_fov),
             "num_ignore_before_fov": len(ignore_objects),
             "num_ignore_after_fov": len(ignore_objects_in_fov),
             "num_override_ignored": int(num_override_ignored),
+            "num_invalid_cartesian_object_labels_ignored": int(
+                self.num_invalid_cartesian_object_labels_ignored
+            ),
+            "num_invalid_object_labels_ignored": int(
+                self.num_invalid_object_labels_ignored
+            ),
+            "ignore_object_label_minus_one": bool(
+                self.ignore_object_label_minus_one
+            ),
         }
+
+    def _remove_invalid_object_labels(self):
+        """Optionally remove GT rows whose object index is ``-1``.
+
+        This applies to both Polar and Cartesian GT. The default configuration
+        keeps these rows; the caller must explicitly enable the filter.
+        """
+
+        if self.gt_by_file_idx is not None:
+            mapping = self.gt_by_file_idx
+        elif self.gt_by_frame_name is not None:
+            mapping = self.gt_by_frame_name
+        else:
+            return
+
+        removed = 0
+        for frame_key, objects in list(mapping.items()):
+            kept_objects = []
+            for obj in objects:
+                if int(obj["object_label"]) == -1:
+                    removed += 1
+                else:
+                    kept_objects.append(obj)
+            mapping[frame_key] = kept_objects
+
+        self.num_invalid_object_labels_ignored = removed
+        self.num_invalid_cartesian_object_labels_ignored = removed
+
+    def _remove_invalid_cartesian_object_labels(self):
+        """Backward-compatible alias for older callers."""
+        self._remove_invalid_object_labels()
 
     def _build_box_tensors(self, objects, full_rae_shape):
         if len(objects) == 0:
             empty = torch.zeros((0, 7), dtype=torch.float32)
-            return empty, empty
+            return empty, empty, empty
 
         boxes_global = torch.stack([obj["box_rae"] for obj in objects], dim=0)
         boxes_raw = global_rae_boxes_to_local_scope(
@@ -217,9 +347,135 @@ class KRadarGTDetectionDataset(Dataset):
             rae_shape=full_rae_shape,
         )
         boxes = self._normalize_boxes_rae(boxes_global, full_rae_shape)
-        return boxes, boxes_raw
+        if self.box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            metric_boxes = torch.stack(
+                [obj["box_metric"] for obj in objects],
+                dim=0,
+            ).to(torch.float32)
+        else:
+            metric_boxes_with_yaw_vector = raw_local_rae_boxes_to_metric_boxes(
+                raw_boxes=boxes_raw,
+                scope_mode=self.scope_mode,
+                full_rae_shape=full_rae_shape,
+            )
+            metric_boxes = torch.cat(
+                [
+                    metric_boxes_with_yaw_vector[:, :6],
+                    torch.atan2(
+                        metric_boxes_with_yaw_vector[:, 6:7],
+                        metric_boxes_with_yaw_vector[:, 7:8],
+                    ),
+                ],
+                dim=-1,
+            )
+        return boxes, boxes_raw, metric_boxes
+
+    def _prepare_cartesian_objects(self, objects, full_rae_shape):
+        if len(objects) == 0:
+            return []
+
+        metric_boxes = torch.stack(
+            [obj["box_metric"] for obj in objects],
+            dim=0,
+        ).to(torch.float32)
+        global_raw_boxes = metric_boxes_to_raw_local_rae(
+            metric_boxes=metric_boxes,
+            scope_mode=SCOPE_FULL,
+            full_rae_shape=full_rae_shape,
+            use_planar_center_range=True,
+        )
+
+        prepared = []
+        for obj, box_rae in zip(objects, global_raw_boxes):
+            yaw_rad = float(box_rae[6].item())
+            prepared_obj = dict(obj)
+            prepared_obj["box_rae"] = box_rae
+            prepared_obj["raw"] = {
+                "r_idx": float(box_rae[0].item()),
+                "a_idx": float(box_rae[1].item()),
+                "e_idx": float(box_rae[2].item()),
+                "r_width": float(box_rae[3].item()),
+                "a_width": float(box_rae[4].item()),
+                "e_width": float(box_rae[5].item()),
+                "yaw": math.degrees(yaw_rad),
+                "yaw_rad": yaw_rad,
+            }
+            prepared.append(prepared_obj)
+        return prepared
+
+    def _object_overlaps_rae_fov(self, obj, rae_shape):
+        """Return whether any part of a bbox is inside the full RAE tensor.
+
+        The old implementation checked only the bbox center. A bbox whose
+        center is outside but whose physical extent enters the radar view is
+        still retained; only a completely out-of-view bbox is removed.
+        """
+        if self.box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            return self._cartesian_box_overlaps_rae_fov(obj)
+
+        r_size, a_size, e_size = rae_shape
+        raw = obj["raw"]
+        r_half = abs(float(raw["r_width"])) / 2.0
+        a_half = abs(float(raw["a_width"])) / 2.0
+        e_half = abs(float(raw["e_width"])) / 2.0
+        return (
+            raw["r_idx"] + r_half >= 0
+            and raw["r_idx"] - r_half <= r_size - 1
+            and raw["a_idx"] + a_half >= 0
+            and raw["a_idx"] - a_half <= a_size - 1
+            and raw["e_idx"] + e_half >= 0
+            and raw["e_idx"] - e_half <= e_size - 1
+        )
+
+    def _cartesian_box_overlaps_rae_fov(self, obj):
+        metric_box = obj.get("box_metric")
+        if metric_box is None:
+            return False
+
+        x, y, z, length, width, height, yaw = [
+            float(value)
+            for value in metric_box.detach().cpu().tolist()
+        ]
+        half_length = abs(length) / 2.0
+        half_width = abs(width) / 2.0
+        half_height = abs(height) / 2.0
+        cos_yaw = math.cos(yaw)
+        sin_yaw = math.sin(yaw)
+
+        corners = []
+        for sign_x in (-1.0, 1.0):
+            for sign_y in (-1.0, 1.0):
+                for sign_z in (-1.0, 1.0):
+                    local_x = sign_x * half_length
+                    local_y = sign_y * half_width
+                    corner_x = x + local_x * cos_yaw - local_y * sin_yaw
+                    corner_y = y + local_x * sin_yaw + local_y * cos_yaw
+                    corner_z = z + sign_z * half_height
+                    corners.append((corner_x, corner_y, corner_z))
+
+        rae = [cartesian_to_rae(*corner) for corner in corners]
+        r_values = [value[0] for value in rae]
+        e_values = [value[2] for value in rae]
+
+        # Unwrap azimuth around the box-center angle so a box near +/-180
+        # degrees does not falsely appear to cross the forward-facing FOV.
+        center_azimuth = cartesian_to_rae(x, y, z)[1]
+        a_values = []
+        for _, azimuth, _ in rae:
+            delta = (azimuth - center_azimuth + 180.0) % 360.0 - 180.0
+            a_values.append(center_azimuth + delta)
+
+        return (
+            max(r_values) >= RANGE_AXIS.minimum
+            and min(r_values) <= RANGE_AXIS.maximum
+            and max(a_values) >= AZIMUTH_AXIS.minimum
+            and min(a_values) <= AZIMUTH_AXIS.maximum
+            and max(e_values) >= ELEVATION_AXIS.minimum
+            and min(e_values) <= ELEVATION_AXIS.maximum
+        )
 
     def _object_center_in_rae_fov(self, obj, rae_shape):
+        """Backward-compatible center-only helper."""
         r_size, a_size, e_size = rae_shape
         raw = obj["raw"]
         return (
@@ -301,17 +557,25 @@ def detection_collate(batch):
         "rae": torch.stack([item["rae"] for item in batch], dim=0),
         "gt_boxes": [item["gt_boxes"] for item in batch],
         "gt_boxes_raw": [item["gt_boxes_raw"] for item in batch],
+        "gt_metric_boxes": [item["gt_metric_boxes"] for item in batch],
         "gt_ignore_boxes": [item["gt_ignore_boxes"] for item in batch],
         "gt_ignore_boxes_raw": [item["gt_ignore_boxes_raw"] for item in batch],
+        "gt_ignore_metric_boxes": [
+            item["gt_ignore_metric_boxes"] for item in batch
+        ],
         "gt_ignore_class_names": [item["gt_ignore_class_names"] for item in batch],
         "gt_labels": [item["gt_labels"] for item in batch],
         "gt_frame_idx": [item["gt_frame_idx"] for item in batch],
         "file_idx": [item["file_idx"] for item in batch],
+        "frame_name": [item["frame_name"] for item in batch],
         "sequence": [item["sequence"] for item in batch],
         "sequence_id": [item["sequence_id"] for item in batch],
         "rad_file": [item["rad_file"] for item in batch],
         "rae_file": [item["rae_file"] for item in batch],
         "scope_mode": [item["scope_mode"] for item in batch],
+        "box_coordinate_mode": [
+            item["box_coordinate_mode"] for item in batch
+        ],
         "full_rae_shape": [item["full_rae_shape"] for item in batch],
         "num_gt_before_fov": [item["num_gt_before_fov"] for item in batch],
         "num_gt_after_fov": [item["num_gt_after_fov"] for item in batch],

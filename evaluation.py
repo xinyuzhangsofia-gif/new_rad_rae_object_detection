@@ -1,12 +1,16 @@
-"""Evaluation entrypoint for this project using K-Radar official eval_revised.py.
+"""Coordinate-aware evaluation entrypoint for this project.
 
-This file does not implement mAP itself. It only:
+Cartesian checkpoints use K-Radar official rotated BEV/3D evaluation.
+Polar checkpoints use direct axis-aligned RA BEV evaluation.
+This file:
 1. runs the project model,
-2. converts predictions and GT into K-Radar KITTI-style annos,
-3. calls eval/kitti_eval/eval_revised.py.
+2. keeps predictions/GT in the checkpoint's direct geometry by default,
+3. calls the matching AP evaluator.
 """
 
 import argparse
+import json
+from numbers import Real
 import os
 import re
 from datetime import datetime
@@ -17,17 +21,28 @@ import torch
 import torch.nn.functional as F
 import tqdm
 import yaml
+from torch.utils.tensorboard import SummaryWriter
 
 from cfg_model import (
     AZIMUTH_AXIS,
     ELEVATION_AXIS,
     RANGE_AXIS,
+    RDR_SP_CUBE,
     SCOPE_CHOICES,
     SCOPE_FULL,
     SCOPE_NARROW,
     denormalize_rae_boxes_to_local_scope,
     denormalize_rae_boxes_for_scope,
     normalized_rae_box_centers_in_cartesian_roi,
+)
+from coordinate_modes import (
+    BOX_COORDINATE_CARTESIAN,
+    BOX_COORDINATE_POLAR,
+    EVAL_COORDINATE_AUTO,
+    EVAL_COORDINATE_BOTH,
+    EVAL_COORDINATE_CHOICES,
+    resolve_evaluation_coordinate_mode,
+    validate_box_coordinate_mode,
 )
 from dataloader import (
     build_train_val_dataloaders,
@@ -48,7 +63,11 @@ from eval.custom_iou_range import (
     compute_custom_iou_range_metrics,
     format_custom_iou_suffix,
 )
+from eval.kitti_eval.rotate_iou_cpu import (
+    rotate_iou_gpu_eval as rotate_iou_cpu_eval,
+)
 from eval.nuscenes_style import compute_nuscenes_style_metrics
+from eval.polar_ap import compute_polar_ap_metrics
 from models import MODEL_TYPES, build_model
 from train_mode_utils import (
     apply_task_configuration,
@@ -58,7 +77,12 @@ from train_mode_utils import (
     resolve_loss_mode,
 )
 from training_utils.checkpoints import format_sequence_run_name
-from training_utils.radenet_utils import regression_cell_to_normalized_rae_box
+from training_utils.radenet_utils import (
+    centerpoint_outputs_to_metric_regression,
+    metric_boxes_to_raw_local_rae,
+    regression_cell_to_metric_box,
+    regression_cell_to_normalized_rae_box,
+)
 from training_utils.training_loop import validate_loss
 from training_utils.yolox_utils import yolox_outputs_to_detections
 from zxy_config import DataConfig
@@ -72,6 +96,7 @@ _EVAL_CFG_MISSING = object()
 HEATMAP_SCORE_MODES = ("peak_times_local_mean", "peak_only")
 HEATMAP_PEAK_WEIGHT = 0.85
 HEATMAP_LOCAL_MEAN_WEIGHT = 0.15
+RADENET_ROTATED_NMS_IOU_THRESHOLD = 0.3
 OFFICIAL_CLASS_TOKEN_BY_DATASET_NAME = {
     "Sedan": "sed",
     "Bus or Truck": "bus",
@@ -190,6 +215,11 @@ def parse_args():
         "num_workers": 0,
         "limit_samples": None,
         "eval_scope": None,
+        "eval_coordinate_mode": EVAL_COORDINATE_AUTO,
+        "box_coordinate_mode": None,
+        "cartesian_gt_root": None,
+        "polar_gt_root": "/home/local/xinyu/K-Radar-GT-Polar-v2.9",
+        "ignore_object_label_minus_one": False,
         "include_bus_as_target": True,
         "gt_object_ignore_override_path": None,
         "train_control_split_enabled": False,
@@ -208,13 +238,14 @@ def parse_args():
         "eval_ignore_suppress_margin": 1.0,
         "loss_eval_enabled": False,
         "heatmap_radius": 3,
-        "centerpoint_giou_loss_weight": 2.0,
+        "centerpoint_gwd_loss_weight": 2.0,
         "quality_loss_weight": 0.25,
         "table_txt_enabled": False,
         "table_output_base_dir": "evaluation_plots",
         "domain_comparison_enabled": True,
         "domain_comparison_output_dir": "evaluation_results",
         "domain_comparison_sequence_info_path": "sequence_information.csv",
+        "evaluation_tensorboard_log_dir": "runs",
         "max_detections": 64,
         "heatmap_nms_kernel": 3,
         "heatmap_score_mode": "peak_times_local_mean",
@@ -230,6 +261,7 @@ def parse_args():
         "coco_style_eval_enabled": False,
         "nuscenes_style_eval_enabled": False,
         "official_detection_metrics_enabled": True,
+        "polar_iou_thresholds": [0.3, 0.5],
         "official_ap03_only": False,
         "terminal_epoch_table_enabled": False,
         "group_checkpoint_plot_best_only": False,
@@ -237,7 +269,15 @@ def parse_args():
         "score_thresh": 0.3,
         "plot_output": None,
     }
-    cfg_defaults.update(EVAL_CONFIG)
+    eval_config = dict(EVAL_CONFIG)
+    if (
+        "centerpoint_gwd_loss_weight" not in eval_config
+        and "centerpoint_giou_loss_weight" in eval_config
+    ):
+        eval_config["centerpoint_gwd_loss_weight"] = eval_config[
+            "centerpoint_giou_loss_weight"
+        ]
+    cfg_defaults.update(eval_config)
     if "score_thresh" not in EVAL_CONFIG and "detection_score_thresh" in EVAL_CONFIG:
         cfg_defaults["score_thresh"] = EVAL_CONFIG["detection_score_thresh"]
 
@@ -257,6 +297,32 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=cfg_defaults["num_workers"])
     parser.add_argument("--limit-samples", type=int, default=cfg_defaults["limit_samples"])
     parser.add_argument("--eval-scope", default=cfg_defaults["eval_scope"], choices=SCOPE_CHOICES)
+    parser.add_argument(
+        "--eval-coordinate-mode",
+        default=cfg_defaults["eval_coordinate_mode"],
+        choices=list(EVAL_COORDINATE_CHOICES),
+        help=(
+            "auto uses the checkpoint's direct geometry; both also computes "
+            "the converted auxiliary geometry."
+        ),
+    )
+    parser.add_argument(
+        "--box-coordinate-mode",
+        default=cfg_defaults["box_coordinate_mode"],
+        choices=["auto", BOX_COORDINATE_POLAR, BOX_COORDINATE_CARTESIAN],
+    )
+    parser.add_argument(
+        "--cartesian-gt-root",
+        default=cfg_defaults["cartesian_gt_root"],
+    )
+    parser.add_argument(
+        "--polar-gt-root",
+        default=cfg_defaults["polar_gt_root"],
+    )
+    parser.add_argument(
+        "--ignore-object-label-minus-one",
+        default=cfg_defaults["ignore_object_label_minus_one"],
+    )
     parser.add_argument(
         "--include-bus-as-target",
         default=cfg_defaults["include_bus_as_target"],
@@ -299,9 +365,12 @@ def parse_args():
     )
     parser.add_argument("--heatmap-radius", type=int, default=cfg_defaults["heatmap_radius"])
     parser.add_argument(
+        "--centerpoint-gwd-loss-weight",
         "--centerpoint-giou-loss-weight",
+        dest="centerpoint_gwd_loss_weight",
         type=float,
-        default=cfg_defaults["centerpoint_giou_loss_weight"],
+        default=cfg_defaults["centerpoint_gwd_loss_weight"],
+        help="GWD loss weight; the GIoU spelling is accepted only for legacy commands.",
     )
     parser.add_argument(
         "--quality-loss-weight",
@@ -363,6 +432,10 @@ def parse_args():
         default=cfg_defaults["official_detection_metrics_enabled"],
     )
     parser.add_argument(
+        "--polar-iou-thresholds",
+        default=cfg_defaults["polar_iou_thresholds"],
+    )
+    parser.add_argument(
         "--official-ap03-only",
         default=cfg_defaults["official_ap03_only"],
     )
@@ -411,6 +484,10 @@ def parse_args():
         "--domain-comparison-sequence-info-path",
         default=cfg_defaults["domain_comparison_sequence_info_path"],
     )
+    parser.add_argument(
+        "--evaluation-tensorboard-log-dir",
+        default=cfg_defaults["evaluation_tensorboard_log_dir"],
+    )
     args = parser.parse_args()
     args.ignore_class_names = tuple(cfg_defaults.get("ignore_class_names", ()))
     if args.end_epoch is not None:
@@ -440,6 +517,10 @@ def parse_args():
     args.official_detection_metrics_enabled = normalize_bool_flag(
         args.official_detection_metrics_enabled,
         name="official_detection_metrics_enabled",
+    )
+    args.polar_iou_thresholds = normalize_float_thresholds(
+        args.polar_iou_thresholds,
+        name="polar_iou_thresholds",
     )
     args.official_ap03_only = normalize_bool_flag(
         args.official_ap03_only,
@@ -553,6 +634,25 @@ def apply_eval_profile(args):
         args.nuscenes_style_eval_enabled = False
         args.official_detection_metrics_enabled = False
         args.terminal_epoch_table_enabled = True
+
+
+def apply_standalone_evaluation_coordinate_mode(args):
+    settings = resolve_evaluation_coordinate_mode(
+        eval_coordinate_mode=getattr(
+            args,
+            "eval_coordinate_mode",
+            EVAL_COORDINATE_AUTO,
+        ),
+        box_coordinate_mode=args.box_coordinate_mode,
+    )
+    args.eval_coordinate_mode = settings["requested_mode"]
+    args.effective_eval_coordinate_mode = settings["effective_mode"]
+    args.official_eval_enabled = settings["official_eval_enabled"]
+    args.polar_eval_enabled = settings["polar_eval_enabled"]
+    args.evaluation_primary_geometry = settings["primary_geometry"]
+    args.official_geometry_source = settings["official_geometry_source"]
+    args.polar_geometry_source = settings["polar_geometry_source"]
+    return args
 
 
 def resolve_official_eval_class_name_map(class_names):
@@ -683,6 +783,52 @@ def topk_heatmap_candidates(candidate_scores, max_detections, score_thresh=None)
     return scores, flat_indices, keep
 
 
+def cartesian_rotated_nms_indices(
+        boxes,
+        scores,
+        iou_threshold=RADENET_ROTATED_NMS_IOU_THRESHOLD,
+    ):
+    """Class-agnostic rotated BEV NMS matching the original RADE-Net."""
+    if boxes.shape[0] == 0:
+        return torch.empty((0,), dtype=torch.long, device=boxes.device)
+
+    order = torch.argsort(scores, descending=True)
+    bev_boxes = torch.stack(
+        [
+            boxes[:, 0],
+            boxes[:, 1],
+            boxes[:, 3].abs(),
+            boxes[:, 4].abs(),
+            boxes[:, 6],
+        ],
+        dim=-1,
+    ).detach().cpu().numpy()
+    keep = []
+
+    while order.numel() > 0:
+        current = order[0]
+        keep.append(int(current.item()))
+        if order.numel() == 1:
+            break
+
+        remaining = order[1:]
+        current_index = int(current.item())
+        remaining_indices = remaining.detach().cpu().numpy()
+        ious = rotate_iou_cpu_eval(
+            bev_boxes[current_index:current_index + 1],
+            bev_boxes[remaining_indices],
+            criterion=-1,
+        )[0]
+        keep_mask = torch.as_tensor(
+            ious < float(iou_threshold),
+            dtype=torch.bool,
+            device=remaining.device,
+        )
+        order = remaining[keep_mask]
+
+    return torch.tensor(keep, dtype=torch.long, device=boxes.device)
+
+
 def apply_quality_score(heatmap_scores, outputs):
     if "quality_logits" in outputs:
         quality_scores = outputs["quality_logits"].sigmoid()
@@ -716,7 +862,11 @@ def outputs_to_detections(
         heatmap_nms_kernel=3,
         heatmap_score_mode="peak_times_local_mean",
         score_thresh=None,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        scope_modes=None,
+        full_rae_shapes=None,
     ):
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     dense_keys = {"cls_logits", "center_offset", "center_height", "size", "yaw"}
     missing_keys = sorted(dense_keys - set(outputs.keys()))
     if len(missing_keys) > 0:
@@ -763,29 +913,57 @@ def outputs_to_detections(
 
     y_idx = box_y_idx_long.to(dtype)
     x_idx = box_x_idx_long.to(dtype)
-    center_offset = gather_dense_feature(outputs["center_offset"], box_indices).sigmoid()
-    center_height = gather_dense_feature(outputs["center_height"], box_indices).sigmoid()
-    size = gather_dense_feature(outputs["size"], box_indices).sigmoid()
-    yaw = gather_dense_feature(outputs["yaw"], box_indices)
+    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        if scope_modes is None or full_rae_shapes is None:
+            raise ValueError(
+                "Cartesian CenterPoint decoding requires scope_modes and "
+                "full_rae_shapes."
+            )
+        regression_map = centerpoint_outputs_to_metric_regression(outputs)
+        pred_reg = gather_dense_feature(regression_map, box_indices)
+        metric_boxes = []
+        for batch_index in range(pred_reg.shape[0]):
+            metric_boxes.append(
+                regression_cell_to_metric_box(
+                    pred_reg=pred_reg[batch_index],
+                    y_idx=y_idx[batch_index],
+                    x_idx=x_idx[batch_index],
+                    feature_shape=(box_h, box_w),
+                    scope_mode=scope_modes[batch_index],
+                    full_rae_shape=full_rae_shapes[batch_index],
+                )
+            )
+        boxes = torch.stack(metric_boxes, dim=0)
+    else:
+        center_offset = gather_dense_feature(
+            outputs["center_offset"],
+            box_indices,
+        ).sigmoid()
+        center_height = gather_dense_feature(
+            outputs["center_height"],
+            box_indices,
+        ).sigmoid()
+        size = gather_dense_feature(outputs["size"], box_indices).sigmoid()
+        yaw = gather_dense_feature(outputs["yaw"], box_indices)
 
-    r_center = (y_idx + center_offset[..., 0]) / max(box_h, 1)
-    a_center = (x_idx + center_offset[..., 1]) / max(box_w, 1)
-    e_center = center_height[..., 0]
-    yaw_angle = torch.atan2(yaw[..., 0], yaw[..., 1])
-    yaw_norm = (yaw_angle + torch.pi) / (2.0 * torch.pi)
+        r_center = (y_idx + center_offset[..., 0]) / max(box_h, 1)
+        a_center = (x_idx + center_offset[..., 1]) / max(box_w, 1)
+        e_center = center_height[..., 0]
+        yaw_angle = torch.atan2(yaw[..., 0], yaw[..., 1])
+        yaw_norm = (yaw_angle + torch.pi) / (2.0 * torch.pi)
 
-    boxes = torch.stack(
-        [
-            r_center,
-            a_center,
-            e_center,
-            size[..., 0],
-            size[..., 1],
-            size[..., 2],
-            yaw_norm,
-        ],
-        dim=-1,
-    ).clamp(min=1e-4, max=1.0 - 1e-4)
+        boxes = torch.stack(
+            [
+                r_center,
+                a_center,
+                e_center,
+                size[..., 0],
+                size[..., 1],
+                size[..., 2],
+                yaw_norm,
+            ],
+            dim=-1,
+        ).clamp(min=1e-4, max=1.0 - 1e-4)
 
     return boxes, scores, labels, keep
 
@@ -799,11 +977,18 @@ def official_radenet_outputs_to_detections(
         heatmap_nms_kernel=3,
         heatmap_score_mode="peak_times_local_mean",
         score_thresh=None,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     if scope_modes is None or full_rae_shapes is None:
         raise ValueError("Official RADE-Net decoding requires scope_modes and full_rae_shapes.")
 
     heatmap_scores = outputs["heatmap"][:, :num_classes]
+    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        # Original RADE-Net ranks detections by the heatmap peak itself.
+        # The local-mean re-scoring option belongs to this project's
+        # CenterPoint path and must not alter Cartesian RADE confidence.
+        heatmap_score_mode = "peak_only"
     rescored_heatmap = build_heatmap_candidate_scores(
         heatmap_scores=heatmap_scores,
         heatmap_nms_kernel=heatmap_nms_kernel,
@@ -827,14 +1012,24 @@ def official_radenet_outputs_to_detections(
 
     boxes = []
     for batch_index in range(batch_size):
+        decode_function = (
+            regression_cell_to_metric_box
+            if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
+            else regression_cell_to_normalized_rae_box
+        )
         boxes.append(
-            regression_cell_to_normalized_rae_box(
+            decode_function(
                 pred_reg=reg[batch_index],
                 y_idx=y_idx[batch_index].to(reg.dtype),
                 x_idx=x_idx[batch_index].to(reg.dtype),
                 feature_shape=(heatmap_h, heatmap_w),
                 scope_mode=scope_modes[batch_index],
                 full_rae_shape=full_rae_shapes[batch_index],
+                **(
+                    {"absolute_dimensions": False}
+                    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
+                    else {}
+                ),
             )
         )
     return torch.stack(boxes, dim=0), scores, labels, keep
@@ -850,8 +1045,14 @@ def decode_batch_predictions(
         score_thresh=None,
         scope_modes=None,
         full_rae_shapes=None,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     if "objectness_logits" in outputs:
+        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            raise ValueError(
+                "Cartesian box mode is not implemented for YOLOX outputs."
+            )
         return yolox_outputs_to_detections(
             outputs=outputs,
             num_classes=num_classes,
@@ -860,7 +1061,10 @@ def decode_batch_predictions(
             nms_iou_thresh=yolox_nms_iou,
         )
 
-    if "heatmap" in outputs and "regression" in outputs:
+    is_official_radenet_output = (
+        "heatmap" in outputs and "regression" in outputs
+    )
+    if is_official_radenet_output:
         pred_boxes, pred_scores, pred_labels, pred_keep = official_radenet_outputs_to_detections(
             outputs=outputs,
             num_classes=num_classes,
@@ -870,6 +1074,7 @@ def decode_batch_predictions(
             heatmap_nms_kernel=heatmap_nms_kernel,
             heatmap_score_mode=heatmap_score_mode,
             score_thresh=score_thresh,
+            box_coordinate_mode=box_coordinate_mode,
         )
     else:
         pred_boxes, pred_scores, pred_labels, pred_keep = outputs_to_detections(
@@ -879,32 +1084,66 @@ def decode_batch_predictions(
             heatmap_nms_kernel=heatmap_nms_kernel,
             heatmap_score_mode=heatmap_score_mode,
             score_thresh=score_thresh,
+            box_coordinate_mode=box_coordinate_mode,
+            scope_modes=scope_modes,
+            full_rae_shapes=full_rae_shapes,
         )
 
     batch_predictions = []
     for batch_index in range(pred_boxes.shape[0]):
         keep = pred_keep[batch_index]
+        boxes = pred_boxes[batch_index][keep]
+        scores = pred_scores[batch_index][keep]
+        labels = pred_labels[batch_index][keep]
+        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            nms_keep = cartesian_rotated_nms_indices(
+                boxes=boxes,
+                scores=scores,
+            )
+            boxes = boxes[nms_keep]
+            scores = scores[nms_keep]
+            labels = labels[nms_keep]
         batch_predictions.append({
-            "boxes": pred_boxes[batch_index][keep],
-            "scores": pred_scores[batch_index][keep],
-            "labels": pred_labels[batch_index][keep],
+            "boxes": boxes,
+            "scores": scores,
+            "labels": labels,
+            "box_coordinate_mode": box_coordinate_mode,
         })
     return batch_predictions
 
 
-def filter_predictions_to_scope(frame_predictions, scope_mode, full_rae_shape):
+def filter_predictions_to_scope(
+        frame_predictions,
+        scope_mode,
+        full_rae_shape,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
+    ):
     if scope_mode != SCOPE_NARROW:
         return frame_predictions
 
-    keep = normalized_rae_box_centers_in_cartesian_roi(
-        frame_predictions["boxes"],
-        scope_mode=scope_mode,
-        rae_shape=full_rae_shape,
-    )
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        boxes = frame_predictions["boxes"]
+        roi = RDR_SP_CUBE["ROI"]
+        keep = (
+            (boxes[:, 0] >= float(roi["x"][0]))
+            & (boxes[:, 0] <= float(roi["x"][1]))
+            & (boxes[:, 1] >= float(roi["y"][0]))
+            & (boxes[:, 1] <= float(roi["y"][1]))
+            & (boxes[:, 2] >= float(roi["z"][0]))
+            & (boxes[:, 2] <= float(roi["z"][1]))
+        )
+    else:
+        keep = normalized_rae_box_centers_in_cartesian_roi(
+            frame_predictions["boxes"],
+            scope_mode=scope_mode,
+            rae_shape=full_rae_shape,
+        )
     return {
         "boxes": frame_predictions["boxes"][keep],
         "scores": frame_predictions["scores"][keep],
         "labels": frame_predictions["labels"][keep],
+        "box_coordinate_mode": box_coordinate_mode,
     }
 
 
@@ -913,6 +1152,7 @@ def init_kradar_eval_state():
         "official_gt_annos": [],
         "official_dt_annos": [],
         "metric_frames": [],
+        "polar_frames": [],
     }
 
 
@@ -921,32 +1161,52 @@ def suppress_predictions_near_ignore_boxes(
         pred_scores,
         pred_labels,
         gt_ignore_boxes_raw,
+        gt_ignore_metric_boxes,
         scope_mode,
         full_rae_shape,
         expand_ratio=1.5,
         margin=1.0,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
-    if gt_ignore_boxes_raw is None or pred_boxes.numel() == 0:
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    ignore_source = (
+        gt_ignore_metric_boxes
+        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
+        else gt_ignore_boxes_raw
+    )
+    if ignore_source is None or pred_boxes.numel() == 0:
         return pred_boxes, pred_scores, pred_labels, 0
 
-    ignore_boxes = gt_ignore_boxes_raw.to(pred_boxes.device)
+    ignore_boxes = ignore_source.to(pred_boxes.device)
     if ignore_boxes.numel() == 0:
         return pred_boxes, pred_scores, pred_labels, 0
 
-    pred_boxes_raw = denormalize_rae_boxes_to_local_scope(
-        boxes=pred_boxes,
-        scope_mode=scope_mode,
-        rae_shape=full_rae_shape,
-    )
-    pred_center_y = pred_boxes_raw[:, 0]
-    pred_center_x = pred_boxes_raw[:, 1]
+    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        pred_center_y = pred_boxes[:, 0]
+        pred_center_x = pred_boxes[:, 1]
+    else:
+        pred_boxes_raw = denormalize_rae_boxes_to_local_scope(
+            boxes=pred_boxes,
+            scope_mode=scope_mode,
+            rae_shape=full_rae_shape,
+        )
+        pred_center_y = pred_boxes_raw[:, 0]
+        pred_center_x = pred_boxes_raw[:, 1]
     keep = torch.ones((pred_boxes.shape[0],), dtype=torch.bool, device=pred_boxes.device)
 
     for ignore_box in ignore_boxes:
         center_y = ignore_box[0]
         center_x = ignore_box[1]
-        half_h = (ignore_box[3].abs().clamp(min=1e-4) * 0.5 * float(expand_ratio)) + float(margin)
-        half_w = (ignore_box[4].abs().clamp(min=1e-4) * 0.5 * float(expand_ratio)) + float(margin)
+        half_h = (
+            ignore_box[3].abs().clamp(min=1e-4)
+            * 0.5
+            * float(expand_ratio)
+        ) + float(margin)
+        half_w = (
+            ignore_box[4].abs().clamp(min=1e-4)
+            * 0.5
+            * float(expand_ratio)
+        ) + float(margin)
         inside = (
             (pred_center_y >= (center_y - half_h))
             & (pred_center_y <= (center_y + half_h))
@@ -976,18 +1236,25 @@ def append_frame_annos_for_kradar_eval(
         eval_ignore_suppress_enabled=False,
         eval_ignore_expand_ratio=1.5,
         eval_ignore_suppress_margin=1.0,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     full_rae_shape = batch["full_rae_shape"][batch_index]
     frame_predictions = filter_predictions_to_scope(
         frame_predictions=frame_predictions,
         scope_mode=scope_mode,
         full_rae_shape=full_rae_shape,
+        box_coordinate_mode=box_coordinate_mode,
     )
     if eval_ignore_suppress_enabled:
         gt_ignore_boxes_raw_list = batch.get("gt_ignore_boxes_raw")
+        gt_ignore_metric_boxes_list = batch.get("gt_ignore_metric_boxes")
         gt_ignore_boxes_raw = None
+        gt_ignore_metric_boxes = None
         if gt_ignore_boxes_raw_list is not None:
             gt_ignore_boxes_raw = gt_ignore_boxes_raw_list[batch_index]
+        if gt_ignore_metric_boxes_list is not None:
+            gt_ignore_metric_boxes = gt_ignore_metric_boxes_list[batch_index]
         (
             frame_predictions["boxes"],
             frame_predictions["scores"],
@@ -998,29 +1265,56 @@ def append_frame_annos_for_kradar_eval(
             pred_scores=frame_predictions["scores"],
             pred_labels=frame_predictions["labels"],
             gt_ignore_boxes_raw=gt_ignore_boxes_raw,
+            gt_ignore_metric_boxes=gt_ignore_metric_boxes,
             scope_mode=scope_mode,
             full_rae_shape=full_rae_shape,
             expand_ratio=eval_ignore_expand_ratio,
             margin=eval_ignore_suppress_margin,
+            box_coordinate_mode=box_coordinate_mode,
         )
         state["eval_ignore_suppressed_predictions"] += suppressed_predictions
 
-    gt_boxes_all = batch["gt_boxes"][batch_index].to(device)
     gt_labels_all = batch["gt_labels"][batch_index].to(device)
     valid_gt = gt_labels_all < num_classes
-    gt_boxes = gt_boxes_all[valid_gt]
     gt_labels = gt_labels_all[valid_gt]
 
-    gt_metric_boxes = normalized_rae_boxes_to_cartesian_metric_boxes(
-        gt_boxes,
-        scope_mode=scope_mode,
-        rae_shape=full_rae_shape,
-    )
-    pred_metric_boxes = normalized_rae_boxes_to_cartesian_metric_boxes(
-        frame_predictions["boxes"],
-        scope_mode=scope_mode,
-        rae_shape=full_rae_shape,
-    )
+    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        gt_metric_boxes_all = batch["gt_metric_boxes"][batch_index].to(device)
+        gt_metric_boxes = gt_metric_boxes_all[valid_gt]
+        pred_metric_boxes = frame_predictions["boxes"]
+        gt_polar_boxes = metric_boxes_to_raw_local_rae(
+            metric_boxes=gt_metric_boxes,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+        )
+        pred_polar_boxes = metric_boxes_to_raw_local_rae(
+            metric_boxes=pred_metric_boxes,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+        )
+    else:
+        gt_boxes_all = batch["gt_boxes"][batch_index].to(device)
+        gt_boxes = gt_boxes_all[valid_gt]
+        gt_metric_boxes = normalized_rae_boxes_to_cartesian_metric_boxes(
+            gt_boxes,
+            scope_mode=scope_mode,
+            rae_shape=full_rae_shape,
+        )
+        pred_metric_boxes = normalized_rae_boxes_to_cartesian_metric_boxes(
+            frame_predictions["boxes"],
+            scope_mode=scope_mode,
+            rae_shape=full_rae_shape,
+        )
+        gt_polar_boxes = denormalize_rae_boxes_for_scope(
+            boxes=gt_boxes,
+            scope_mode=scope_mode,
+            rae_shape=full_rae_shape,
+        )
+        pred_polar_boxes = denormalize_rae_boxes_for_scope(
+            boxes=frame_predictions["boxes"],
+            scope_mode=scope_mode,
+            rae_shape=full_rae_shape,
+        )
 
     state["official_gt_annos"].append(
         metric_boxes_to_kitti_anno(
@@ -1048,6 +1342,15 @@ def append_frame_annos_for_kradar_eval(
             "dt_scores": frame_predictions["scores"].detach().cpu().numpy(),
         }
     )
+    state["polar_frames"].append(
+        {
+            "gt_boxes": gt_polar_boxes.detach().cpu().numpy(),
+            "gt_labels": gt_labels.detach().cpu().numpy(),
+            "dt_boxes": pred_polar_boxes.detach().cpu().numpy(),
+            "dt_labels": frame_predictions["labels"].detach().cpu().numpy(),
+            "dt_scores": frame_predictions["scores"].detach().cpu().numpy(),
+        }
+    )
 
 
 @torch.no_grad()
@@ -1068,12 +1371,26 @@ def collect_kradar_annos(
         eval_ignore_suppress_enabled=False,
         eval_ignore_expand_ratio=1.5,
         eval_ignore_suppress_margin=1.0,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     model.eval()
     state = init_kradar_eval_state()
     state["eval_ignore_suppressed_predictions"] = 0
 
     for batch in tqdm.tqdm(dataloader, desc="Evaluation", ncols=120, leave=False):
+        batch_modes = {
+            validate_box_coordinate_mode(value)
+            for value in batch.get(
+                "box_coordinate_mode",
+                [box_coordinate_mode],
+            )
+        }
+        if batch_modes != {box_coordinate_mode}:
+            raise ValueError(
+                "Evaluation coordinate mode does not match the dataset: "
+                f"requested={box_coordinate_mode!r}, batch={sorted(batch_modes)}"
+            )
         rad, rae = prepare_model_inputs(batch, device)
         outputs = model(rad, rae)
         batch_predictions = decode_batch_predictions(
@@ -1086,6 +1403,7 @@ def collect_kradar_annos(
             score_thresh=ap_score_thresh,
             scope_modes=batch["scope_mode"],
             full_rae_shapes=batch["full_rae_shape"],
+            box_coordinate_mode=box_coordinate_mode,
         )
 
         for batch_index, frame_predictions in enumerate(batch_predictions):
@@ -1101,6 +1419,7 @@ def collect_kradar_annos(
                 eval_ignore_suppress_enabled=eval_ignore_suppress_enabled,
                 eval_ignore_expand_ratio=eval_ignore_expand_ratio,
                 eval_ignore_suppress_margin=eval_ignore_suppress_margin,
+                box_coordinate_mode=box_coordinate_mode,
             )
 
     return state
@@ -1108,6 +1427,7 @@ def collect_kradar_annos(
 
 def run_kradar_eval_revised(
         kradar_eval_state,
+        official_eval_enabled=True,
         official_eval_version="revised",
         official_eval_iou_backend="auto",
         official_eval_iou_mode="easy",
@@ -1119,31 +1439,41 @@ def run_kradar_eval_revised(
         detection_score_thresh=0.3,
         official_eval_class_ids=None,
         official_class_name_map=None,
+        polar_eval_enabled=False,
+        polar_iou_thresholds=None,
     ):
     if official_eval_version not in ("revised", "kradar"):
         raise ValueError(
             f"evaluation.py only supports K-Radar revised evaluation, got {official_eval_version!r}."
         )
 
+    frame_count = max(
+        len(kradar_eval_state["official_gt_annos"]),
+        len(kradar_eval_state.get("polar_frames", [])),
+    )
     print(
         "Finished model inference. "
-        f"Collected {len(kradar_eval_state['official_gt_annos'])} eval frames. "
-        "Running official K-Radar metrics now...",
+        f"Collected {frame_count} eval frames. "
+        "Running selected metrics now...",
         flush=True,
     )
-    official_metrics = compute_official_kradar_style_metrics(
-        state=kradar_eval_state,
-        official_eval_enabled=True,
-        official_eval_version="revised",
-        official_eval_iou_backend=official_eval_iou_backend,
-        official_eval_iou_mode=official_eval_iou_mode,
-        official_detection_metrics_enabled=official_detection_metrics_enabled,
-        detection_score_thresh=detection_score_thresh,
-        official_eval_class_ids=official_eval_class_ids,
-        official_class_name_map=official_class_name_map,
-    )
-    if custom_iou_range_eval_enabled:
-        official_metrics.update(
+    metrics = {}
+    if official_eval_enabled:
+        metrics.update(
+            compute_official_kradar_style_metrics(
+                state=kradar_eval_state,
+                official_eval_enabled=True,
+                official_eval_version="revised",
+                official_eval_iou_backend=official_eval_iou_backend,
+                official_eval_iou_mode=official_eval_iou_mode,
+                official_detection_metrics_enabled=official_detection_metrics_enabled,
+                detection_score_thresh=detection_score_thresh,
+                official_eval_class_ids=official_eval_class_ids,
+                official_class_name_map=official_class_name_map,
+            )
+        )
+    if official_eval_enabled and custom_iou_range_eval_enabled:
+        metrics.update(
             compute_custom_iou_range_metrics(
                 state=kradar_eval_state,
                 iou_backend=official_eval_iou_backend,
@@ -1153,8 +1483,8 @@ def run_kradar_eval_revised(
                 class_name_map=official_class_name_map,
             )
         )
-    if coco_style_eval_enabled:
-        official_metrics.update(
+    if official_eval_enabled and coco_style_eval_enabled:
+        metrics.update(
             compute_coco_style_metrics(
                 state=kradar_eval_state,
                 iou_backend=official_eval_iou_backend,
@@ -1162,19 +1492,32 @@ def run_kradar_eval_revised(
                 class_name_map=official_class_name_map,
             )
         )
-    if nuscenes_style_eval_enabled:
-        official_metrics.update(
+    if official_eval_enabled and nuscenes_style_eval_enabled:
+        metrics.update(
             compute_nuscenes_style_metrics(
                 state=kradar_eval_state,
                 class_ids=official_eval_class_ids,
                 class_name_map=official_class_name_map,
             )
         )
-    print("Official K-Radar metric computation finished.", flush=True)
-    official_metrics["mAP"] = float(
-        official_metrics.get("official_main_metric_value", 0.0)
-    )
-    return official_metrics
+    if polar_eval_enabled:
+        metrics.update(
+            compute_polar_ap_metrics(
+                polar_frames=kradar_eval_state.get("polar_frames", []),
+                class_ids=official_eval_class_ids,
+                class_name_map=official_class_name_map,
+                iou_thresholds=polar_iou_thresholds,
+            )
+        )
+    metrics["evaluation_num_eval_frames"] = int(frame_count)
+    print("Metric computation finished.", flush=True)
+    if official_eval_enabled:
+        metrics["mAP"] = float(
+            metrics.get("official_main_metric_value", 0.0)
+        )
+    else:
+        metrics["mAP"] = float(metrics.get("polar_bev_mAP", 0.0))
+    return metrics
 
 
 @torch.no_grad()
@@ -1204,8 +1547,12 @@ def evaluate_checkpoint_with_kradar_revised(
         eval_ignore_suppress_enabled=False,
         eval_ignore_expand_ratio=1.5,
         eval_ignore_suppress_margin=1.0,
+        polar_eval_enabled=False,
+        polar_iou_thresholds=None,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
-    if not official_eval_enabled:
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    if not official_eval_enabled and not polar_eval_enabled:
         return {"mAP": 0.0}
 
     kradar_eval_state = collect_kradar_annos(
@@ -1225,9 +1572,11 @@ def evaluate_checkpoint_with_kradar_revised(
         eval_ignore_suppress_enabled=eval_ignore_suppress_enabled,
         eval_ignore_expand_ratio=eval_ignore_expand_ratio,
         eval_ignore_suppress_margin=eval_ignore_suppress_margin,
+        box_coordinate_mode=box_coordinate_mode,
     )
     metrics = run_kradar_eval_revised(
         kradar_eval_state=kradar_eval_state,
+        official_eval_enabled=official_eval_enabled,
         official_eval_version=official_eval_version,
         official_eval_iou_backend=official_eval_iou_backend,
         official_eval_iou_mode=official_eval_iou_mode,
@@ -1239,6 +1588,8 @@ def evaluate_checkpoint_with_kradar_revised(
         detection_score_thresh=detection_score_thresh,
         official_eval_class_ids=sorted(official_class_name_map.keys()),
         official_class_name_map=official_class_name_map,
+        polar_eval_enabled=polar_eval_enabled,
+        polar_iou_thresholds=polar_iou_thresholds,
     )
     metrics["ap_score_thresh"] = float(ap_score_thresh)
     metrics["eval_ignore_suppressed_predictions"] = int(
@@ -1273,6 +1624,9 @@ def evaluate_train_val_iou(
         nuscenes_style_eval_enabled=False,
         ap_score_thresh=0.01,
         detection_score_thresh=0.3,
+        polar_eval_enabled=False,
+        polar_iou_thresholds=None,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
     del train_dataloader
     del evaluate_train
@@ -1300,6 +1654,9 @@ def evaluate_train_val_iou(
         nuscenes_style_eval_enabled=nuscenes_style_eval_enabled,
         ap_score_thresh=ap_score_thresh,
         detection_score_thresh=detection_score_thresh,
+        polar_eval_enabled=polar_eval_enabled,
+        polar_iou_thresholds=polar_iou_thresholds,
+        box_coordinate_mode=box_coordinate_mode,
     )
 
     return {
@@ -1459,6 +1816,24 @@ def infer_source_controlled_from_config(config):
     return bool(config.get("train_control_split_enabled", False))
 
 
+def learning_rate_name(value):
+    if value is None:
+        return None
+    numeric_value = float(value)
+    if numeric_value == 0.0:
+        return "lr0"
+    text = f"{numeric_value:.8g}"
+    if "e" not in text and abs(numeric_value) < 0.01:
+        text = f"{numeric_value:.8e}"
+    if "e" in text:
+        mantissa, exponent = text.split("e", 1)
+        mantissa = mantissa.rstrip("0").rstrip(".")
+        exponent_sign = "+" if exponent.startswith("+") else "-"
+        exponent_digits = exponent.lstrip("+-").lstrip("0") or "0"
+        text = f"{mantissa}e{exponent_sign if exponent_sign == '+' else '-'}{exponent_digits}"
+    return f"lr{text}"
+
+
 def extract_checkpoint_source_metadata(checkpoint):
     if not isinstance(checkpoint, dict):
         return {
@@ -1500,6 +1875,7 @@ def build_model_variant_name(
         include_bus_as_target=True,
         train_sequences=None,
         train_control_split_enabled=False,
+        learning_rate=None,
     ):
     parts = [str(model_type)]
     decoder_hidden_channels = overrides.get("decoder_hidden_channels")
@@ -1515,6 +1891,9 @@ def build_model_variant_name(
         parts.append(train_label)
     if bool(train_control_split_enabled):
         parts.append("controlled")
+    learning_rate_label = learning_rate_name(learning_rate)
+    if learning_rate_label is not None:
+        parts.append(learning_rate_label)
     return "_".join(parts)
 
 
@@ -1526,12 +1905,21 @@ def infer_model_variant_name(
         train_control_split_enabled=False,
     ):
     overrides = infer_checkpoint_decoder_overrides(checkpoint_or_state_dict)
+    checkpoint_config = (
+        checkpoint_or_state_dict.get("config", {})
+        if isinstance(checkpoint_or_state_dict, dict)
+        else {}
+    )
     return build_model_variant_name(
         model_type=model_type,
         overrides=overrides,
         include_bus_as_target=include_bus_as_target,
         train_sequences=train_sequences,
         train_control_split_enabled=train_control_split_enabled,
+        learning_rate=checkpoint_config.get(
+            "lr",
+            checkpoint_config.get("learning_rate"),
+        ),
     )
 
 
@@ -1540,6 +1928,8 @@ def build_model_for_checkpoint(
         device,
         num_classes,
         checkpoint_path,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        loss_mode="auto",
     ):
     checkpoint = load_torch_checkpoint(checkpoint_path, map_location="cpu")
     overrides = infer_checkpoint_decoder_overrides(checkpoint)
@@ -1547,6 +1937,8 @@ def build_model_for_checkpoint(
         "model_type": model_type,
         "device": device,
         "num_classes": num_classes,
+        "box_coordinate_mode": box_coordinate_mode,
+        "loss_mode": loss_mode,
     }
     if "decoder_hidden_channels" in overrides:
         build_kwargs["decoder_hidden_channels"] = overrides["decoder_hidden_channels"]
@@ -1572,6 +1964,10 @@ def infer_model_type_from_checkpoint(checkpoint_path):
         return "model14"
     if "_model15_radenet_official_marker" in state_dict:
         return "model15"
+    if "_model16_swin_radenet_official_marker" in state_dict:
+        return "model16"
+    if "_model7_cartesian_radenet_marker" in state_dict:
+        return "model7"
     if "_model13_radenet_marker" in state_dict:
         return "model13"
     if "_model12_yolox_marker" in state_dict:
@@ -1627,6 +2023,15 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         return
 
     config = checkpoint.get("config", {})
+    state_dict = get_checkpoint_state_dict(checkpoint)
+    inferred_box_coordinate_mode = (
+        BOX_COORDINATE_CARTESIAN
+        if (
+            "_model7_cartesian_radenet_marker" in state_dict
+            or "_model7_cartesian_centerpoint_marker" in state_dict
+        )
+        else BOX_COORDINATE_POLAR
+    )
     inferred_include_bus_as_target = infer_include_bus_as_target_from_checkpoint_config(
         config
     )
@@ -1655,6 +2060,13 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
     ):
         args.gt_object_ignore_override_path = config["gt_object_ignore_override_path"]
     if (
+        should_inherit_from_checkpoint("ignore_object_label_minus_one")
+        and config.get("ignore_object_label_minus_one") is not None
+    ):
+        args.ignore_object_label_minus_one = bool(
+            config["ignore_object_label_minus_one"]
+        )
+    if (
         should_inherit_from_checkpoint("train_control_split_enabled")
         and config.get("train_control_split_enabled") is not None
     ):
@@ -1671,6 +2083,18 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         and config.get("ignore_mask_expand_ratio") is not None
     ):
         args.ignore_mask_expand_ratio = float(config["ignore_mask_expand_ratio"])
+    if should_inherit_from_checkpoint("loss_mode") and config.get("loss_mode") is not None:
+        args.loss_mode = config["loss_mode"]
+    elif "loss_mode" not in config:
+        if "_model7_cartesian_radenet_marker" in state_dict:
+            args.loss_mode = "radenet"
+        elif "_model7_cartesian_centerpoint_marker" in state_dict:
+            args.loss_mode = "centerpoint"
+        elif inferred_box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            # Older Cartesian model7 checkpoints used the RADE-Net head.
+            args.loss_mode = "radenet"
+        else:
+            args.loss_mode = "auto"
     if (
         should_inherit_from_checkpoint("custom_iou_range_eval_enabled")
         and config.get("custom_iou_range_eval_enabled") is not None
@@ -1695,6 +2119,30 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         args.val_sequences = config["val_sequences"]
     if should_inherit_from_checkpoint("seed") and config.get("seed") is not None:
         args.seed = int(config["seed"])
+    if args.box_coordinate_mode in (None, "auto"):
+        args.box_coordinate_mode = config.get(
+            "box_coordinate_mode",
+            inferred_box_coordinate_mode,
+        )
+    args.box_coordinate_mode = validate_box_coordinate_mode(
+        args.box_coordinate_mode
+    )
+    if (
+        should_inherit_from_checkpoint("cartesian_gt_root")
+        and config.get("cartesian_gt_root") is not None
+    ):
+        args.cartesian_gt_root = config["cartesian_gt_root"]
+    args.cartesian_gt_root = normalize_optional_path(
+        args.cartesian_gt_root
+    )
+    if (
+        args.box_coordinate_mode == BOX_COORDINATE_CARTESIAN
+        and args.cartesian_gt_root is None
+    ):
+        raise ValueError(
+            "Cartesian checkpoint evaluation requires cartesian_gt_root "
+            "in eval_cfg.py or checkpoint config."
+        )
     if args.eval_scope is None:
         args.eval_scope = config.get("train_scope", SCOPE_FULL)
     if args.eval_scope not in SCOPE_CHOICES:
@@ -1725,6 +2173,40 @@ def official_ap_text(value):
     return metric_text(official_ap_value(value))
 
 
+def result_main_metric_key(result):
+    return result.get(
+        "evaluation_main_metric_key",
+        result.get("official_main_metric_key", "official_bev_mAP_0.3"),
+    )
+
+
+def result_main_metric_value(result):
+    value = result.get("evaluation_main_metric_value")
+    if value is None:
+        value = result.get("official_main_metric_value", 0.0)
+    return float(value)
+
+
+def attach_evaluation_main_metric(metrics, primary_geometry):
+    primary_geometry = validate_box_coordinate_mode(primary_geometry)
+    if primary_geometry == BOX_COORDINATE_POLAR:
+        primary_key = (
+            "polar_bev_mAP_0.3"
+            if "polar_bev_mAP_0.3" in metrics
+            else "polar_bev_mAP"
+        )
+    else:
+        primary_key = metrics.get(
+            "official_main_metric_key",
+            "official_bev_mAP_0.3",
+        )
+    primary_value = float(metrics.get(primary_key, 0.0))
+    metrics["evaluation_main_metric_key"] = primary_key
+    metrics["evaluation_main_metric_value"] = primary_value
+    metrics["mAP"] = primary_value
+    return metrics
+
+
 def sequence_name_for_filename(sequences, empty_name):
     sequences = normalize_sequence_list(sequences, name=empty_name)
     if sequences is None or len(sequences) == 0:
@@ -1746,6 +2228,10 @@ def build_plot_metadata(args, model_variant_name, source_metadata):
         "checkpoint_val_sequences": sequence_name_for_filename(source_val_sequences, "val_unknown"),
         "val_sequences": sequence_name_for_filename(args.val_sequences, "val_unknown"),
         "eval_scope": str(args.eval_scope),
+        "eval_coordinate_mode": str(args.eval_coordinate_mode),
+        "effective_eval_coordinate_mode": str(args.effective_eval_coordinate_mode),
+        "evaluation_primary_geometry": str(args.evaluation_primary_geometry),
+        "box_coordinate_mode": str(args.box_coordinate_mode),
         "include_bus_as_target": bool(args.include_bus_as_target),
         "checkpoint_include_bus_as_target": bool(
             source_metadata.get("include_bus_as_target", args.include_bus_as_target)
@@ -1769,6 +2255,11 @@ def build_plot_metadata(args, model_variant_name, source_metadata):
         "custom_iou_thresholds": [float(value) for value in args.custom_iou_thresholds],
         "coco_style_eval_enabled": bool(args.coco_style_eval_enabled),
         "nuscenes_style_eval_enabled": bool(args.nuscenes_style_eval_enabled),
+        "official_eval_enabled": bool(args.official_eval_enabled),
+        "official_geometry_source": str(args.official_geometry_source),
+        "polar_eval_enabled": bool(args.polar_eval_enabled),
+        "polar_geometry_source": str(args.polar_geometry_source),
+        "polar_iou_thresholds": [float(value) for value in args.polar_iou_thresholds],
     }
 
 
@@ -1883,6 +2374,7 @@ def metric_class_names_for_result(result):
         "custom_iou_detection_per_class",
         "coco_per_class",
         "nuscenes_per_class",
+        "polar_per_class",
     ):
         values = result.get(key)
         if isinstance(values, dict) and len(values) > 0:
@@ -2007,6 +2499,9 @@ def build_official_plot_section(results, iou_suffixes, multi_epoch):
     columns = ["Object"]
     for iou_suffix in iou_suffixes:
         columns.extend([f"BEV AP@{iou_suffix}", f"3D AP@{iou_suffix}"])
+    include_polar = any("polar_bev_mAP_0.3" in result for result in results)
+    if include_polar:
+        columns.extend(["Polar AP@0.3", "Polar AP@0.5"])
     include_detection_metrics = any(
         isinstance(result.get("official_detection_precision"), (int, float))
         for result in results
@@ -2023,6 +2518,11 @@ def build_official_plot_section(results, iou_suffixes, multi_epoch):
             row.extend([
                 official_ap_text(result.get(f"official_bev_mAP_{iou_suffix}")),
                 official_ap_text(result.get(f"official_3d_mAP_{iou_suffix}")),
+            ])
+        if include_polar:
+            row.extend([
+                official_ap_text(result.get("polar_bev_mAP_0.3")),
+                official_ap_text(result.get("polar_bev_mAP_0.5")),
             ])
         if include_detection_metrics:
             for _, result_key, value_type in detection_table_columns():
@@ -2048,6 +2548,11 @@ def build_official_plot_section(results, iou_suffixes, multi_epoch):
                     official_ap_text(result.get(f"official_{class_name}_bev_AP_{iou_suffix}")),
                     official_ap_text(result.get(f"official_{class_name}_3d_AP_{iou_suffix}")),
                 ])
+            if include_polar:
+                row.extend([
+                    official_ap_text(result.get(f"polar_{class_name}_bev_AP_0.3")),
+                    official_ap_text(result.get(f"polar_{class_name}_bev_AP_0.5")),
+                ])
             if include_detection_metrics:
                 for label, _, value_type in detection_table_columns():
                     class_value = class_stats.get(label.lower())
@@ -2064,7 +2569,11 @@ def build_official_plot_section(results, iou_suffixes, multi_epoch):
             stripe_index += 1
 
     return {
-        "title": "Official K-Radar",
+        "title": (
+            "Official K-Radar"
+            if len(iou_suffixes) > 0
+            else "Polar BEV"
+        ),
         "columns": columns,
         "rows": rows,
         "row_meta": row_meta,
@@ -2270,13 +2779,12 @@ def save_evaluation_plot(results, plot_output_path, plot_metadata=None):
     import matplotlib.pyplot as plt
 
     iou_suffixes = available_plot_iou_suffixes(results)
-    if len(iou_suffixes) == 0:
-        iou_suffixes = [main_plot_iou_suffix(results)]
 
     best_result = max(
         results,
-        key=lambda item: float(item.get("official_main_metric_value", 0.0)),
+        key=result_main_metric_value,
     )
+    best_metric_key = result_main_metric_key(best_result)
     multi_epoch = len(results) > 1
 
     sections = [
@@ -2295,8 +2803,8 @@ def save_evaluation_plot(results, plot_output_path, plot_metadata=None):
     summary_lines = [
         (
             f"Best epoch: {best_result['epoch']} | "
-            f"{best_result.get('official_main_metric_key', 'official_bev_mAP_0.3')} = "
-            f"{official_ap_text(best_result.get('official_main_metric_value'))}"
+            f"{best_metric_key} = "
+            f"{official_ap_text(result_main_metric_value(best_result))}"
         )
     ]
     if plot_metadata is not None:
@@ -2316,9 +2824,9 @@ def save_evaluation_plot(results, plot_output_path, plot_metadata=None):
         )
         summary_lines.append(
             (
-                f"Frames: {best_result.get('official_num_eval_frames', 0)} | "
+                f"Frames: {best_result.get('evaluation_num_eval_frames', best_result.get('official_num_eval_frames', 0))} | "
                 f"Backend: {best_result.get('official_iou_backend_used', '-')} | "
-                f"Shown AP IoU: {shown_ap_iou_text}"
+                f"Shown AP IoU: {shown_ap_iou_text or 'polar'}"
             )
         )
         ap_score_thresh = plot_metadata.get("ap_score_thresh")
@@ -2509,7 +3017,15 @@ def collect_method_summary(result):
         )
 
     summary = {
-        "official": official_summary
+        "evaluation": {
+            "coordinate_mode": result.get("effective_eval_coordinate_mode"),
+            "primary_geometry": result.get("evaluation_primary_geometry"),
+            "main_metric_key": result_main_metric_key(result),
+            "main_metric_value": official_ap_value(
+                result_main_metric_value(result)
+            ),
+        },
+        "official": official_summary,
     }
     if "coco_bev_mAP" in result:
         summary["coco_style"] = {
@@ -2540,6 +3056,14 @@ def collect_method_summary(result):
             "mASE": result.get("nuscenes_mASE"),
             "mAOE": result.get("nuscenes_mAOE"),
         }
+    if "polar_bev_mAP" in result:
+        summary["polar_bev"] = {
+            "iou_thresholds": result.get("polar_iou_thresholds"),
+            "mAP": result.get("polar_bev_mAP"),
+            "AP_0.3": result.get("polar_bev_mAP_0.3"),
+            "AP_0.5": result.get("polar_bev_mAP_0.5"),
+            "num_gt": result.get("polar_bev_num_gt"),
+        }
     return summary
 
 
@@ -2549,7 +3073,7 @@ def build_yaml_export(results, plot_metadata=None):
 
     best_result = max(
         results,
-        key=lambda item: float(item.get("official_main_metric_value", 0.0)),
+        key=result_main_metric_value,
     )
 
     checkpoint_entries = []
@@ -2593,10 +3117,10 @@ def save_evaluation_yaml(results, yaml_output_path, plot_metadata=None):
 
 
 def print_checkpoint_metrics(epoch, metrics):
-    main_key = metrics.get("official_main_metric_key", "official_bev_mAP_0.3")
+    main_key = result_main_metric_key(metrics)
     parts = [
         f"epoch={epoch}",
-        f"{main_key}={official_ap_text(metrics.get('official_main_metric_value'))}",
+        f"{main_key}={official_ap_text(result_main_metric_value(metrics))}",
         f"ap_score_thr={metric_text(metrics.get('ap_score_thresh'))}",
     ]
     for suffix in available_official_iou_suffixes(metrics):
@@ -2621,7 +3145,9 @@ def print_checkpoint_metrics(epoch, metrics):
         parts.append(
             f"ign_sup={int(metrics.get('eval_ignore_suppressed_predictions', 0))}"
         )
-    parts.append(f"frames={metrics.get('official_num_eval_frames', 0)}")
+    parts.append(
+        f"frames={metrics.get('evaluation_num_eval_frames', metrics.get('official_num_eval_frames', 0))}"
+    )
     print(" ".join(parts))
     if "coco_bev_mAP" in metrics:
         print(
@@ -2659,6 +3185,18 @@ def print_checkpoint_metrics(epoch, metrics):
             f"mATE={metric_text(metrics.get('nuscenes_mATE'))} "
             f"mASE={metric_text(metrics.get('nuscenes_mASE'))} "
             f"mAOE={metric_text(metrics.get('nuscenes_mAOE'))}"
+        )
+    if "polar_bev_mAP" in metrics:
+        threshold_text = ", ".join(
+            f"{float(value):.2f}" for value in metrics.get("polar_iou_thresholds", [])
+        )
+        print(
+            f"  polar-bev-ap "
+            f"iou=[{threshold_text}] "
+            f"mAP={official_ap_text(metrics.get('polar_bev_mAP'))} "
+            f"bev@0.3={official_ap_text(metrics.get('polar_bev_mAP_0.3'))} "
+            f"bev@0.5={official_ap_text(metrics.get('polar_bev_mAP_0.5'))} "
+            f"gt={int(metrics.get('polar_bev_num_gt', 0))}"
         )
 
 
@@ -2699,6 +3237,70 @@ def resolve_output_base_dir(base_dir):
     if not output_dir.is_absolute():
         output_dir = Path(__file__).resolve().parent / output_dir
     return output_dir
+
+
+def create_evaluation_tensorboard_writer(args, model_variant_name, source_metadata):
+    base_dir = resolve_output_base_dir(args.evaluation_tensorboard_log_dir)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    model_tag = sanitize_filename(model_variant_name or "model_unknown")
+    val_tag = sanitize_filename(format_sequence_tag(args.val_sequences, "val_seq"))
+    log_dir = base_dir / "evaluation" / f"{timestamp}__{model_tag}__{val_tag}"
+    writer = SummaryWriter(log_dir=str(log_dir))
+    config = {
+        "model_variant": model_variant_name,
+        "checkpoint_root": str(args.checkpoint_root),
+        "train_sequences": source_metadata.get("train_sequences"),
+        "checkpoint_val_sequences": source_metadata.get("val_sequences"),
+        "val_sequences": args.val_sequences,
+        "include_bus_as_target": bool(args.include_bus_as_target),
+        "eval_scope": args.eval_scope,
+        "eval_coordinate_mode": args.eval_coordinate_mode,
+        "effective_eval_coordinate_mode": args.effective_eval_coordinate_mode,
+        "box_coordinate_mode": args.box_coordinate_mode,
+        "evaluation_primary_geometry": args.evaluation_primary_geometry,
+        "official_eval_version": args.official_eval_version,
+        "official_eval_iou_mode": args.official_eval_iou_mode,
+        "official_eval_enabled": bool(args.official_eval_enabled),
+        "official_geometry_source": args.official_geometry_source,
+        "ap_score_thresh": float(args.ap_score_thresh),
+        "score_thresh": float(args.score_thresh),
+        "custom_iou_range_eval_enabled": bool(args.custom_iou_range_eval_enabled),
+        "custom_iou_thresholds": [float(value) for value in args.custom_iou_thresholds],
+        "group_checkpoint_plot_best_only": bool(args.group_checkpoint_plot_best_only),
+        "polar_eval_enabled": bool(args.polar_eval_enabled),
+        "polar_geometry_source": args.polar_geometry_source,
+        "polar_iou_thresholds": [float(value) for value in args.polar_iou_thresholds],
+    }
+    writer.add_text(
+        "run/config",
+        json.dumps(config, indent=2, default=str),
+        global_step=0,
+    )
+    writer.flush()
+    return writer, log_dir
+
+
+def write_evaluation_tensorboard_result(writer, result, namespace="evaluation"):
+    if writer is None:
+        return
+
+    metric_prefixes = (
+        "evaluation_",
+        "official_",
+        "custom_iou_",
+        "coco_",
+        "nuscenes_",
+        "polar_",
+        "val_",
+    )
+    epoch = int(result["epoch"])
+    for key, value in result.items():
+        if not isinstance(value, Real) or isinstance(value, bool):
+            continue
+        if not key.startswith(metric_prefixes):
+            continue
+        writer.add_scalar(f"{namespace}/metrics/{key}", float(value), epoch)
+    writer.flush()
 
 
 def next_available_output_path(output_dir, stem, suffix):
@@ -2763,8 +3365,8 @@ def format_eval_table(rows):
             columns.append(("val_l1", "val_l1_loss", 10, "float"))
         if any("val_gwd_loss" in row for row in rows):
             columns.append(("val_gwd", "val_gwd_loss", 10, "float"))
-    columns.extend(
-        [
+    if any("official_bev_mAP_0.3" in row for row in rows):
+        columns.extend([
             ("bev@0.3", "official_bev_mAP_0.3", 9, "float"),
             ("bev@0.5", "official_bev_mAP_0.5", 9, "float"),
             ("3d@0.3", "official_3d_mAP_0.3", 9, "float"),
@@ -2772,8 +3374,14 @@ def format_eval_table(rows):
             ("p", "official_detection_precision", 8, "float"),
             ("r", "official_detection_recall", 8, "float"),
             ("f1", "official_detection_f1", 8, "float"),
-        ]
-    )
+        ])
+    if any("polar_bev_mAP_0.3" in row for row in rows):
+        columns.extend(
+            [
+                ("pbev@0.3", "polar_bev_mAP_0.3", 10, "float"),
+                ("pbev@0.5", "polar_bev_mAP_0.5", 10, "float"),
+            ]
+        )
     if any("custom_iou_bev_mAP" in row for row in rows):
         columns.extend(
             [
@@ -2818,6 +3426,12 @@ def format_best_epoch_summary(rows):
         summary_specs = summary_specs + (
             ("custom_iou_bev_mAP", "custom_bev_mAP"),
             ("custom_iou_3d_mAP", "custom_3d_mAP"),
+        )
+    if any("polar_bev_mAP" in row for row in rows):
+        summary_specs = summary_specs + (
+            ("polar_bev_mAP_0.3", "pbev@0.3"),
+            ("polar_bev_mAP_0.5", "pbev@0.5"),
+            ("polar_bev_mAP", "polar_bev_mAP"),
         )
     for metric_key, metric_label in summary_specs:
         best_row = select_best_result_by_metric(rows, metric_key)
@@ -2951,6 +3565,38 @@ def print_epoch_ap03_table(results):
         return
 
     class_names = merged_metric_class_names(results)
+    polar_primary = any(
+        result.get("evaluation_primary_geometry") == BOX_COORDINATE_POLAR
+        for result in results
+    )
+    if polar_primary:
+        headers = ["epoch", "pbev@0.3", "pbev@0.5"]
+        for class_name in class_names:
+            headers.extend([
+                f"{class_name}_pbev@0.3",
+                f"{class_name}_pbev@0.5",
+            ])
+        rows = []
+        for result in sorted(results, key=lambda item: int(item["epoch"])):
+            row = [
+                str(int(result["epoch"])),
+                official_ap_text(result.get("polar_bev_mAP_0.3")),
+                official_ap_text(result.get("polar_bev_mAP_0.5")),
+            ]
+            for class_name in class_names:
+                row.extend([
+                    official_ap_text(
+                        result.get(f"polar_{class_name}_bev_AP_0.3")
+                    ),
+                    official_ap_text(
+                        result.get(f"polar_{class_name}_bev_AP_0.5")
+                    ),
+                ])
+            rows.append(row)
+        print("Epoch-wise direct Polar BEV AP summary:")
+        print(_plain_text_table(headers, rows))
+        return
+
     headers = ["epoch", "bev@0.3", "3d@0.3"]
     for class_name in class_names:
         headers.extend([f"{class_name}_bev@0.3", f"{class_name}_3d@0.3"])
@@ -3022,6 +3668,7 @@ def evaluate_checkpoint_result(
         coco_style_eval_enabled=None,
         nuscenes_style_eval_enabled=None,
         loss_eval_enabled=None,
+        polar_eval_enabled=None,
     ):
     load_model_checkpoint(
         model=model,
@@ -3042,12 +3689,16 @@ def evaluate_checkpoint_result(
             dataloader=validation_loader,
             device=device,
             heatmap_radius=args.heatmap_radius,
-            centerpoint_giou_loss_weight=args.centerpoint_giou_loss_weight,
+            centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
             quality_loss_weight=args.quality_loss_weight,
             ignore_mask_margin=args.ignore_mask_margin,
             ignore_mask_expand_ratio=args.ignore_mask_expand_ratio,
-            loss_mode=resolve_loss_mode(model_type),
+            loss_mode=resolve_loss_mode(
+                model_type,
+                box_coordinate_mode=args.box_coordinate_mode,
+            ),
             num_classes=args.num_classes,
+            box_coordinate_mode=args.box_coordinate_mode,
         )
         metrics.update(loss_metrics)
 
@@ -3063,7 +3714,7 @@ def evaluate_checkpoint_result(
         heatmap_score_mode=args.heatmap_score_mode,
         yolox_nms_iou=args.yolox_nms_iou,
         scope_mode=args.eval_scope,
-        official_eval_enabled=True,
+        official_eval_enabled=args.official_eval_enabled,
         official_eval_version=args.official_eval_version,
         official_eval_iou_backend=args.official_eval_iou_backend,
         official_eval_iou_mode=(
@@ -3092,16 +3743,33 @@ def evaluate_checkpoint_result(
             if nuscenes_style_eval_enabled is None
             else nuscenes_style_eval_enabled
         ),
+        polar_eval_enabled=(
+            args.polar_eval_enabled
+            if polar_eval_enabled is None
+            else polar_eval_enabled
+        ),
+        polar_iou_thresholds=args.polar_iou_thresholds,
         ap_score_thresh=args.ap_score_thresh,
         detection_score_thresh=args.detection_score_thresh,
         eval_ignore_suppress_enabled=args.eval_ignore_suppress_enabled,
         eval_ignore_expand_ratio=args.eval_ignore_expand_ratio,
         eval_ignore_suppress_margin=args.eval_ignore_suppress_margin,
+        box_coordinate_mode=args.box_coordinate_mode,
     )
     metrics.update(eval_metrics)
+    attach_evaluation_main_metric(
+        metrics,
+        primary_geometry=args.evaluation_primary_geometry,
+    )
     return {
         "epoch": int(epoch),
         "checkpoint_path": checkpoint_path,
+        "eval_coordinate_mode": args.eval_coordinate_mode,
+        "effective_eval_coordinate_mode": args.effective_eval_coordinate_mode,
+        "box_coordinate_mode": args.box_coordinate_mode,
+        "evaluation_primary_geometry": args.evaluation_primary_geometry,
+        "official_geometry_source": args.official_geometry_source,
+        "polar_geometry_source": args.polar_geometry_source,
         "ap_score_thresh": float(args.ap_score_thresh),
         "metric_class_names": list(args.metric_class_names),
         "class_display_name_map": dict(args.class_display_name_map),
@@ -3109,11 +3777,17 @@ def evaluate_checkpoint_result(
     }
 
 
-def build_group_plot_selection_entries(results):
-    selection_specs = [
+def group_plot_selection_specs(args):
+    if args.evaluation_primary_geometry == BOX_COORDINATE_POLAR:
+        return [("polar_bev_mAP_0.3", "best_pbev03")]
+    return [
         ("official_bev_mAP_0.3", "best_bev03"),
         ("official_3d_mAP_0.3", "best_3d03"),
     ]
+
+
+def build_group_plot_selection_entries(results, args):
+    selection_specs = group_plot_selection_specs(args)
     selected_by_path = {}
     for metric_key, selection_tag in selection_specs:
         best_result = select_best_result_by_metric(results, metric_key)
@@ -3185,8 +3859,18 @@ def build_eval_context(args):
         raise ValueError(f"No epoch checkpoints found in {args.checkpoint_root}")
 
     apply_checkpoint_config_defaults(args, checkpoint_paths)
+    if args.box_coordinate_mode in (None, "auto"):
+        args.box_coordinate_mode = BOX_COORDINATE_POLAR
+    args.box_coordinate_mode = validate_box_coordinate_mode(
+        args.box_coordinate_mode
+    )
+    apply_standalone_evaluation_coordinate_mode(args)
     apply_eval_profile(args)
     args = apply_task_configuration(args)
+    print(
+        "Ignore object_label=-1: "
+        f"{args.ignore_object_label_minus_one}"
+    )
     (
         args.official_class_name_map,
         args.class_display_name_map,
@@ -3196,6 +3880,11 @@ def build_eval_context(args):
         for class_id in sorted(args.official_class_name_map.keys())
     ]
     model_type = resolve_model_type(args, checkpoint_paths)
+    resolved_loss_mode = resolve_loss_mode(
+        model_type,
+        box_coordinate_mode=args.box_coordinate_mode,
+        loss_mode=getattr(args, "loss_mode", "auto"),
+    )
     reference_checkpoint = load_torch_checkpoint(
         checkpoint_paths[0][1],
         map_location="cpu",
@@ -3244,6 +3933,10 @@ def build_eval_context(args):
         val_sequences=args.val_sequences,
         train_control_split_enabled=getattr(args, "train_control_split_enabled", False),
         train_control_split_dir=getattr(args, "train_control_split_dir", None),
+        box_coordinate_mode=args.box_coordinate_mode,
+        cartesian_gt_root=args.cartesian_gt_root,
+        polar_gt_root=args.polar_gt_root,
+        ignore_object_label_minus_one=args.ignore_object_label_minus_one,
     )
     if len(validation_dataset) == 0:
         raise ValueError("Validation split is empty.")
@@ -3257,6 +3950,8 @@ def build_eval_context(args):
         device=device,
         num_classes=args.num_classes,
         checkpoint_path=checkpoint_paths[0][1],
+        box_coordinate_mode=args.box_coordinate_mode,
+        loss_mode=resolved_loss_mode,
     )
 
     return {
@@ -3281,6 +3976,12 @@ def update_domain_comparison_outputs(
         source_metadata,
     ):
     if not args.domain_comparison_enabled or len(results) == 0:
+        return None
+    if not args.official_eval_enabled:
+        print(
+            "Domain-shift comparison tables skipped: the current table format "
+            "requires direct official Cartesian BEV/3D metrics."
+        )
         return None
 
     output_dir = resolve_output_base_dir(args.domain_comparison_output_dir)
@@ -3328,7 +4029,7 @@ def update_domain_comparison_outputs(
     )
     print(f"  Source: {summary['source_domain']}")
     print(f"  Target: {summary['target_domain']}")
-    if summary["target_recorded_in_csv"]:
+    if summary["target_recorded_in_table"]:
         for criterion, table_path in summary["table_paths"].items():
             selection = summary["selections"][criterion]
             print(
@@ -3353,6 +4054,14 @@ def main():
     split_statistics_metadata = context["split_statistics_metadata"]
     validation_loader = context["validation_loader"]
     model = context["model"]
+    evaluation_tensorboard_writer, evaluation_tensorboard_log_dir = (
+        create_evaluation_tensorboard_writer(
+            args=args,
+            model_variant_name=model_variant_name,
+            source_metadata=source_metadata,
+        )
+    )
+    print(f"Evaluation TensorBoard log dir: {evaluation_tensorboard_log_dir}")
     group_plot_best_only_mode = group_checkpoint_plot_best_only_active(
         args, checkpoint_paths
     )
@@ -3376,10 +4085,26 @@ def main():
         )
     print(f"Using evaluation device: {device}")
     print(f"Evaluation scope: {args.eval_scope}")
+    print(f"Box coordinate mode: {args.box_coordinate_mode}")
+    print(
+        "Evaluation coordinate mode: "
+        f"requested={args.eval_coordinate_mode}, "
+        f"effective={args.effective_eval_coordinate_mode}, "
+        f"primary={args.evaluation_primary_geometry}"
+    )
     if args.end_epoch is not None:
         print(f"Evaluation end epoch: {args.end_epoch}")
-    print(f"Official evaluator: {args.official_eval_version}")
-    print(f"Official IoU mode: {args.official_eval_iou_mode}")
+    print(
+        f"Official K-Radar AP: {'enabled' if args.official_eval_enabled else 'disabled'}"
+        f" ({args.official_geometry_source})"
+    )
+    if args.official_eval_enabled:
+        print(f"Official evaluator: {args.official_eval_version}")
+        print(f"Official IoU mode: {args.official_eval_iou_mode}")
+    print(
+        f"Polar BEV AP: {'enabled' if args.polar_eval_enabled else 'disabled'}"
+        f" ({args.polar_geometry_source}, IoU={args.polar_iou_thresholds})"
+    )
     print(f"AP score threshold: {args.ap_score_thresh}")
     print(f"Detection score threshold: {args.score_thresh}")
     if args.domain_comparison_enabled:
@@ -3390,9 +4115,12 @@ def main():
     if args.official_ap03_only:
         print("Official AP@0.3 only mode: enabled")
     if group_plot_best_only_mode:
+        selection_labels = ", ".join(
+            metric_key for metric_key, _ in group_plot_selection_specs(args)
+        )
         print(
             "Group checkpoint best-only plot mode: enabled "
-            "(select by official bev@0.3 and 3d@0.3)."
+            f"(select by {selection_labels})."
         )
     print(
         f"Evaluating {len(checkpoint_paths)} checkpoint(s) from {args.checkpoint_root}",
@@ -3418,7 +4146,7 @@ def main():
         selection_results = []
         selection_iou_mode = selection_iou_mode_for_group_plot(args)
         print(
-            f"Selection pass official IoU mode: {selection_iou_mode} "
+            f"Selection pass IoU mode: {selection_iou_mode} "
             "(custom/coco/nuscenes disabled)."
         )
         for epoch, checkpoint_path in tqdm.tqdm(
@@ -3442,6 +4170,10 @@ def main():
                 loss_eval_enabled=False,
             )
             selection_results.append(result)
+            write_evaluation_tensorboard_result(
+                evaluation_tensorboard_writer,
+                result,
+            )
             print_checkpoint_metrics(int(epoch), result)
 
         if len(selection_results) > 0 and args.terminal_epoch_table_enabled:
@@ -3452,6 +4184,9 @@ def main():
                 "train_sequences": source_metadata["train_sequences"],
                 "val_sequences": args.val_sequences,
                 "eval_scope": args.eval_scope,
+                "eval_coordinate_mode": args.eval_coordinate_mode,
+                "effective_eval_coordinate_mode": args.effective_eval_coordinate_mode,
+                "box_coordinate_mode": args.box_coordinate_mode,
                 "include_bus_as_target": args.include_bus_as_target,
                 "checkpoint_include_bus_as_target": source_metadata["include_bus_as_target"],
                 "gt_object_ignore_override_path": source_metadata["gt_object_ignore_override_path"],
@@ -3468,28 +4203,23 @@ def main():
             )
             print(f"Saved evaluation table txt: {saved_table_path}")
 
-        best_bev_result = select_best_result_by_metric(
-            selection_results,
-            "official_bev_mAP_0.3",
-        )
-        best_3d_result = select_best_result_by_metric(
-            selection_results,
-            "official_3d_mAP_0.3",
-        )
-        if best_bev_result is not None:
-            print(
-                "best_epoch_bev@0.3:",
-                f"epoch={best_bev_result['epoch']}",
-                f"bev@0.3={official_ap_text(best_bev_result.get('official_bev_mAP_0.3'))}",
+        for metric_key, selection_tag in group_plot_selection_specs(args):
+            best_metric_result = select_best_result_by_metric(
+                selection_results,
+                metric_key,
             )
-        if best_3d_result is not None:
+            if best_metric_result is None:
+                continue
             print(
-                "best_epoch_3d@0.3:",
-                f"epoch={best_3d_result['epoch']}",
-                f"3d@0.3={official_ap_text(best_3d_result.get('official_3d_mAP_0.3'))}",
+                f"{selection_tag}:",
+                f"epoch={best_metric_result['epoch']}",
+                f"{metric_key}={official_ap_text(best_metric_result.get(metric_key))}",
             )
 
-        selected_entries = build_group_plot_selection_entries(selection_results)
+        selected_entries = build_group_plot_selection_entries(
+            selection_results,
+            args,
+        )
         for entry in selected_entries:
             selection_label = ", ".join(entry["selection_tags"])
             selected_result = entry["result"]
@@ -3508,6 +4238,11 @@ def main():
                 args=args,
             )
             entry["result"] = full_result
+            write_evaluation_tensorboard_result(
+                evaluation_tensorboard_writer,
+                full_result,
+                namespace="evaluation_selected",
+            )
             print_checkpoint_metrics(int(full_result["epoch"]), full_result)
 
         save_group_best_only_plot_exports(
@@ -3524,6 +4259,7 @@ def main():
             model_variant_name=model_variant_name,
             source_metadata=source_metadata,
         )
+        evaluation_tensorboard_writer.close()
         return
 
     results = []
@@ -3542,6 +4278,10 @@ def main():
             args=args,
         )
         results.append(result)
+        write_evaluation_tensorboard_result(
+            evaluation_tensorboard_writer,
+            result,
+        )
         print_checkpoint_metrics(int(epoch), result)
 
     if len(results) > 0:
@@ -3549,13 +4289,14 @@ def main():
             print_epoch_ap03_table(results)
         best_result = max(
             results,
-            key=lambda item: float(item.get("official_main_metric_value", 0.0)),
+            key=result_main_metric_value,
         )
+        best_metric_key = result_main_metric_key(best_result)
         print(
             "best_epoch:",
             f"epoch={best_result['epoch']}",
-            f"{best_result.get('official_main_metric_key', 'official_bev_mAP_0.3')}="
-            f"{official_ap_text(best_result.get('official_main_metric_value'))}",
+            f"{best_metric_key}="
+            f"{official_ap_text(result_main_metric_value(best_result))}",
         )
         if default_table_txt_path is not None:
             table_metadata = {
@@ -3563,6 +4304,9 @@ def main():
                 "train_sequences": source_metadata["train_sequences"],
                 "val_sequences": args.val_sequences,
                 "eval_scope": args.eval_scope,
+                "eval_coordinate_mode": args.eval_coordinate_mode,
+                "effective_eval_coordinate_mode": args.effective_eval_coordinate_mode,
+                "box_coordinate_mode": args.box_coordinate_mode,
                 "include_bus_as_target": args.include_bus_as_target,
                 "checkpoint_include_bus_as_target": source_metadata["include_bus_as_target"],
                 "gt_object_ignore_override_path": source_metadata["gt_object_ignore_override_path"],
@@ -3599,6 +4343,7 @@ def main():
         model_variant_name=model_variant_name,
         source_metadata=source_metadata,
     )
+    evaluation_tensorboard_writer.close()
 
 
 if __name__ == "__main__":

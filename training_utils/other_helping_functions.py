@@ -33,7 +33,7 @@ def default_best_metric_key(
         official_eval_iou_mode="easy",
     ):
     if not training_eval_enabled:
-        return "val_loss"
+        return None
     if official_eval_enabled:
         iou_suffix = {
             "easy": "0.3",
@@ -52,6 +52,9 @@ def resolve_best_metric_key(
         official_eval_enabled=False,
         official_eval_iou_mode="easy",
     ):
+    if not training_eval_enabled:
+        return None
+
     metric_key = requested_key
     if metric_key is None or metric_key == "" or metric_key == "auto":
         metric_key = default_best_metric_key(
@@ -74,8 +77,13 @@ def resolve_best_metric_key(
 
 
 def selection_metric_value(val_metrics):
-    metric_key = val_metrics.get("selection_metric_key", "mAP")
-    metric_value = val_metrics.get("selection_metric_value", val_metrics.get("mAP", 0.0))
+    if (
+        "selection_metric_key" not in val_metrics
+        or "selection_metric_value" not in val_metrics
+    ):
+        raise ValueError("Best-checkpoint selection metric is not available.")
+    metric_key = val_metrics["selection_metric_key"]
+    metric_value = val_metrics["selection_metric_value"]
     return metric_key, float(metric_value)
 
 
@@ -98,15 +106,18 @@ def append_training_history(history, epoch, train_metrics, val_metrics, f1):
         "val_cls_loss": val_metrics["val_cls_loss"],
         "val_obj_loss": val_metrics.get("val_obj_loss", 0.0),
         "val_l1_loss": val_metrics.get("val_l1_loss", 0.0),
-        "val_mAP": val_metrics["mAP"],
-        "val_bev_mAP_0.3": val_metrics.get("official_bev_mAP_0.3", val_metrics["mAP"]),
-        "val_3d_mAP_0.3": val_metrics.get("official_3d_mAP_0.3", 0.0),
-        "val_detection_tp": val_metrics.get("official_detection_tp", 0),
-        "val_detection_fp": val_metrics.get("official_detection_fp", 0),
-        "val_detection_fn": val_metrics.get("official_detection_fn", 0),
-        "selection_metric_key": val_metrics.get("selection_metric_key", "mAP"),
-        "selection_metric_value": val_metrics.get("selection_metric_value", val_metrics["mAP"]),
     }
+    if "mAP" in val_metrics:
+        row["val_mAP"] = val_metrics["mAP"]
+    if "official_bev_mAP_0.3" in val_metrics:
+        row["val_bev_mAP_0.3"] = val_metrics["official_bev_mAP_0.3"]
+        row["val_3d_mAP_0.3"] = val_metrics.get("official_3d_mAP_0.3", 0.0)
+        row["val_detection_tp"] = val_metrics.get("official_detection_tp", 0)
+        row["val_detection_fp"] = val_metrics.get("official_detection_fp", 0)
+        row["val_detection_fn"] = val_metrics.get("official_detection_fn", 0)
+    if "selection_metric_key" in val_metrics:
+        row["selection_metric_key"] = val_metrics["selection_metric_key"]
+        row["selection_metric_value"] = val_metrics["selection_metric_value"]
     if "train_heatmap_loss" in train_metrics:
         row["train_heatmap_loss"] = train_metrics["train_heatmap_loss"]
     if "train_quality_loss" in train_metrics:
@@ -118,7 +129,12 @@ def append_training_history(history, epoch, train_metrics, val_metrics, f1):
 
     for key, value in val_metrics.items():
         if (
-            (key.startswith("official_") or key.startswith("coco_") or key.startswith("nuscenes_"))
+            (
+                key.startswith("official_")
+                or key.startswith("polar_")
+                or key.startswith("coco_")
+                or key.startswith("nuscenes_")
+            )
             and isinstance(value, (int, float))
         ):
             row[key] = float(value)
@@ -138,20 +154,24 @@ def build_epoch_eval_metrics(
     del train_metrics
 
     val_metrics = val_loss_metrics.copy()
-    val_metrics.setdefault("mAP", 0.0)
-    if training_eval_enabled and eval_metrics is not None:
-        val_metrics.update(eval_metrics["val_eval_metrics"])
+    if training_eval_enabled:
+        val_metrics.setdefault("mAP", 0.0)
+        if eval_metrics is not None:
+            val_metrics.update(eval_metrics["val_eval_metrics"])
     f1 = float(val_metrics.get("official_detection_f1", 0.0))
 
-    resolved_metric_key = resolve_best_metric_key(
-        requested_key=best_metric_key,
-        val_metrics=val_metrics,
-        training_eval_enabled=training_eval_enabled,
-        official_eval_enabled=official_eval_enabled,
-        official_eval_iou_mode=official_eval_iou_mode,
-    )
-    val_metrics["selection_metric_key"] = resolved_metric_key
-    val_metrics["selection_metric_value"] = float(val_metrics[resolved_metric_key])
+    if training_eval_enabled:
+        resolved_metric_key = resolve_best_metric_key(
+            requested_key=best_metric_key,
+            val_metrics=val_metrics,
+            training_eval_enabled=True,
+            official_eval_enabled=official_eval_enabled,
+            official_eval_iou_mode=official_eval_iou_mode,
+        )
+        val_metrics["selection_metric_key"] = resolved_metric_key
+        val_metrics["selection_metric_value"] = float(
+            val_metrics[resolved_metric_key]
+        )
 
     return val_metrics, f1
 
@@ -223,9 +243,13 @@ def save_epoch_and_update_best_checkpoint(
         f1,
         learning_rate,
         total_epochs,
-        checkpoint_epoch_step
+        checkpoint_epoch_step,
+        best_selection_enabled=True,
     ):
-    is_best = best_state.is_better(val_metrics)
+    is_best = (
+        best_selection_enabled
+        and best_state.is_better(val_metrics)
+    )
     should_save_checkpoint = (
         epoch % checkpoint_epoch_step == 0
         or epoch == total_epochs

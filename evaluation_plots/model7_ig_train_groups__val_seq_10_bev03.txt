@@ -1,0 +1,50 @@
+metric: BEV AP@0.3
+model: model7_64_128, sedan-only, bus ignored during training
+learning_rate: 5e-5
+target_sequence: 10
+
+group_a_train_sequences: (3, 9, 11, 12)
+group_a_source: model7_64_128_ig_train_3,9,11,12_lr5e-5/20260716__val_seq_10.txt
+group_a_eval_ignore_suppressed_predictions: 0 for every epoch
+
+group_b_train_sequences: (1, 5, 6, 14, 15, 18, 20)
+group_b_source: model7_64_128_ig_train_1,5,6,14,15,18,20_lr5e-5/20260710__val_seq_10.txt
+group_b_eval_ignore_suppress_enabled: True
+
+note: * marks the best BEV AP@0.3 within that training group.
+comparability_warning: evaluation ignore suppression differs between group A and group B.
+
+epoch | train 3,9,11,12 | train 1,5,6,14,15,18,20
+------+-----------------+-------------------------
+    1 |          1.0966 |                   0.0000
+    2 |         25.7649 |                   0.0000
+    3 |         15.3008 |                   2.8812
+    4 |         20.5099 |                   5.6534
+    5 |         20.6287 |                   5.8331
+    6 |         23.7565 |                   6.9327
+    7 |         31.4714 |                  20.5929
+    8 |         36.0213 |                   4.8256
+    9 |         24.2614 |                  18.7030
+   10 |         13.9686 |                  19.2412
+   11 |         13.5910 |                   7.4145
+   12 |         23.9091 |                  20.8221
+   13 |         15.3228 |                 *34.6082
+   14 |         32.5260 |                  18.6793
+   15 |         39.6118 |                  30.5596
+   16 |         35.8196 |                  25.6831
+   17 |         22.4394 |                  17.2277
+   18 |         31.4458 |                  33.1921
+   19 |         13.0296 |                  33.3895
+   20 |         36.1782 |                  15.7182
+   21 |         36.7834 |                   7.3155
+   22 |         26.8238 |                  17.5945
+   23 |         35.9191 |                  17.3000
+   24 |         35.7862 |                  10.6842
+   25 |        *39.6292 |                  28.9188
+   26 |         25.1267 |                  10.3541
+   27 |         24.5297 |                   9.8669
+   28 |         30.8367 |                  14.4459
+   29 |         29.2719 |                  23.5267
+   30 |         29.7702 |                   9.4629
+
+best | 39.6292 (epoch 25) | 34.6082 (epoch 13)

@@ -1,5 +1,6 @@
 import csv
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,8 +10,8 @@ from domain_shift_tables import (
     TABLE_CORNER_HEADER,
     THREED_METRIC_KEY,
     build_model_configuration,
+    convert_legacy_csv_table,
     load_sequence_information,
-    migrate_comparison_table_layout,
     parse_evaluation_table_txt,
     update_domain_shift_tables,
 )
@@ -41,9 +42,19 @@ def base_metadata(**overrides):
     return metadata
 
 
-def read_csv(path):
-    with Path(path).open("r", encoding="utf-8", newline="") as input_file:
-        return list(csv.reader(input_file))
+def read_table(path):
+    rows = []
+    table_started = False
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or re.fullmatch(r"[-+| ]+", stripped):
+            continue
+        if not table_started:
+            if TABLE_CORNER_HEADER not in stripped:
+                continue
+            table_started = True
+        rows.append([cell.strip() for cell in line.split("|")])
+    return rows
 
 
 class DomainShiftTablesTest(unittest.TestCase):
@@ -72,10 +83,10 @@ class DomainShiftTablesTest(unittest.TestCase):
                 output_dir
                 / "model7_64_128_lr5e-05"
                 / "after"
-                / "table1_best_bev.csv"
+                / "table1_best_bev.txt"
             )
             self.assertTrue(empty_after_table.is_file())
-            self.assertEqual(read_csv(empty_after_table)[1][1], "")
+            self.assertEqual(read_table(empty_after_table)[1][1], "")
             after = update_domain_shift_tables(
                 results,
                 base_metadata(include_bus_as_target=False),
@@ -87,11 +98,21 @@ class DomainShiftTablesTest(unittest.TestCase):
             self.assertEqual(before["selections"]["best_bev"]["epoch"], 2)
             self.assertEqual(before["selections"]["best_3d"]["epoch"], 3)
             self.assertEqual(before["selections"]["best_overall"]["epoch"], 3)
-            before_bev_rows = read_csv(before["table_paths"]["best_bev"])
+            before_bev_rows = read_table(before["table_paths"]["best_bev"])
             self.assertEqual(before_bev_rows[0][0], TABLE_CORNER_HEADER)
             self.assertTrue(before_bev_rows[0][1].endswith(" ->"))
             self.assertTrue(before_bev_rows[1][0].startswith("-> "))
             self.assertEqual(before_bev_rows[1][1], "12.00/5.00")
+            table_text = Path(before["table_paths"]["best_bev"]).read_text()
+            self.assertIn("evaluation_group: before", table_text)
+            self.assertIn("table_selection: best_bev", table_text)
+            self.assertIn("metric_pair: BEV@0.3/3D@0.3", table_text)
+            self.assertIn("source_domains:\n  - Normal 1 ->", table_text)
+            self.assertIn(
+                "source_domain_details:\n  - Normal 1 (Sequences: 1, 5)",
+                table_text,
+            )
+            self.assertNotIn("source_domains: Normal 1 (Sequences:", table_text)
             self.assertEqual(
                 Path(before["table_paths"]["best_bev"]).parent.name,
                 "before",
@@ -129,7 +150,7 @@ class DomainShiftTablesTest(unittest.TestCase):
                 ["normal", "overcast"],
             )
 
-    def test_normal_target_is_recorded_in_json_but_omitted_from_csv(self):
+    def test_normal_target_is_recorded_in_json_but_omitted_from_table(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
             output_dir = Path(temporary_dir)
             summary = update_domain_shift_tables(
@@ -138,12 +159,12 @@ class DomainShiftTablesTest(unittest.TestCase):
                 output_dir=output_dir,
             )
 
-            self.assertFalse(summary["target_recorded_in_csv"])
+            self.assertFalse(summary["target_recorded_in_table"])
             self.assertTrue(Path(summary["record_path"]).is_file())
             for table_path in summary["table_paths"].values():
-                self.assertEqual(read_csv(table_path), [[TABLE_CORNER_HEADER]])
+                self.assertEqual(read_table(table_path), [[TABLE_CORNER_HEADER]])
 
-    def test_mixed_normal_and_adverse_target_remains_in_csv(self):
+    def test_mixed_normal_and_adverse_target_remains_in_table(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
             summary = update_domain_shift_tables(
                 metric_results((1, 10.0, 5.0)),
@@ -151,8 +172,8 @@ class DomainShiftTablesTest(unittest.TestCase):
                 output_dir=Path(temporary_dir),
             )
 
-            self.assertTrue(summary["target_recorded_in_csv"])
-            rows = read_csv(summary["table_paths"]["best_bev"])
+            self.assertTrue(summary["target_recorded_in_table"])
+            rows = read_table(summary["table_paths"]["best_bev"])
             self.assertEqual(rows[1][1], "10.00/5.00")
 
     def test_same_experiment_updates_cell_without_duplicate_row_or_column(self):
@@ -168,48 +189,40 @@ class DomainShiftTablesTest(unittest.TestCase):
                 base_metadata(),
                 output_dir=output_dir,
             )
-            rows = read_csv(second["table_paths"]["best_bev"])
+            rows = read_table(second["table_paths"]["best_bev"])
             self.assertEqual(len(rows), 2)
             self.assertEqual(len(rows[0]), 2)
             self.assertEqual(rows[1][1], "4.00/5.00")
             self.assertEqual(first["record_path"], second["record_path"])
 
-    def test_legacy_target_rows_are_migrated_to_paper_layout(self):
+    def test_legacy_csv_is_converted_to_paper_text_layout(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
-            output_dir = Path(temporary_dir)
-            first = update_domain_shift_tables(
-                metric_results((1, 1.0, 2.0)),
-                base_metadata(),
-                output_dir=output_dir,
-            )
-            table_path = Path(first["table_paths"]["best_bev"])
-            with table_path.open("w", encoding="utf-8", newline="") as output_file:
+            csv_path = Path(temporary_dir) / "table.csv"
+            text_path = Path(temporary_dir) / "table.txt"
+            with csv_path.open("w", encoding="utf-8", newline="") as output_file:
                 writer = csv.writer(output_file)
-                writer.writerow(["Target domain", first["source_domain"]])
+                writer.writerow(["Target domain", "Source A"])
                 writer.writerow([
-                    first["target_domain"],
+                    "Target A",
                     "epoch=1; BEV@0.3=1.0000; 3D@0.3=2.0000",
                 ])
 
-            second = update_domain_shift_tables(
-                metric_results((4, 4.0, 5.0)),
-                base_metadata(),
-                output_dir=output_dir,
-            )
-            rows = read_csv(second["table_paths"]["best_bev"])
+            convert_legacy_csv_table(csv_path, text_path)
+            rows = read_table(text_path)
             self.assertEqual(rows[0][0], TABLE_CORNER_HEADER)
-            self.assertEqual(rows[1][1], "4.00/5.00")
+            self.assertEqual(rows[1][1], "1.00/2.00")
 
     def test_source_rows_layout_is_transposed_to_weather_table_layout(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
-            table_path = Path(temporary_dir) / "table.csv"
-            with table_path.open("w", encoding="utf-8", newline="") as output_file:
+            csv_path = Path(temporary_dir) / "table.csv"
+            text_path = Path(temporary_dir) / "table.txt"
+            with csv_path.open("w", encoding="utf-8", newline="") as output_file:
                 writer = csv.writer(output_file)
                 writer.writerow([TABLE_CORNER_HEADER, "-> Target A"])
                 writer.writerow(["Source A ->", "1.00/2.00"])
 
-            self.assertTrue(migrate_comparison_table_layout(table_path))
-            rows = read_csv(table_path)
+            convert_legacy_csv_table(csv_path, text_path)
+            rows = read_table(text_path)
             self.assertEqual(rows[0], [TABLE_CORNER_HEADER, "Source A ->"])
             self.assertEqual(rows[1], ["-> Target A", "1.00/2.00"])
 
@@ -226,7 +239,7 @@ class DomainShiftTablesTest(unittest.TestCase):
                 base_metadata(train_sequences=(9, 10), val_sequences=(22,)),
                 output_dir=output_dir,
             )
-            rows = read_csv(second["table_paths"]["best_bev"])
+            rows = read_table(second["table_paths"]["best_bev"])
             self.assertEqual(len(rows), 3)
             self.assertEqual(len(rows[0]), 3)
             self.assertEqual(rows[1][2], "")
@@ -262,13 +275,13 @@ class DomainShiftTablesTest(unittest.TestCase):
             self.assertFalse(metadata["include_bus_as_target"])
             self.assertEqual(metadata["train_sequences"], (1, 5))
 
-    def test_batch_seed_and_loss_settings_create_separate_configurations(self):
+    def test_batch_seed_and_active_loss_settings_create_separate_configurations(self):
         common = {
             "lr": 5e-5,
             "batch_size": 8,
             "seed": 42,
             "heatmap_radius": 3,
-            "centerpoint_giou_loss_weight": 2.0,
+            "centerpoint_gwd_loss_weight": 2.0,
             "quality_loss_weight": 0.25,
         }
         names = set()
@@ -276,7 +289,7 @@ class DomainShiftTablesTest(unittest.TestCase):
             {},
             {"batch_size": 16},
             {"seed": 43},
-            {"quality_loss_weight": 0.5},
+            {"centerpoint_gwd_loss_weight": 3.0},
         ):
             checkpoint_config = {**common, **overrides}
             name, _ = build_model_configuration(
@@ -286,7 +299,53 @@ class DomainShiftTablesTest(unittest.TestCase):
             )
             names.add(name)
         self.assertEqual(len(names), 4)
-        self.assertTrue(any("_bs8_seed42_loss_hm3_giou2_q0.25" in name for name in names))
+        self.assertTrue(any("_bs8_seed42_loss_hm3_gwd2" in name for name in names))
+
+    def test_model7_configuration_ignores_inactive_quality_weight(self):
+        common = {
+            "lr": 5e-5,
+            "batch_size": 8,
+            "seed": 42,
+            "heatmap_radius": 3,
+            "centerpoint_gwd_loss_weight": 2.0,
+        }
+        first_name, first_config = build_model_configuration(
+            model_type="model7",
+            checkpoint_config={**common, "quality_loss_weight": 0.25},
+        )
+        second_name, second_config = build_model_configuration(
+            model_type="model7",
+            checkpoint_config={**common, "quality_loss_weight": 0.5},
+        )
+        self.assertEqual(first_name, second_name)
+        self.assertFalse(first_config["quality_loss_active"])
+        self.assertIsNone(first_config["quality_loss_weight"])
+        self.assertEqual(first_config, second_config)
+
+    def test_legacy_giou_config_is_read_as_gwd(self):
+        common = {
+            "lr": 5e-5,
+            "batch_size": 8,
+            "seed": 42,
+            "heatmap_radius": 3,
+            "quality_loss_weight": 0.25,
+        }
+        legacy_name, legacy_config = build_model_configuration(
+            model_type="model7",
+            checkpoint_config={
+                **common,
+                "centerpoint_giou_loss_weight": 2.0,
+            },
+        )
+        current_name, current_config = build_model_configuration(
+            model_type="model7",
+            checkpoint_config={
+                **common,
+                "centerpoint_gwd_loss_weight": 2.0,
+            },
+        )
+        self.assertEqual(legacy_name, current_name)
+        self.assertEqual(legacy_config, current_config)
 
 
 if __name__ == "__main__":

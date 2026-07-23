@@ -11,6 +11,8 @@ def print_training_history(history):
         return
 
     has_heatmap = any(("train_heatmap_loss" in row) or ("val_heatmap_loss" in row) for row in history)
+    has_detection_eval = any("val_mAP" in row for row in history)
+    has_selection = any("selection_metric_value" in row for row in history)
 
     print("\nTraining history")
     header = (
@@ -28,14 +30,17 @@ def print_training_history(history):
     )
     if has_heatmap:
         header += f"{'val_hm':>9} "
-    header += (
-        f"{'BEV@0.3':>9} "
-        f"{'3D@0.3':>8} "
-        f"{'tp':>6} "
-        f"{'fp':>6} "
-        f"{'fn':>6} "
-        f"{'Sel':>9}"
-    )
+    if has_detection_eval:
+        header += (
+            f"{'BEV@0.3':>9} "
+            f"{'3D@0.3':>8} "
+            f"{'tp':>6} "
+            f"{'fp':>6} "
+            f"{'fn':>6} "
+        )
+    if has_selection:
+        header += f"{'Sel':>9}"
+    header = header.rstrip()
     print(header)
     print("-" * len(header))
 
@@ -55,26 +60,31 @@ def print_training_history(history):
         )
         if has_heatmap:
             line += f"{row.get('val_heatmap_loss', 0.0):9.4f} "
-        line += (
-            f"{row.get('val_bev_mAP_0.3', row['val_mAP']):9.4f} "
-            f"{row.get('val_3d_mAP_0.3', 0.0):8.4f} "
-            f"{int(row.get('val_detection_tp', 0)):6d} "
-            f"{int(row.get('val_detection_fp', 0)):6d} "
-            f"{int(row.get('val_detection_fn', 0)):6d} "
-            f"{row.get('selection_metric_value', row['val_mAP']):9.4f}"
-        )
-        print(line)
+        if has_detection_eval:
+            line += (
+                f"{row.get('val_bev_mAP_0.3', row['val_mAP']):9.4f} "
+                f"{row.get('val_3d_mAP_0.3', 0.0):8.4f} "
+                f"{int(row.get('val_detection_tp', 0)):6d} "
+                f"{int(row.get('val_detection_fp', 0)):6d} "
+                f"{int(row.get('val_detection_fn', 0)):6d} "
+            )
+        if has_selection:
+            line += f"{row['selection_metric_value']:9.4f}"
+        print(line.rstrip())
 
 
 def print_epoch_evaluation_summary(epoch, val_metrics, f1):
     del f1
 
-    selection_key = val_metrics.get("selection_metric_key", "mAP")
-    selection_value = float(val_metrics.get("selection_metric_value", val_metrics["mAP"]))
-    print(
-        f"Epoch {epoch}: "
-        f"{selection_key}={selection_value:.4f}"
-    )
+    if "selection_metric_key" in val_metrics:
+        selection_key = val_metrics["selection_metric_key"]
+        selection_value = float(val_metrics["selection_metric_value"])
+        print(f"Epoch {epoch}: {selection_key}={selection_value:.4f}")
+    else:
+        print(
+            f"Epoch {epoch}: val_loss={val_metrics['val_loss']:.4f} "
+            "(monitoring only; best selection disabled)"
+        )
     if any(key.startswith("official_") for key in val_metrics):
         print(
             "  official revised:",
@@ -86,6 +96,12 @@ def print_epoch_evaluation_summary(epoch, val_metrics, f1):
             f"tp={int(val_metrics.get('official_detection_tp', 0))}",
             f"fp={int(val_metrics.get('official_detection_fp', 0))}",
             f"fn={int(val_metrics.get('official_detection_fn', 0))}",
+        )
+    if any(key.startswith("polar_") for key in val_metrics):
+        print(
+            "  polar:",
+            f"bev@0.3={val_metrics.get('polar_bev_mAP_0.3', 0.0):.4f}",
+            f"bev@0.5={val_metrics.get('polar_bev_mAP_0.5', 0.0):.4f}",
         )
     if "coco_bev_mAP" in val_metrics:
         print(
@@ -138,6 +154,9 @@ def write_tensorboard_run_config(
         num_classes,
         class_names,
         model_type=None,
+        configured_model_type=None,
+        cartesian_training_workflow=None,
+        loss_mode=None,
         train_scope=None,
         split_mode=None,
         train_sequences=None,
@@ -148,11 +167,20 @@ def write_tensorboard_run_config(
         official_eval_version="revised",
         official_eval_iou_backend="auto",
         official_eval_iou_mode="easy",
+        polar_eval_enabled=False,
+        polar_iou_thresholds=None,
         coco_style_eval_enabled=False,
         nuscenes_style_eval_enabled=False,
         gt_object_ignore_override_path=None,
         train_control_split_enabled=False,
         train_control_split_dir=None,
+        sequence_tail_val_ratio=None,
+        sequence_tail_boundary_drop_frames=None,
+        centerpoint_gwd_loss_weight=None,
+        quality_loss_weight=None,
+        quality_loss_active=None,
+        box_coordinate_mode=None,
+        cartesian_gt_root=None,
     ):
     config_text = "\n".join([
         f"sequence: {cfg.sequence}",
@@ -161,7 +189,12 @@ def write_tensorboard_run_config(
         f"train_sequences: {train_sequences}",
         f"val_sequences: {val_sequences}",
         f"model_type: {model_type}",
+        f"configured_model_type: {configured_model_type}",
+        f"cartesian_training_workflow: {cartesian_training_workflow}",
+        f"loss_mode: {loss_mode}",
         f"train_scope: {train_scope}",
+        f"box_coordinate_mode: {box_coordinate_mode}",
+        f"cartesian_gt_root: {cartesian_gt_root}",
         f"training_eval_enabled: {training_eval_enabled}",
         f"num_epochs: {num_epochs}",
         f"batch_size: {batch_size}",
@@ -176,11 +209,18 @@ def write_tensorboard_run_config(
         f"official_eval_version: {official_eval_version}",
         f"official_eval_iou_backend: {official_eval_iou_backend}",
         f"official_eval_iou_mode: {official_eval_iou_mode}",
+        f"polar_eval_enabled: {polar_eval_enabled}",
+        f"polar_iou_thresholds: {polar_iou_thresholds}",
         f"coco_style_eval_enabled: {coco_style_eval_enabled}",
         f"nuscenes_style_eval_enabled: {nuscenes_style_eval_enabled}",
         f"gt_object_ignore_override_path: {gt_object_ignore_override_path}",
         f"train_control_split_enabled: {train_control_split_enabled}",
         f"train_control_split_dir: {train_control_split_dir}",
+        f"sequence_tail_val_ratio: {sequence_tail_val_ratio}",
+        f"sequence_tail_boundary_drop_frames: {sequence_tail_boundary_drop_frames}",
+        f"centerpoint_gwd_loss_weight: {centerpoint_gwd_loss_weight}",
+        f"quality_loss_weight: {quality_loss_weight}",
+        f"quality_loss_active: {quality_loss_active}",
     ])
     writer.add_text("run/config", config_text, 0)
     writer.flush()
@@ -244,6 +284,9 @@ def write_tensorboard_metrics(writer, epoch, train_metrics, val_metrics, f1, lea
     ):
         value = val_metrics.get(key)
         if isinstance(value, (int, float)):
+            writer.add_scalar(f"validation_metrics/{key}", value, epoch)
+    for key, value in val_metrics.items():
+        if key.startswith("polar_") and isinstance(value, (int, float)):
             writer.add_scalar(f"validation_metrics/{key}", value, epoch)
 
     writer.add_scalar("parameters/learning_rate", learning_rate, epoch)
