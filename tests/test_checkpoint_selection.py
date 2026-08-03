@@ -11,9 +11,158 @@ from training_utils.other_helping_functions import (
     build_epoch_eval_metrics,
     save_epoch_and_update_best_checkpoint,
 )
+from training_utils.checkpoints import (
+    create_checkpoint_run_dirs,
+    format_checkpoint_filename,
+    format_timestamp_model_sequence_run_name,
+)
+from eval.checkpoints import (
+    extract_checkpoint_source_metadata,
+    find_epoch_checkpoints,
+    resolve_domain_shift_checkpoint_metadata,
+)
 
 
 class CheckpointSelectionTests(unittest.TestCase):
+    def test_legacy_controlled_checkpoint_restores_domain_groups(self):
+        metadata = extract_checkpoint_source_metadata({
+            "config": {
+                "train_sequences": (9, 11),
+                "val_sequences": (22,),
+                "controled_sequences": 11,
+                "reference_sequences": (13,),
+                "train_control_split_enabled": True,
+                "seed": 42,
+            }
+        })
+
+        self.assertEqual(metadata["domain_shift_train_branch"], "source")
+        self.assertEqual(metadata["shared_train_sequences"], (9,))
+        self.assertEqual(metadata["source_train_sequences"], (11,))
+        self.assertEqual(metadata["target_train_sequences"], (13,))
+        self.assertEqual(metadata["target_test_sequences"], (22,))
+
+    def test_legacy_target_matches_controlled_source_sibling(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            weather_dir = Path(temporary_dir) / "overcast"
+            source_dir = weather_dir / "source"
+            target_dir = weather_dir / "target"
+            source_dir.mkdir(parents=True)
+            target_dir.mkdir(parents=True)
+            torch.save(
+                {
+                    "config": {
+                        "train_sequences": (9, 11),
+                        "val_sequences": (22,),
+                        "controled_sequences": (11,),
+                        "reference_sequences": (13,),
+                        "train_control_split_enabled": True,
+                        "train_sequence_half_selection": {},
+                        "seed": 42,
+                    }
+                },
+                source_dir / "epoch_001.pth",
+            )
+            target_checkpoint = {
+                "config": {
+                    "train_sequences": (9, 13),
+                    "val_sequences": (22,),
+                    "train_control_split_enabled": False,
+                    "train_sequence_half_selection": {},
+                    "seed": 42,
+                }
+            }
+            torch.save(target_checkpoint, target_dir / "epoch_001.pth")
+            metadata = resolve_domain_shift_checkpoint_metadata(
+                str(target_dir),
+                extract_checkpoint_source_metadata(target_checkpoint),
+            )
+
+        self.assertEqual(metadata["domain_shift_train_branch"], "target")
+        self.assertEqual(metadata["shared_train_sequences"], (9,))
+        self.assertEqual(metadata["source_train_sequences"], (11,))
+        self.assertEqual(metadata["target_train_sequences"], (13,))
+        self.assertEqual(metadata["target_test_sequences"], (22,))
+
+    def test_weather_train_test_checkpoint_layout_and_compact_names(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            checkpoint_dirs = create_checkpoint_run_dirs(
+                base_dir=temporary_dir,
+                experiment_name="object_detection",
+                sequences=(9, 1, 13),
+                model_type="model7_sedan_only",
+                train_sequence_half_selection={9: "first"},
+                train_sequence_half_ratio=0.5,
+                checkpoint_layout="weather_train_test",
+                weather_group="Overcast",
+                train_sequences=(9, 1),
+                test_sequences=(13,),
+            )
+            checkpoint_dir = Path(next(iter(checkpoint_dirs.values())))
+            epoch_filename = format_checkpoint_filename(
+                name_prefix=None,
+                epoch=3,
+                saved_at="20260729_101500",
+                metric_key="mAP",
+                metric_value=0.0,
+                model_type="model7_sedan_only",
+                sequences=(9, 1, 13),
+                compact=True,
+            )
+            best_filename = format_checkpoint_filename(
+                name_prefix="global_best",
+                epoch=3,
+                saved_at="20260729_101500",
+                metric_key="mAP",
+                metric_value=0.0,
+                model_type="model7_sedan_only",
+                sequences=(9, 1, 13),
+                compact=True,
+            )
+
+            self.assertEqual(checkpoint_dir.parent.name, "overcast")
+            self.assertRegex(
+                checkpoint_dir.name,
+                r"^\d{4}_train_seq9_first_1_test_seq13$",
+            )
+            self.assertEqual(epoch_filename, "0729_epoch_003.pth")
+            self.assertEqual(
+                best_filename,
+                "0729_global_best_epoch_003.pth",
+            )
+
+            (checkpoint_dir / epoch_filename).touch()
+            self.assertEqual(
+                find_epoch_checkpoints(str(checkpoint_dir), epoch_step=1),
+                [(3, str(checkpoint_dir / epoch_filename))],
+            )
+
+    def test_checkpoint_names_include_sequence_half_selection(self):
+        run_name = format_timestamp_model_sequence_run_name(
+            sequences=(9, 22, 13),
+            model_type="model7_sedan_only",
+            timestamp="20260729_100011_296079",
+            train_sequence_half_selection={9: "last"},
+            train_sequence_half_ratio=0.5,
+        )
+        filename = format_checkpoint_filename(
+            name_prefix=None,
+            epoch=3,
+            saved_at="20260729_101500",
+            metric_key="mAP",
+            metric_value=0.0,
+            model_type="model7_sedan_only",
+            sequences=(9, 22, 13),
+            train_sequence_half_selection={9: "first"},
+            train_sequence_half_ratio=0.5,
+        )
+
+        self.assertEqual(
+            run_name,
+            "20260729_100011_296079__model7_sedan_only__seq9_last_22_13",
+        )
+        self.assertIn("seq9_first_22_13", filename)
+
     def test_disabled_training_evaluation_has_no_selection_metric(self):
         val_metrics, f1 = build_epoch_eval_metrics(
             train_metrics={},

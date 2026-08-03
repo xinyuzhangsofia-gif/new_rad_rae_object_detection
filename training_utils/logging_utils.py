@@ -127,7 +127,21 @@ def print_epoch_evaluation_summary(epoch, val_metrics, f1):
         )
 
 
-def create_tensorboard_writer(base_dir, experiment_name, sequence, model_type=None):
+def create_tensorboard_writer(
+        base_dir,
+        experiment_name,
+        sequence,
+        model_type=None,
+        existing_log_dir=None,
+    ):
+    if existing_log_dir not in (None, ""):
+        log_dir = os.path.abspath(os.path.expanduser(str(existing_log_dir)))
+        if not os.path.isdir(log_dir):
+            raise FileNotFoundError(
+                f"TensorBoard resume directory not found: {log_dir}"
+            )
+        return SummaryWriter(log_dir=log_dir)
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     run_name = format_timestamp_model_sequence_run_name(sequence, model_type, timestamp)
     log_dir = os.path.join(base_dir, experiment_name, run_name)
@@ -161,6 +175,13 @@ def write_tensorboard_run_config(
         split_mode=None,
         train_sequences=None,
         val_sequences=None,
+        domain_shift_train_branch=None,
+        shared_train_sequences=None,
+        source_train_sequences=None,
+        target_train_sequences=None,
+        target_test_sequences=None,
+        train_sequence_half_selection=None,
+        train_sequence_half_ratio=None,
         training_eval_enabled=True,
         best_metric_key=None,
         official_eval_enabled=False,
@@ -179,21 +200,37 @@ def write_tensorboard_run_config(
         centerpoint_gwd_loss_weight=None,
         quality_loss_weight=None,
         quality_loss_active=None,
+        model7_decoder_hidden_channels=None,
         box_coordinate_mode=None,
         cartesian_gt_root=None,
+        weather_group=None,
+        weather_group_source=None,
+        sequence_information_path=None,
+        test_sequence_weather=None,
     ):
     config_text = "\n".join([
         f"sequence: {cfg.sequence}",
         f"sequences: {getattr(cfg, 'sequences', None)}",
         f"split_mode: {split_mode}",
+        f"domain_shift_train_branch: {domain_shift_train_branch}",
+        f"shared_train_sequences: {shared_train_sequences}",
+        f"source_train_sequences: {source_train_sequences}",
+        f"target_train_sequences: {target_train_sequences}",
+        f"target_test_sequences: {target_test_sequences}",
         f"train_sequences: {train_sequences}",
         f"val_sequences: {val_sequences}",
+        f"train_sequence_half_selection: {train_sequence_half_selection}",
+        f"train_sequence_half_ratio: {train_sequence_half_ratio}",
         f"model_type: {model_type}",
         f"configured_model_type: {configured_model_type}",
         f"cartesian_training_workflow: {cartesian_training_workflow}",
         f"loss_mode: {loss_mode}",
         f"train_scope: {train_scope}",
         f"box_coordinate_mode: {box_coordinate_mode}",
+        f"weather_group: {weather_group}",
+        f"weather_group_source: {weather_group_source}",
+        f"sequence_information_path: {sequence_information_path}",
+        f"test_sequence_weather: {test_sequence_weather}",
         f"cartesian_gt_root: {cartesian_gt_root}",
         f"training_eval_enabled: {training_eval_enabled}",
         f"num_epochs: {num_epochs}",
@@ -221,6 +258,7 @@ def write_tensorboard_run_config(
         f"centerpoint_gwd_loss_weight: {centerpoint_gwd_loss_weight}",
         f"quality_loss_weight: {quality_loss_weight}",
         f"quality_loss_active: {quality_loss_active}",
+        f"model7_decoder_hidden_channels: {model7_decoder_hidden_channels}",
     ])
     writer.add_text("run/config", config_text, 0)
     writer.flush()

@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import torch
@@ -21,6 +22,8 @@ from train import (
 )
 from train_cfg import RESUME_CONFIG
 from train_mode_utils import (
+    apply_domain_shift_training_configuration,
+    apply_test_sequence_weather_configuration,
     apply_training_coordinate_mode,
     apply_task_configuration,
     apply_model15_lr_defaults,
@@ -51,12 +54,17 @@ from training_utils.other_helping_functions import (
     set_seed,
 )
 from training_utils.runtime import select_device_and_gpus
+from training_utils.post_training_evaluation import (
+    run_post_training_evaluation,
+)
 from training_utils.torch_load import load_torch_checkpoint
 from zxy_config import DataConfig
 
 
 def build_resume_args():
     args = SimpleNamespace(**RESUME_CONFIG)
+    args = apply_domain_shift_training_configuration(args)
+    args = apply_test_sequence_weather_configuration(args)
     validate_resume_args(args)
     if args.resume_checkpoint == "":
         raise ValueError("Set RESUME_CONFIG['resume_checkpoint'] in train_cfg.py before running train_resume.py")
@@ -246,7 +254,30 @@ def main():
     )
 
     print(f"Training classes: {args.class_names}")
+    print(
+        "Test weather group: "
+        f"{getattr(args, 'weather_group', 'unspecified')} "
+        f"(auto from {getattr(args, 'sequence_information_path', 'unknown')})"
+    )
+    if getattr(args, "domain_shift_experiment_enabled", False):
+        print(
+            "Domain-shift training: "
+            f"branch={args.domain_shift_train_branch}, "
+            f"shared={args.shared_train_sequences}, "
+            f"source={args.source_train_sequences}, "
+            f"target={args.target_train_sequences}, "
+            f"target_test={args.target_test_sequences}"
+        )
+        print(
+            "Domain-shift effective split: "
+            f"train={args.train_sequences}, val={args.val_sequences}"
+        )
     print(f"Box coordinate mode: {args.box_coordinate_mode}")
+    if args.model_type == "model7":
+        print(
+            "Model7 decoder hidden channels: "
+            f"{args.model7_decoder_hidden_channels}"
+        )
     if args.cartesian_training_workflow == "radenet_official_in_model7":
         print(
             "Model7 Cartesian detector: original RADE-Net head implemented "
@@ -261,6 +292,10 @@ def main():
     print(
         "Ignore object_label=-1: "
         f"{args.ignore_object_label_minus_one}"
+    )
+    print(
+        "Ignore out-of-scope GT: "
+        f"{args.ignore_out_of_scope_gt}"
     )
     print(f"Ignore-mask classes: {args.ignore_class_names}")
     print(
@@ -285,6 +320,12 @@ def main():
         print("Best checkpoint selection: disabled (epoch checkpoints only)")
     if args.train_control_split_enabled:
         print(f"Train control split: {args.train_control_split_dir}")
+    if getattr(args, "train_sequence_half_selection", {}):
+        print(
+            "Train sequence half selection: "
+            f"{args.train_sequence_half_selection}, "
+            f"ratio={args.train_sequence_half_ratio:g}"
+        )
     if args.gt_object_ignore_override_path is not None:
         print(f"GT object ignore override: {args.gt_object_ignore_override_path}")
     print(f"Resume checkpoint: {args.resume_checkpoint}")
@@ -303,6 +344,16 @@ def main():
         seed=args.seed,
         num_workers=args.num_workers,
         limit_samples=args.limit_samples,
+        train_sequence_half_selection=getattr(
+            args,
+            "train_sequence_half_selection",
+            None,
+        ),
+        train_sequence_half_ratio=getattr(
+            args,
+            "train_sequence_half_ratio",
+            0.5,
+        ),
         class_to_idx=args.class_to_idx,
         ignore_class_names=args.ignore_class_names,
         gt_object_ignore_override_path=args.gt_object_ignore_override_path,
@@ -317,6 +368,7 @@ def main():
         cartesian_gt_root=args.cartesian_gt_root,
         polar_gt_root=args.polar_gt_root,
         ignore_object_label_minus_one=args.ignore_object_label_minus_one,
+        ignore_out_of_scope_gt=args.ignore_out_of_scope_gt,
     )
     if len(val_dataset) == 0:
         raise ValueError("Validation split is empty.")
@@ -325,6 +377,11 @@ def main():
         model_type=args.model_type,
         device=device,
         num_classes=args.num_classes,
+        decoder_hidden_channels=(
+            args.model7_decoder_hidden_channels
+            if args.model_type == "model7"
+            else None
+        ),
         box_coordinate_mode=args.box_coordinate_mode,
         loss_mode=loss_mode,
     )
@@ -366,14 +423,48 @@ def main():
     )
     print(f"Resume training epochs: {args.start_epoch}-{args.end_epoch}")
 
-    checkpoint_dirs = create_checkpoint_run_dirs(
-        base_dir=args.checkpoint_base_dir,
-        experiment_name=EXPERIMENT_NAME,
-        sequences=configured_sequences,
-        model_type=args.run_model_type,
-    )
-    checkpoint_key = next(iter(checkpoint_dirs))
-    checkpoint_dir = checkpoint_dirs[checkpoint_key]
+    if getattr(args, "resume_save_in_checkpoint_dir", False):
+        checkpoint_dir = str(
+            Path(args.resume_checkpoint).expanduser().resolve().parent
+        )
+        checkpoint_key = configured_sequences
+        checkpoint_dirs = {checkpoint_key: checkpoint_dir}
+        existing_epoch_files = []
+        for epoch_number in range(args.start_epoch, args.end_epoch + 1):
+            existing_epoch_files.extend(
+                Path(checkpoint_dir).glob(f"*epoch_{epoch_number:03d}*.pth")
+            )
+        if existing_epoch_files:
+            existing_text = ", ".join(
+                str(path) for path in sorted(existing_epoch_files)
+            )
+            raise FileExistsError(
+                "Refusing to overwrite existing resumed epoch checkpoints: "
+                f"{existing_text}"
+            )
+    else:
+        checkpoint_dirs = create_checkpoint_run_dirs(
+            base_dir=args.checkpoint_base_dir,
+            experiment_name=EXPERIMENT_NAME,
+            sequences=configured_sequences,
+            model_type=args.run_model_type,
+            train_sequence_half_selection=getattr(
+                args,
+                "train_sequence_half_selection",
+                None,
+            ),
+            train_sequence_half_ratio=getattr(
+                args,
+                "train_sequence_half_ratio",
+                None,
+            ),
+            checkpoint_layout=getattr(args, "checkpoint_layout", "legacy"),
+            weather_group=getattr(args, "weather_group", None),
+            train_sequences=args.train_sequences,
+            test_sequences=args.val_sequences,
+        )
+        checkpoint_key = next(iter(checkpoint_dirs))
+        checkpoint_dir = checkpoint_dirs[checkpoint_key]
     print(f"Saving checkpoints to: {checkpoint_dir}")
 
     writer = create_tensorboard_writer(
@@ -381,6 +472,11 @@ def main():
         experiment_name=EXPERIMENT_NAME,
         sequence=configured_sequences,
         model_type=args.run_model_type,
+        existing_log_dir=getattr(
+            args,
+            "resume_tensorboard_log_dir",
+            None,
+        ),
     )
     write_tensorboard_run_config(
         writer=writer,
@@ -401,6 +497,25 @@ def main():
         split_mode=args.split_mode,
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
+        domain_shift_train_branch=getattr(
+            args,
+            "domain_shift_train_branch",
+            None,
+        ),
+        shared_train_sequences=getattr(args, "shared_train_sequences", None),
+        source_train_sequences=getattr(args, "source_train_sequences", None),
+        target_train_sequences=getattr(args, "target_train_sequences", None),
+        target_test_sequences=getattr(args, "target_test_sequences", None),
+        train_sequence_half_selection=getattr(
+            args,
+            "train_sequence_half_selection",
+            None,
+        ),
+        train_sequence_half_ratio=getattr(
+            args,
+            "train_sequence_half_ratio",
+            None,
+        ),
         training_eval_enabled=getattr(args, "training_eval_enabled", True),
         best_metric_key=(
             getattr(args, "best_metric_key", "auto")
@@ -421,8 +536,17 @@ def main():
         centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
         quality_loss_weight=args.quality_loss_weight,
         quality_loss_active=model_uses_separate_quality_loss(args.model_type),
+        model7_decoder_hidden_channels=args.model7_decoder_hidden_channels,
         box_coordinate_mode=args.box_coordinate_mode,
         cartesian_gt_root=args.cartesian_gt_root,
+        weather_group=getattr(args, "weather_group", None),
+        weather_group_source=getattr(args, "weather_group_source", None),
+        sequence_information_path=getattr(
+            args,
+            "sequence_information_path",
+            None,
+        ),
+        test_sequence_weather=getattr(args, "test_sequence_weather", None),
     )
 
     history = []
@@ -562,6 +686,17 @@ def main():
         )
         if global_best_path is not None:
             print(f"Current global best checkpoint: {global_best_path}")
+    del model, optimizer, scheduler, train_loader, val_loader
+    run_post_training_evaluation(
+        checkpoint_root=checkpoint_dir,
+        gpu_ids_text=args.gpu_ids,
+        enabled=getattr(args, "post_training_eval_enabled", False),
+        min_free_memory_mb=getattr(
+            args,
+            "post_training_eval_min_free_memory_mb",
+            4096,
+        ),
+    )
 
 
 if __name__ == "__main__":

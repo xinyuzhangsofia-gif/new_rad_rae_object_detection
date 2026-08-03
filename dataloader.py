@@ -105,6 +105,7 @@ def build_detection_dataset_for_sequence(
         cartesian_gt_root=None,
         polar_gt_root=None,
         ignore_object_label_minus_one=False,
+        ignore_out_of_scope_gt=True,
     ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     radar_dataset = KRadarRADRAEDataset(
@@ -133,6 +134,7 @@ def build_detection_dataset_for_sequence(
         box_coordinate_mode=box_coordinate_mode,
         cartesian_gt_root=cartesian_gt_root,
         ignore_object_label_minus_one=ignore_object_label_minus_one,
+        ignore_out_of_scope_gt=ignore_out_of_scope_gt,
     )
     override_summary = getattr(dataset, "object_ignore_override_summary", None)
     if override_summary and override_summary.get("override_path"):
@@ -161,6 +163,8 @@ def build_train_val_dataloaders(
     seed,
     num_workers,
     limit_samples,
+    train_sequence_half_selection=None,
+    train_sequence_half_ratio=0.5,
     class_to_idx=None,
     ignore_unmapped_classes=True,
     ignore_class_names=None,
@@ -178,8 +182,14 @@ def build_train_val_dataloaders(
     cartesian_gt_root=None,
     polar_gt_root=None,
     ignore_object_label_minus_one=False,
+    ignore_out_of_scope_gt=True,
 ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    if train_sequence_half_selection and split_mode != "sequence":
+        raise ValueError(
+            "train_sequence_half_selection is supported only when "
+            "split_mode='sequence'."
+        )
     dataset_sequences = get_dataset_sequences_for_split(
         cfg=cfg,
         split_mode=split_mode,
@@ -199,6 +209,7 @@ def build_train_val_dataloaders(
             cartesian_gt_root=cartesian_gt_root,
             polar_gt_root=polar_gt_root,
             ignore_object_label_minus_one=ignore_object_label_minus_one,
+            ignore_out_of_scope_gt=ignore_out_of_scope_gt,
         )
         for sequence in dataset_sequences
     ]
@@ -220,6 +231,7 @@ def build_train_val_dataloaders(
                 cartesian_gt_root=cartesian_gt_root,
                 polar_gt_root=polar_gt_root,
                 ignore_object_label_minus_one=ignore_object_label_minus_one,
+                ignore_out_of_scope_gt=ignore_out_of_scope_gt,
             )
             for sequence in dataset_sequences
         ]
@@ -252,6 +264,8 @@ def build_train_val_dataloaders(
             full_dataset=full_dataset,
             train_sequences=train_sequences,
             val_sequences=val_sequences,
+            train_sequence_half_selection=train_sequence_half_selection,
+            train_sequence_half_ratio=train_sequence_half_ratio,
             limit_samples=limit_samples,
         )
     elif split_mode == "sequence_tail":
@@ -520,7 +534,9 @@ def build_sequence_split_indices(
         train_sequences,
         val_sequences,
         limit_samples,
-    ):
+        train_sequence_half_selection=None,
+        train_sequence_half_ratio=0.5,
+):
     train_sequences = normalize_sequence_list(train_sequences, name="train_sequences")
     val_sequences = normalize_sequence_list(val_sequences, name="val_sequences")
     if train_sequences is None or len(train_sequences) == 0:
@@ -548,11 +564,61 @@ def build_sequence_split_indices(
             f"missing_train={missing_train}, missing_val={missing_val}"
         )
 
+    if train_sequence_half_selection is None:
+        train_sequence_half_selection = {}
+    if not isinstance(train_sequence_half_selection, dict):
+        raise ValueError(
+            "train_sequence_half_selection must be a mapping of "
+            "sequence to 'first' or 'last'."
+        )
+    try:
+        train_sequence_half_ratio = float(train_sequence_half_ratio)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "train_sequence_half_ratio must be a number in (0, 1]."
+        ) from exc
+    if not 0.0 < train_sequence_half_ratio <= 1.0:
+        raise ValueError("train_sequence_half_ratio must be in (0, 1].")
+
+    selected_sequences = {
+        int(sequence): str(position).strip().lower()
+        for sequence, position in train_sequence_half_selection.items()
+    }
+    invalid_selected_sequences = sorted(set(selected_sequences) - train_set)
+    if invalid_selected_sequences:
+        raise ValueError(
+            "train_sequence_half_selection contains sequences that are not in "
+            f"train_sequences: {invalid_selected_sequences}"
+        )
+    invalid_positions = sorted(
+        set(selected_sequences.values()) - {"first", "last"}
+    )
+    if invalid_positions:
+        raise ValueError(
+            "train_sequence_half_selection values must be 'first' or 'last', "
+            f"got {invalid_positions}"
+        )
+
     def indices_for_sequences(sequences):
         indices = []
         for sequence in sequences:
             sequence_range = sequence_ranges[int(sequence)]
-            indices.extend(range(sequence_range["start"], sequence_range["end"]))
+            sequence_indices = list(
+                range(sequence_range["start"], sequence_range["end"])
+            )
+            position = selected_sequences.get(int(sequence))
+            if position is not None:
+                keep_size = max(
+                    1,
+                    int(math.ceil(
+                        len(sequence_indices) * train_sequence_half_ratio
+                    )),
+                )
+                if position == "first":
+                    sequence_indices = sequence_indices[:keep_size]
+                else:
+                    sequence_indices = sequence_indices[-keep_size:]
+            indices.extend(sequence_indices)
         return indices
 
     train_indices = indices_for_sequences(train_sequences)

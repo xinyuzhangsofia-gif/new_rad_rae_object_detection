@@ -111,6 +111,7 @@ class KRadarGTDetectionDataset(Dataset):
             box_coordinate_mode=BOX_COORDINATE_POLAR,
             cartesian_gt_root=None,
             ignore_object_label_minus_one=False,
+            ignore_out_of_scope_gt=True,
             ):
         super().__init__()
         self.radar_dataset = radar_dataset
@@ -122,6 +123,7 @@ class KRadarGTDetectionDataset(Dataset):
         self.ignore_object_label_minus_one = bool(
             ignore_object_label_minus_one
         )
+        self.ignore_out_of_scope_gt = bool(ignore_out_of_scope_gt)
         if self.sequence is None:
             self.sequence = getattr(radar_dataset, "sequence", None)
         if self.sequence is None:
@@ -159,7 +161,7 @@ class KRadarGTDetectionDataset(Dataset):
                 self.gt_by_frame_name = read_kradar_revised_label_dir(
                     label_root=cartesian_gt_root,
                     sequence=self.sequence,
-                    radar_visibility_tokens=("R",),
+                    radar_visibility_tokens=("R", "LR"),
                 )
 
         if self.ignore_object_label_minus_one:
@@ -231,16 +233,23 @@ class KRadarGTDetectionDataset(Dataset):
         rad = torch.from_numpy(radar_data["rad"]).float()
         rae = torch.from_numpy(radar_data["rae"]).float()
         full_rae_shape = radar_data["full_rae_shape"]
-        objects_in_fov = [
-            obj for obj in objects
-            if self._object_overlaps_rae_fov(obj, full_rae_shape)
-            and self._object_center_in_scope(obj)
-        ]
-        ignore_objects_in_fov = [
-            obj for obj in ignore_objects
-            if self._object_overlaps_rae_fov(obj, full_rae_shape)
-            and self._object_center_in_scope(obj)
-        ]
+        if self.ignore_out_of_scope_gt:
+            objects_in_fov = [
+                obj for obj in objects
+                if self._object_overlaps_rae_fov(obj, full_rae_shape)
+                and self._object_center_in_scope(obj)
+            ]
+            ignore_objects_in_fov = [
+                obj for obj in ignore_objects
+                if self._object_overlaps_rae_fov(obj, full_rae_shape)
+                and self._object_center_in_scope(obj)
+            ]
+        else:
+            # Keep all parsed GT rows, including boxes outside the radar RAE
+            # tensor or the selected narrow scope.  The target builder may
+            # clamp their heatmap location to the tensor boundary.
+            objects_in_fov = list(objects)
+            ignore_objects_in_fov = list(ignore_objects)
 
         gt_boxes, gt_boxes_raw, gt_metric_boxes = self._build_box_tensors(
             objects_in_fov,
@@ -302,6 +311,7 @@ class KRadarGTDetectionDataset(Dataset):
             "ignore_object_label_minus_one": bool(
                 self.ignore_object_label_minus_one
             ),
+            "ignore_out_of_scope_gt": bool(self.ignore_out_of_scope_gt),
         }
 
     def _remove_invalid_object_labels(self):

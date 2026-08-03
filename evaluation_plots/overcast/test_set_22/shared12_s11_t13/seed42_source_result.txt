@@ -1,0 +1,76 @@
+model_type: overcast_model7_64_128_ig_train_12,11_controlled_lr5e-5
+checkpoint_root: checkpoints/overcast/0728_train_seq12_11_test_seq22
+checkpoint_group: 0728_train_seq12_11_test_seq22
+weather_group: overcast
+seed: 42
+train_sequences: (12, 11)
+val_sequences: (22,)
+domain_shift_train_branch: source
+shared_train_sequences: (12,)
+source_train_sequences: (11,)
+target_train_sequences: (13,)
+target_test_sequences: (22,)
+eval_scope: full
+eval_coordinate_mode: auto
+effective_eval_coordinate_mode: cartesian
+box_coordinate_mode: cartesian
+include_bus_as_target: False
+checkpoint_include_bus_as_target: False
+gt_object_ignore_override_path: split/controled_seq11_ref13/object_ignore_override.json
+train_control_split_enabled: True
+ap_score_thresh: 0.01
+score_thresh: 0.3
+group_checkpoint_plot_best_only: True
+train_frames: 2382
+test_frames: 611
+train_ratio_frames: 0.7958569996658871
+train_bbox_total: 8415
+train_bbox_sedan: 5824
+train_bbox_bus: 2591
+test_bbox_total: 1463
+test_bbox_sedan: 1444
+test_bbox_bus: 19
+train_ratio_bboxes: 0.8518930957683741
+
+best_epoch_bev@0.3: epoch 15 (bev@0.3=61.6542)
+best_epoch_3d@0.3: epoch 15 (3d@0.3=56.2726)
+average_AP_epoch_5_to_24 (epochs_used=20): bev@0.3=47.9105 | bev@0.5=33.7070 | 3d@0.3=42.1218 | 3d@0.5=14.2665
+
+all_epoch_selection_metrics:
+epoch   bev@0.3   bev@0.5    3d@0.3    3d@0.5  ign_sup
+------------------------------------------------------
+    1    2.5976    0.0429    0.0454    0.0350        0
+    2   10.9984    5.0891    7.8699    1.2081        0
+    3   22.1060   12.0627   16.8989    3.1466        0
+    4   34.1607   23.1631   29.3081   10.6649        0
+    5   40.0716   26.9007   34.2273   10.2591        0
+    6   45.6021   27.7325   39.1965   10.7275        0
+    7   38.0089   25.1202   33.2664   10.8077        0
+    8   35.5959   19.9459   28.4858    6.6512        0
+    9   46.5549   32.1840   42.0898   14.1717        0
+   10   30.0352   16.9535   25.2432    6.6374        0
+   11   53.3841   40.9345   49.1976   18.0305        0
+   12   56.7234   39.3522   50.6238   17.1918        0
+   13   44.2999   23.7154   36.5443    9.9824        0
+   14   50.8964   35.4655   45.3488   16.5417        0
+   15   61.6542   49.5168   56.2726   23.9557        0
+   16   42.5804   31.0066   36.7812   13.1868        0
+   17   50.6374   36.4700   44.9192   16.9288        0
+   18   44.6903   36.0175   40.0586   17.2615        0
+   19   52.7165   38.4032   47.7988   16.8022        0
+   20   56.9054   44.1699   51.6175   19.6215        0
+   21   47.7618   34.0451   41.3501   15.0735        0
+   22   60.7157   48.6054   53.9028   17.7059        0
+   23   50.0779   36.5558   45.1801   14.3942        0
+   24   49.2983   31.0457   40.3312    9.3991        0
+   25   23.8180   14.0764   17.6536    3.7314        0
+   26   56.5096   42.9938   50.7241   18.3315        0
+   27   37.3375   26.7606   32.0263   11.9950        0
+   28   24.8762   15.4936   19.9739    5.3032        0
+   29   28.3526   17.4646   25.0443    6.4979        0
+   30   55.6131   37.3038   47.4074   15.0403        0
+
+selected_checkpoint_full_metrics:
+epoch   val_loss    val_box    val_cls     val_hm    val_obj     val_l1    val_gwd   bev@0.3   bev@0.5    3d@0.3    3d@0.5        p        r       f1  ign_sup   c_bev_mAP   c_3d_mAP      c_p      c_r     c_f1    n_mAP   n@0.5m     n@1m     n@2m     n@4m     mATE     mASE     mAOE
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+   15     2.5605     1.2842     1.2763     1.2763     0.0000     0.0000     0.5102   61.6542   49.5168   56.2726   23.9557   0.6485   0.5852   0.6152        0      0.5706     0.3968   0.6246   0.5636   0.5925   0.5220   0.2113   0.5986   0.6317   0.6463   0.4355   0.2313   0.0917

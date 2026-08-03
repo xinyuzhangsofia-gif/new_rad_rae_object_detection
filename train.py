@@ -33,12 +33,20 @@ from training_utils.other_helping_functions import (
     set_seed,
 )
 from training_utils.runtime import select_device_and_gpus
+from training_utils.post_training_evaluation import (
+    run_post_training_evaluation,
+)
+from training_utils.experiment_queue import (
+    run_domain_shift_experiment_queue,
+)
 from training_utils.training_loop import (
     train_one_epoch,
     validate_loss,
 )
 from train_cfg import TRAIN_CONFIG
 from train_mode_utils import (
+    apply_domain_shift_training_configuration,
+    apply_test_sequence_weather_configuration,
     apply_training_coordinate_mode,
     apply_task_configuration,
     apply_model15_lr_defaults,
@@ -56,6 +64,8 @@ from zxy_config import DataConfig
 def build_train_args(train_config=None):
     config = TRAIN_CONFIG if train_config is None else train_config
     args = SimpleNamespace(**config)
+    args = apply_domain_shift_training_configuration(args)
+    args = apply_test_sequence_weather_configuration(args)
     if args.train_scope not in SCOPE_CHOICES:
         raise ValueError(f"train_scope must be one of {SCOPE_CHOICES}, got {args.train_scope!r}")
     if args.split_mode not in ("random", "file", "sequence", "sequence_tail"):
@@ -68,11 +78,24 @@ def build_train_args(train_config=None):
     return args
 
 
-def main(train_config=None):
-    if len(sys.argv) > 1:
+def main(train_config=None, _experiment_queue_child=False):
+    if train_config is None and len(sys.argv) > 1:
         raise ValueError(
             "Training reads settings from train_cfg.py or train_cfg_v2.py; "
             "edit the selected config file instead of passing command-line arguments."
+        )
+
+    config = TRAIN_CONFIG if train_config is None else train_config
+    if (
+        not _experiment_queue_child
+        and bool(config.get("experiment_queue_enabled", False))
+    ):
+        return run_domain_shift_experiment_queue(
+            base_config=config,
+            train_function=lambda child_config: main(
+                child_config,
+                _experiment_queue_child=True,
+            ),
         )
 
     args = build_train_args(train_config=train_config)
@@ -106,7 +129,30 @@ def main(train_config=None):
     )
 
     print(f"Training classes: {args.class_names}")
+    print(
+        "Test weather group: "
+        f"{getattr(args, 'weather_group', 'unspecified')} "
+        f"(auto from {getattr(args, 'sequence_information_path', 'unknown')})"
+    )
+    if getattr(args, "domain_shift_experiment_enabled", False):
+        print(
+            "Domain-shift training: "
+            f"branch={args.domain_shift_train_branch}, "
+            f"shared={args.shared_train_sequences}, "
+            f"source={args.source_train_sequences}, "
+            f"target={args.target_train_sequences}, "
+            f"target_test={args.target_test_sequences}"
+        )
+        print(
+            "Domain-shift effective split: "
+            f"train={args.train_sequences}, val={args.val_sequences}"
+        )
     print(f"Box coordinate mode: {args.box_coordinate_mode}")
+    if args.model_type == "model7":
+        print(
+            "Model7 decoder hidden channels: "
+            f"{args.model7_decoder_hidden_channels}"
+        )
     if args.cartesian_training_workflow == "radenet_official_in_model7":
         print(
             "Model7 Cartesian detector: original RADE-Net head implemented "
@@ -129,6 +175,10 @@ def main(train_config=None):
     print(
         "Ignore object_label=-1: "
         f"{args.ignore_object_label_minus_one}"
+    )
+    print(
+        "Ignore out-of-scope GT: "
+        f"{args.ignore_out_of_scope_gt}"
     )
     print(f"Ignore-mask classes: {args.ignore_class_names}")
     print(
@@ -153,6 +203,12 @@ def main(train_config=None):
         print("Best checkpoint selection: disabled (epoch checkpoints only)")
     if args.train_control_split_enabled:
         print(f"Train control split: {args.train_control_split_dir}")
+    if getattr(args, "train_sequence_half_selection", {}):
+        print(
+            "Train sequence half selection: "
+            f"{args.train_sequence_half_selection}, "
+            f"ratio={args.train_sequence_half_ratio:g}"
+        )
     if args.split_mode == "sequence_tail":
         print(
             "Chronological internal validation: "
@@ -173,6 +229,16 @@ def main(train_config=None):
         seed=args.seed,
         num_workers=args.num_workers,
         limit_samples=args.limit_samples,
+        train_sequence_half_selection=getattr(
+            args,
+            "train_sequence_half_selection",
+            None,
+        ),
+        train_sequence_half_ratio=getattr(
+            args,
+            "train_sequence_half_ratio",
+            0.5,
+        ),
         class_to_idx=args.class_to_idx,
         ignore_class_names=args.ignore_class_names,
         gt_object_ignore_override_path=args.gt_object_ignore_override_path,
@@ -193,6 +259,7 @@ def main(train_config=None):
         cartesian_gt_root=args.cartesian_gt_root,
         polar_gt_root=args.polar_gt_root,
         ignore_object_label_minus_one=args.ignore_object_label_minus_one,
+        ignore_out_of_scope_gt=args.ignore_out_of_scope_gt,
     )
     if len(val_dataset) == 0:
         raise ValueError("Validation split is empty.")
@@ -201,6 +268,11 @@ def main(train_config=None):
         model_type=args.model_type,
         device=device,
         num_classes=args.num_classes,
+        decoder_hidden_channels=(
+            args.model7_decoder_hidden_channels
+            if args.model_type == "model7"
+            else None
+        ),
         box_coordinate_mode=args.box_coordinate_mode,
         loss_mode=loss_mode,
     )
@@ -235,6 +307,20 @@ def main(train_config=None):
         experiment_name=EXPERIMENT_NAME,
         sequences=configured_sequences,
         model_type=args.run_model_type,
+        train_sequence_half_selection=getattr(
+            args,
+            "train_sequence_half_selection",
+            None,
+        ),
+        train_sequence_half_ratio=getattr(
+            args,
+            "train_sequence_half_ratio",
+            None,
+        ),
+        checkpoint_layout=getattr(args, "checkpoint_layout", "legacy"),
+        weather_group=getattr(args, "weather_group", None),
+        train_sequences=args.train_sequences,
+        test_sequences=args.val_sequences,
     )
     checkpoint_key = next(iter(checkpoint_dirs))
     checkpoint_dir = checkpoint_dirs[checkpoint_key]
@@ -265,6 +351,25 @@ def main(train_config=None):
         split_mode=args.split_mode,
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
+        domain_shift_train_branch=getattr(
+            args,
+            "domain_shift_train_branch",
+            None,
+        ),
+        shared_train_sequences=getattr(args, "shared_train_sequences", None),
+        source_train_sequences=getattr(args, "source_train_sequences", None),
+        target_train_sequences=getattr(args, "target_train_sequences", None),
+        target_test_sequences=getattr(args, "target_test_sequences", None),
+        train_sequence_half_selection=getattr(
+            args,
+            "train_sequence_half_selection",
+            None,
+        ),
+        train_sequence_half_ratio=getattr(
+            args,
+            "train_sequence_half_ratio",
+            None,
+        ),
         training_eval_enabled=getattr(args, "training_eval_enabled", True),
         best_metric_key=(
             getattr(args, "best_metric_key", "auto")
@@ -291,8 +396,17 @@ def main(train_config=None):
         centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
         quality_loss_weight=args.quality_loss_weight,
         quality_loss_active=model_uses_separate_quality_loss(args.model_type),
+        model7_decoder_hidden_channels=args.model7_decoder_hidden_channels,
         box_coordinate_mode=args.box_coordinate_mode,
         cartesian_gt_root=args.cartesian_gt_root,
+        weather_group=getattr(args, "weather_group", None),
+        weather_group_source=getattr(args, "weather_group_source", None),
+        sequence_information_path=getattr(
+            args,
+            "sequence_information_path",
+            None,
+        ),
+        test_sequence_weather=getattr(args, "test_sequence_weather", None),
     )
 
     for epoch in range(args.epochs):
@@ -405,6 +519,18 @@ def main(train_config=None):
             checkpoint_dirs=checkpoint_dirs,
             checkpoint_key=checkpoint_key,
         )
+    del model, optimizer, scheduler, train_loader, val_loader
+    run_post_training_evaluation(
+        checkpoint_root=checkpoint_dir,
+        gpu_ids_text=args.gpu_ids,
+        enabled=getattr(args, "post_training_eval_enabled", False),
+        min_free_memory_mb=getattr(
+            args,
+            "post_training_eval_min_free_memory_mb",
+            4096,
+        ),
+    )
+    return checkpoint_dir
 
 if __name__ == "__main__":
     main()

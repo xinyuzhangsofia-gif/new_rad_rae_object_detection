@@ -36,13 +36,21 @@ DEFAULT_CALIB_PATH = (
     / "lidar2radar_calib.yml"
 )
 
+# In the revised visibility labels, LR means that the object is visible to
+# both LiDAR and radar.  A radar GT must therefore keep both R and LR.
+RADAR_VISIBLE_TAGS = {"R", "LR"}
+
 
 def numeric_name_key(name: str):
     return (0, int(name)) if name.isdigit() else (1, name)
 
 
 def parse_revised_label(path: Path):
-    """Return the tesseract frame name and radar-visible Cartesian objects."""
+    """Return the tesseract frame name and radar-visible Cartesian objects.
+
+    Both ``R`` and ``LR`` are radar-visible.  Lidar-only visibility tags
+    (``L``, ``L1`` and other variants) are not included in radar GT.
+    """
     lines = [line.strip() for line in path.read_text().splitlines() if line.strip()]
     if not lines:
         raise ValueError(f"Empty revised label file: {path}")
@@ -70,13 +78,17 @@ def parse_revised_label(path: Path):
                 f"Expected at least 11 fields in {path}:{line_number}, "
                 f"got {len(parts)}"
             )
-        if parts[1] != "R":
+        if parts[1] not in RADAR_VISIBLE_TAGS:
             continue
+
+        # -1 is a valid annotation identifier for this workflow.  It is a
+        # tracking/association value, not a class label, so keep the bbox.
+        object_label = int(parts[2])
 
         # Official v2.1 stores half dimensions in columns 8, 9 and 10.
         objects.append(
             {
-                "object_label": int(parts[2]),
+                "object_label": object_label,
                 "class_name": parts[3],
                 "x_m": float(parts[4]),
                 "y_m": float(parts[5]),
@@ -141,7 +153,7 @@ def transform_box_lidar_to_radar(obj, rotation, translation):
 
 
 def transform_revised_label_file(label_path, output_path, rotation, translation):
-    """Write a radar-aligned copy while preserving the official file format."""
+    """Write a radar-aligned copy containing only R/ LR objects."""
     output_lines = []
     for line_number, raw_line in enumerate(
         label_path.read_text().splitlines(), start=1
@@ -157,6 +169,8 @@ def transform_revised_label_file(label_path, output_path, rotation, translation)
             output_lines.append(raw_line)
             continue
 
+        if parts[1] not in RADAR_VISIBLE_TAGS:
+            continue
         try:
             center_lidar = np.asarray(
                 [float(parts[4]), float(parts[5]), float(parts[6])],
@@ -393,7 +407,9 @@ def main():
         "frame to radar coordinates using visualization_based_gt's\n"
         "lidar2radar_calib.yml: radar = lidar @ R.T + T.\n"
         f"Calibration file: {args.lidar2radar_calib}\n"
-        "Only objects with visibility token R are included in gt/gt.txt.\n"
+        "Objects with visibility token R or LR are included in the radar GT.\n"
+        "L/L1/LL and other lidar-only visibility tokens are excluded.\n"
+        "Objects with object_label=-1 are included.\n"
         "Radar-aligned per-frame label copies are written to each sequence directory.\n"
         "The filename first component and header tesseract_idx were checked.\n"
         "frame_manifest.csv is the authoritative radar-to-label matching audit.\n"

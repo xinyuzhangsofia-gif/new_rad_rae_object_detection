@@ -15,6 +15,7 @@ from models import build_model
 from train_mode_utils import (
     apply_training_coordinate_mode,
     resolve_loss_mode,
+    resolve_model7_decoder_hidden_channels,
 )
 from training_utils.losses import (
     cartesian_centerpoint_detection_loss,
@@ -161,6 +162,26 @@ class CoordinateModeTests(unittest.TestCase):
                 args.cartesian_training_workflow,
                 expected_workflow,
             )
+
+    def test_model7_decoder_width_button_supports_auto_64_and_128(self):
+        self.assertEqual(
+            resolve_model7_decoder_hidden_channels("auto", "polar"),
+            64,
+        )
+        self.assertEqual(
+            resolve_model7_decoder_hidden_channels("auto", "cartesian"),
+            128,
+        )
+        self.assertEqual(
+            resolve_model7_decoder_hidden_channels(64, "cartesian"),
+            64,
+        )
+        self.assertEqual(
+            resolve_model7_decoder_hidden_channels(128, "polar"),
+            128,
+        )
+        with self.assertRaises(ValueError):
+            resolve_model7_decoder_hidden_channels(96, "polar")
 
     def test_model7_contains_the_cartesian_radenet_head_directly(self):
         polar_model = build_model(

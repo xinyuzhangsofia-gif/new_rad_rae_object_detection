@@ -14,6 +14,7 @@ TRAIN_CONFIG_V2 = {
     # Use only the configured train sequences.  Their final tail becomes the
     # internal validation set, so val_sequences is intentionally unused.
     "split_mode": "sequence_tail",
+    "experiment_queue_enabled": False,
     "train_ratio": 0.9,
     "val_sequences": None,
     "sequence_tail_val_ratio": 0.10,

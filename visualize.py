@@ -8,11 +8,15 @@ import torch.nn.functional as F
 from matplotlib.patches import Rectangle
 
 from cfg_model import (
+    AZIMUTH_AXIS,
+    ELEVATION_AXIS,
+    RANGE_AXIS,
     RDR_SP_CUBE,
     SCOPE_CHOICES,
     SCOPE_FULL,
     SCOPE_NARROW,
     denormalize_rae_boxes_to_local_scope,
+    get_rae_scope_start_and_shape,
     normalized_rae_box_centers_in_cartesian_roi,
 )
 from coordinate_modes import (
@@ -39,6 +43,7 @@ from train_mode_utils import (
 )
 from training_utils.radenet_utils import (
     metric_boxes_to_raw_local_rae,
+    raw_local_rae_boxes_to_metric_boxes,
     regression_cell_to_metric_box,
     regression_cell_to_normalized_rae_box,
 )
@@ -79,6 +84,8 @@ def parse_args():
         "heatmap_nms_kernel": 3,
         "heatmap_score_mode": "peak_times_local_mean",
         "yolox_nms_iou": 0.65,
+        "box_coordinate_mode": "auto",
+        "visualization_view": "polar",
         "model_type": "auto",
         "gt_object_ignore_override_path": None,
         "ignore_class_names": None,
@@ -116,6 +123,18 @@ def parse_args():
         ),
     )
     parser.add_argument("--yolox-nms-iou", type=float, default=cfg_defaults["yolox_nms_iou"])
+    parser.add_argument(
+        "--box-coordinate-mode",
+        default=cfg_defaults["box_coordinate_mode"],
+        choices=["auto", BOX_COORDINATE_POLAR, BOX_COORDINATE_CARTESIAN],
+        help="Use the checkpoint mode automatically, or override it explicitly.",
+    )
+    parser.add_argument(
+        "--visualization-view",
+        default=cfg_defaults["visualization_view"],
+        choices=["polar", "cartesian", "both"],
+        help="Display the R-A map in polar bin coordinates, Cartesian coordinates, or both.",
+    )
     parser.add_argument("--model-type", default=cfg_defaults["model_type"], choices=["auto", "model1", "model2", "model3", "model4", "model5", "model6", "model7", "model8", "model9", "model10", "model11", "model12", "model13", "model14", "model15", "model16"])
     parser.add_argument("--gt-object-ignore-override-path", default=cfg_defaults["gt_object_ignore_override_path"])
     parser.add_argument("--save-images", action="store_true", default=cfg_defaults["save_images"], help="Save visualizations to disk.")
@@ -516,7 +535,11 @@ def dense_centerpoint_outputs_to_detections(
         heatmap_nms_kernel,
         heatmap_score_mode,
         score_thresh=None,
+        scope_mode=SCOPE_FULL,
+        full_rae_shape=None,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
+    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     dense_keys = {"cls_logits", "center_offset", "center_height", "size", "yaw"}
     missing_keys = sorted(dense_keys - set(outputs.keys()))
     if len(missing_keys) > 0:
@@ -573,6 +596,43 @@ def dense_centerpoint_outputs_to_detections(
     box_indices = box_y_idx_long * box_w + box_x_idx_long
     y_idx = box_y_idx_long.to(cls_logits.dtype)
     x_idx = box_x_idx_long.to(cls_logits.dtype)
+
+    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        if full_rae_shape is None:
+            raise ValueError(
+                "Cartesian CenterPoint visualization requires full_rae_shape."
+            )
+
+        # Cartesian CenterPoint predicts metric regression directly.  Do not
+        # apply sigmoid here: the training loss compares the raw branches as
+        # [dx, dy, dz, length, width, height, sin(yaw), cos(yaw)].
+        pred_reg = gather_dense_feature(
+            torch.cat(
+                [
+                    outputs["center_offset"],
+                    outputs["center_height"],
+                    outputs["size"],
+                    outputs["yaw"],
+                ],
+                dim=1,
+            ),
+            box_indices,
+        )
+        pred_boxes_metric = regression_cell_to_metric_box(
+            pred_reg=pred_reg[0],
+            y_idx=y_idx[0].to(pred_reg.dtype),
+            x_idx=x_idx[0].to(pred_reg.dtype),
+            feature_shape=(box_h, box_w),
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+            absolute_dimensions=True,
+        )
+        keep = keep.squeeze(0)
+        return (
+            pred_boxes_metric[keep],
+            pred_labels.squeeze(0)[keep],
+            pred_scores.squeeze(0)[keep],
+        )
 
     center_offset = gather_dense_feature(
         outputs["center_offset"],
@@ -701,6 +761,7 @@ def filter_predictions(
         box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    pred_boxes_metric = None
     if "objectness_logits" in outputs:
         if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
             raise ValueError(
@@ -738,6 +799,9 @@ def filter_predictions(
             heatmap_nms_kernel=heatmap_nms_kernel,
             heatmap_score_mode=heatmap_score_mode,
             score_thresh=score_thresh,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+            box_coordinate_mode=box_coordinate_mode,
         )
 
     if "objectness_logits" in outputs:
@@ -779,6 +843,10 @@ def filter_predictions(
         pred_scores = pred_scores[nms_keep]
 
     if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        # Both Cartesian CenterPoint and Cartesian RADE-Net branches return
+        # metric Cartesian boxes at this point.  Keep this copy for precise
+        # Cartesian->RAE corner projection during visualization.
+        pred_boxes_metric = pred_boxes_norm.clone()
         pred_boxes_raw = metric_boxes_to_raw_local_rae(
             metric_boxes=pred_boxes_norm,
             scope_mode=scope_mode,
@@ -791,7 +859,298 @@ def filter_predictions(
             scope_mode=scope_mode,
             full_rae_shape=full_rae_shape,
         )
-    return pred_boxes_raw.cpu(), pred_labels.cpu(), pred_scores.cpu()
+    return (
+        pred_boxes_raw.cpu(),
+        pred_labels.cpu(),
+        pred_scores.cpu(),
+        None if pred_boxes_metric is None else pred_boxes_metric.cpu(),
+    )
+
+
+def cartesian_boxes_to_corners_3d(boxes):
+    """Build the eight 3-D corners using the K-Radar box convention."""
+    if boxes is None or boxes.numel() == 0:
+        dtype = torch.float32 if boxes is None else boxes.dtype
+        device = torch.device("cpu") if boxes is None else boxes.device
+        return torch.zeros((0, 8, 3), dtype=dtype, device=device)
+
+    boxes = boxes.to(dtype=torch.float32)
+    template = boxes.new_tensor(
+        [
+            [1.0, 1.0, -1.0],
+            [1.0, -1.0, -1.0],
+            [-1.0, -1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [1.0, 1.0, 1.0],
+            [1.0, -1.0, 1.0],
+            [-1.0, -1.0, 1.0],
+            [-1.0, 1.0, 1.0],
+        ]
+    ) / 2.0
+    corners = boxes[:, None, 3:6] * template[None, :, :]
+
+    yaw = boxes[:, 6]
+    cos_yaw = torch.cos(yaw)
+    sin_yaw = torch.sin(yaw)
+    rotation = boxes.new_zeros((boxes.shape[0], 3, 3))
+    rotation[:, 0, 0] = cos_yaw
+    rotation[:, 0, 1] = -sin_yaw
+    rotation[:, 1, 0] = sin_yaw
+    rotation[:, 1, 1] = cos_yaw
+    rotation[:, 2, 2] = 1.0
+    corners = torch.matmul(corners, rotation.transpose(1, 2))
+    return corners + boxes[:, None, 0:3]
+
+
+def cartesian_boxes_to_local_rae_corners(
+        boxes,
+        scope_mode,
+        full_rae_shape,
+    ):
+    """Project all 8 Cartesian box corners to local R-A-E bin coordinates.
+
+    This follows the existing visualization_based_gt convention:
+    ``azimuth = atan2(-y, x)`` and range is the 3-D radial distance.  The
+    projection is performed corner by corner so the final Polar rectangle is
+    calculated from the complete 3-D box, matching visualization_based_gt.
+    """
+    if boxes is None or boxes.numel() == 0:
+        dtype = torch.float32 if boxes is None else boxes.dtype
+        device = torch.device("cpu") if boxes is None else boxes.device
+        return torch.zeros((0, 8, 3), dtype=dtype, device=device)
+
+    corners = cartesian_boxes_to_corners_3d(boxes)
+
+    x = corners[..., 0]
+    y = corners[..., 1]
+    z = corners[..., 2]
+    r_xy = torch.sqrt((x * x) + (y * y)).clamp(min=1e-6)
+    radius = torch.sqrt((r_xy * r_xy) + (z * z))
+    azimuth_deg = torch.rad2deg(torch.atan2(-y, x))
+    elevation_deg = torch.rad2deg(torch.atan2(z, r_xy))
+
+    starts, _ = get_rae_scope_start_and_shape(
+        scope_mode,
+        full_rae_shape,
+    )
+    r_idx = (radius - RANGE_AXIS.minimum) / RANGE_AXIS.step
+    a_idx = (azimuth_deg - AZIMUTH_AXIS.minimum) / AZIMUTH_AXIS.step
+    e_idx = (elevation_deg - ELEVATION_AXIS.minimum) / ELEVATION_AXIS.step
+
+    return torch.stack(
+        [
+            r_idx - float(starts[0]),
+            a_idx - float(starts[1]),
+            e_idx - float(starts[2]),
+        ],
+        dim=-1,
+    )
+
+
+def draw_projected_metric_boxes(
+        ax,
+        boxes,
+        scope_mode,
+        full_rae_shape,
+        labels=None,
+        scores=None,
+        color="lime",
+        prefix="GT",
+        class_names=None,
+        label_texts=None,
+    ):
+    """Draw the Polar rectangle obtained from all 8 Cartesian corners.
+
+    visualization_based_gt first converts all eight Cartesian corners to RAE,
+    then uses the min/max range and azimuth values to draw an axis-aligned
+    rectangle on the R-A map.  This function follows that same convention.
+    """
+    if boxes is None or boxes.numel() == 0:
+        return
+
+    projected = cartesian_boxes_to_local_rae_corners(
+        boxes=boxes,
+        scope_mode=scope_mode,
+        full_rae_shape=full_rae_shape,
+    ).detach().cpu().numpy()
+    for i, corners in enumerate(projected):
+        # Matplotlib uses x=azimuth and y=range.  Use all eight projected
+        # corners to construct the enclosing rectangle, matching
+        # visualization_based_gt.draw_ra_bbx_2d().
+        r_min = float(np.min(corners[:, 0]))
+        r_max = float(np.max(corners[:, 0]))
+        a_min = float(np.min(corners[:, 1]))
+        a_max = float(np.max(corners[:, 1]))
+        polygon = np.asarray(
+            [
+                [a_min, r_min],
+                [a_max, r_min],
+                [a_max, r_max],
+                [a_min, r_max],
+                [a_min, r_min],
+            ],
+            dtype=np.float32,
+        )
+        ax.plot(
+            polygon[:, 0],
+            polygon[:, 1],
+            color=color,
+            linewidth=1.8,
+        )
+
+        text = prefix
+        if label_texts is not None and i < len(label_texts):
+            text += f" {label_texts[i]}"
+        elif labels is not None:
+            label_id = int(labels[i])
+            if class_names is None:
+                class_names = CLASS_NAMES
+            text += f" {class_names.get(label_id, label_id)}"
+        if scores is not None:
+            text += f" {float(scores[i]):.2f}"
+
+        text_x = float(np.min(polygon[:, 0]))
+        text_y = max(float(np.min(polygon[:, 1])) - 2.0, 0.0)
+        ax.text(
+            text_x,
+            text_y,
+            text,
+            color=color,
+            fontsize=8,
+            bbox={
+                "facecolor": "black",
+                "alpha": 0.45,
+                "pad": 1,
+                "edgecolor": "none",
+            },
+        )
+
+
+def local_ra_physical_axes(scope_mode, full_rae_shape, ra_shape):
+    """Return physical range/azimuth centers for the displayed RA tensor."""
+    starts, scope_shape = get_rae_scope_start_and_shape(
+        scope_mode,
+        full_rae_shape,
+    )
+    range_size, azimuth_size = int(ra_shape[0]), int(ra_shape[1])
+    if range_size <= 1:
+        range_indices = np.asarray([float(starts[0])], dtype=np.float32)
+    else:
+        range_indices = np.linspace(
+            float(starts[0]),
+            float(starts[0]) + float(scope_shape[0] - 1),
+            range_size,
+            dtype=np.float32,
+        )
+    if azimuth_size <= 1:
+        azimuth_indices = np.asarray([float(starts[1])], dtype=np.float32)
+    else:
+        azimuth_indices = np.linspace(
+            float(starts[1]),
+            float(starts[1]) + float(scope_shape[1] - 1),
+            azimuth_size,
+            dtype=np.float32,
+        )
+    arr_range = RANGE_AXIS.minimum + range_indices * RANGE_AXIS.step
+    arr_azimuth_deg = AZIMUTH_AXIS.minimum + azimuth_indices * AZIMUTH_AXIS.step
+    return arr_range, arr_azimuth_deg
+
+
+def centers_to_edges(values):
+    values = np.asarray(values, dtype=np.float32)
+    if values.size <= 1:
+        step = 1.0
+        return np.asarray(
+            [values[0] - step / 2.0, values[0] + step / 2.0],
+            dtype=np.float32,
+        )
+    edges = np.zeros(values.size + 1, dtype=np.float32)
+    edges[1:-1] = 0.5 * (values[:-1] + values[1:])
+    edges[0] = values[0] - 0.5 * (values[1] - values[0])
+    edges[-1] = values[-1] + 0.5 * (values[-1] - values[-2])
+    return edges
+
+
+def get_ra_cartesian_limits(arr_range, arr_azimuth_deg):
+    """Get the Cartesian plotting limits used by visualization_based_gt."""
+    r_max = float(np.max(arr_range))
+    azimuth_rad = np.deg2rad(np.asarray(arr_azimuth_deg))
+    x_values = r_max * np.sin(azimuth_rad)
+    return (
+        float(np.min(x_values)),
+        float(np.max(x_values)),
+        0.0,
+        r_max,
+    )
+
+
+def draw_cartesian_metric_boxes(
+        ax,
+        boxes,
+        labels=None,
+        scores=None,
+        color="lime",
+        prefix="GT",
+        class_names=None,
+        label_texts=None,
+    ):
+    """Draw metric boxes in the Cartesian RA view, matching main_radar_visualization."""
+    if boxes is None or boxes.numel() == 0:
+        return
+
+    corners = cartesian_boxes_to_corners_3d(boxes).detach().cpu().numpy()
+    for i, box_corners in enumerate(corners):
+        # The old visualization uses plot coordinates [-radar_y, radar_x].
+        points = np.stack(
+            [-box_corners[:, 1], box_corners[:, 0]],
+            axis=1,
+        )
+        x_min = float(np.min(points[:, 0]))
+        x_max = float(np.max(points[:, 0]))
+        y_min = float(np.min(points[:, 1]))
+        y_max = float(np.max(points[:, 1]))
+        polygon = np.asarray(
+            [
+                [x_min, y_min],
+                [x_max, y_min],
+                [x_max, y_max],
+                [x_min, y_max],
+                [x_min, y_min],
+            ],
+            dtype=np.float32,
+        )
+        ax.plot(
+            polygon[:, 0],
+            polygon[:, 1],
+            color=color,
+            linewidth=1.8,
+        )
+
+        text = prefix
+        if label_texts is not None and i < len(label_texts):
+            text += f" {label_texts[i]}"
+        elif labels is not None:
+            label_id = int(labels[i])
+            if class_names is None:
+                class_names = CLASS_NAMES
+            text += f" {class_names.get(label_id, label_id)}"
+        if scores is not None:
+            text += f" {float(scores[i]):.2f}"
+        ax.text(
+            float(np.mean(polygon[:-1, 0])),
+            y_max + 0.8,
+            text,
+            color=color,
+            fontsize=8,
+            ha="center",
+            va="bottom",
+            bbox={
+                "facecolor": "black",
+                "alpha": 0.45,
+                "pad": 1,
+                "edgecolor": "none",
+            },
+        )
 
 
 def draw_boxes(
@@ -868,7 +1227,12 @@ def get_frame_prediction(
     outputs = model(rad, rae)
 
     rae_shape = tuple(item["rae"].shape)
-    pred_boxes, pred_labels, pred_scores = filter_predictions(
+    (
+        pred_boxes,
+        pred_labels,
+        pred_scores,
+        pred_boxes_metric,
+    ) = filter_predictions(
         outputs=outputs,
         num_classes=num_classes,
         scope_mode=scope_mode,
@@ -882,6 +1246,26 @@ def get_frame_prediction(
         box_coordinate_mode=box_coordinate_mode,
     )
 
+    if pred_boxes_metric is None:
+        # Polar models return local raw RAE boxes.  For the optional Cartesian
+        # view, convert those boxes back to metric Cartesian boxes before
+        # constructing their 8 corners.
+        metric_with_yaw_vector = raw_local_rae_boxes_to_metric_boxes(
+            raw_boxes=pred_boxes,
+            scope_mode=scope_mode,
+            full_rae_shape=item["full_rae_shape"],
+        )
+        pred_boxes_metric = torch.cat(
+            [
+                metric_with_yaw_vector[:, :6],
+                torch.atan2(
+                    metric_with_yaw_vector[:, 6:7],
+                    metric_with_yaw_vector[:, 7:8],
+                ),
+            ],
+            dim=-1,
+        )
+
     return {
         "item": item,
         "rae_shape": rae_shape,
@@ -889,58 +1273,167 @@ def get_frame_prediction(
         "gt_boxes": item["gt_boxes_raw"].cpu(),
         "gt_labels": item["gt_labels"].cpu(),
         "gt_ignore_boxes": item["gt_ignore_boxes_raw"].cpu(),
+        "gt_metric_boxes": item["gt_metric_boxes"].cpu(),
+        "gt_ignore_metric_boxes": item["gt_ignore_metric_boxes"].cpu(),
         "gt_ignore_class_names": tuple(item.get("gt_ignore_class_names", ())),
         "pred_boxes": pred_boxes,
+        "pred_boxes_metric": pred_boxes_metric,
         "pred_labels": pred_labels,
         "pred_scores": pred_scores,
         "pred_mode": pred_mode,
+        "box_coordinate_mode": box_coordinate_mode,
     }
 
 
-def show_frame(ax, frame_data, class_names):
+def show_frame(ax, frame_data, class_names, view_mode="polar"):
+    if view_mode not in {"polar", "cartesian"}:
+        raise ValueError(
+            f"Unknown visualization view {view_mode!r}; expected 'polar' or 'cartesian'."
+        )
+
     item = frame_data["item"]
     r_size, a_size, _ = frame_data["rae_shape"]
+    scope_mode = item.get("scope_mode", SCOPE_FULL)
+    full_rae_shape = item["full_rae_shape"]
+    model_coordinate_mode = frame_data.get(
+        "box_coordinate_mode",
+        BOX_COORDINATE_POLAR,
+    )
 
     ax.clear()
-    ax.imshow(frame_data["ra_map"], origin="lower", aspect="auto", cmap="viridis")
+    if view_mode == "polar":
+        ax.imshow(
+            frame_data["ra_map"],
+            origin="lower",
+            aspect="auto",
+            cmap="viridis",
+        )
 
-    draw_boxes(
-        ax,
-        frame_data["gt_boxes"],
-        labels=frame_data["gt_labels"],
-        color="lime",
-        prefix="GT",
-        class_names=class_names,
-    )
-    draw_boxes(
-        ax,
-        frame_data["gt_ignore_boxes"],
-        color="yellow",
-        prefix="IGN",
-        label_texts=frame_data["gt_ignore_class_names"],
-    )
-    draw_boxes(
-        ax,
-        frame_data["pred_boxes"],
-        labels=frame_data["pred_labels"],
-        scores=frame_data["pred_scores"],
-        color="red",
-        prefix="Pred",
-        class_names=class_names,
-    )
+        if model_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            draw_projected_metric_boxes(
+                ax,
+                frame_data["gt_metric_boxes"],
+                scope_mode=scope_mode,
+                full_rae_shape=full_rae_shape,
+                labels=frame_data["gt_labels"],
+                color="lime",
+                prefix="GT",
+                class_names=class_names,
+            )
+            draw_projected_metric_boxes(
+                ax,
+                frame_data["gt_ignore_metric_boxes"],
+                scope_mode=scope_mode,
+                full_rae_shape=full_rae_shape,
+                color="yellow",
+                prefix="IGN",
+                label_texts=frame_data["gt_ignore_class_names"],
+            )
+            draw_projected_metric_boxes(
+                ax,
+                frame_data["pred_boxes_metric"],
+                scope_mode=scope_mode,
+                full_rae_shape=full_rae_shape,
+                labels=frame_data["pred_labels"],
+                scores=frame_data["pred_scores"],
+                color="red",
+                prefix="Pred",
+                class_names=class_names,
+            )
+        else:
+            draw_boxes(
+                ax,
+                frame_data["gt_boxes"],
+                labels=frame_data["gt_labels"],
+                color="lime",
+                prefix="GT",
+                class_names=class_names,
+            )
+            draw_boxes(
+                ax,
+                frame_data["gt_ignore_boxes"],
+                color="yellow",
+                prefix="IGN",
+                label_texts=frame_data["gt_ignore_class_names"],
+            )
+            draw_boxes(
+                ax,
+                frame_data["pred_boxes"],
+                labels=frame_data["pred_labels"],
+                scores=frame_data["pred_scores"],
+                color="red",
+                prefix="Pred",
+                class_names=class_names,
+            )
+
+        ax.set_xlabel("Azimuth bin")
+        ax.set_ylabel("Range bin")
+        ax.set_xlim(0, a_size - 1)
+        ax.set_ylim(0, r_size - 1)
+    else:
+        arr_range, arr_azimuth_deg = local_ra_physical_axes(
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+            ra_shape=(r_size, a_size),
+        )
+        range_edges = centers_to_edges(arr_range)
+        azimuth_edges_deg = centers_to_edges(arr_azimuth_deg)
+        range_edge_grid, azimuth_edge_grid = np.meshgrid(
+            range_edges,
+            np.deg2rad(azimuth_edges_deg),
+            indexing="ij",
+        )
+        x_edge = range_edge_grid * np.sin(azimuth_edge_grid)
+        y_edge = range_edge_grid * np.cos(azimuth_edge_grid)
+        ax.pcolormesh(
+            x_edge,
+            y_edge,
+            frame_data["ra_map"],
+            shading="flat",
+            cmap="viridis",
+        )
+        draw_cartesian_metric_boxes(
+            ax,
+            frame_data["gt_metric_boxes"],
+            labels=frame_data["gt_labels"],
+            color="lime",
+            prefix="GT",
+            class_names=class_names,
+        )
+        draw_cartesian_metric_boxes(
+            ax,
+            frame_data["gt_ignore_metric_boxes"],
+            color="yellow",
+            prefix="IGN",
+            label_texts=frame_data["gt_ignore_class_names"],
+        )
+        draw_cartesian_metric_boxes(
+            ax,
+            frame_data["pred_boxes_metric"],
+            labels=frame_data["pred_labels"],
+            scores=frame_data["pred_scores"],
+            color="red",
+            prefix="Pred",
+            class_names=class_names,
+        )
+        x_min, x_max, y_min, y_max = get_ra_cartesian_limits(
+            arr_range,
+            arr_azimuth_deg,
+        )
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max + 10.0)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlabel("-radar y")
+        ax.set_ylabel("radar x")
 
     ax.set_title(
-        f"RA map | sequence={item['sequence']} | file_idx={item['file_idx']} | "
-        f"gt_frame_idx={item['gt_frame_idx']} | "
-        f"mode={frame_data['pred_mode']} | "
+        f"RA {view_mode} view | sequence={item['sequence']} | "
+        f"file_idx={item['file_idx']} | gt_frame_idx={item['gt_frame_idx']} | "
+        f"model_coord={model_coordinate_mode} | mode={frame_data['pred_mode']} | "
         f"GT={len(frame_data['gt_boxes'])} | "
         f"IGN={len(frame_data['gt_ignore_boxes'])} | "
         f"Pred={len(frame_data['pred_boxes'])}"
     )
-    ax.set_xlabel("Azimuth bin")
-    ax.set_ylabel("Range bin")
-    ax.set_xlim(0, a_size - 1)
-    ax.set_ylim(0, r_size - 1)
 
 
 def select_device():
@@ -975,12 +1468,25 @@ def main():
         )
         else BOX_COORDINATE_POLAR
     )
-    box_coordinate_mode = validate_box_coordinate_mode(
+    checkpoint_box_coordinate_mode = validate_box_coordinate_mode(
         checkpoint_config.get(
             "box_coordinate_mode",
             default_box_coordinate_mode,
         )
     )
+    if args.box_coordinate_mode == "auto":
+        box_coordinate_mode = checkpoint_box_coordinate_mode
+    else:
+        box_coordinate_mode = validate_box_coordinate_mode(
+            args.box_coordinate_mode
+        )
+        if box_coordinate_mode != checkpoint_box_coordinate_mode:
+            raise ValueError(
+                "The visualization coordinate override does not match the "
+                "checkpoint: "
+                f"checkpoint={checkpoint_box_coordinate_mode!r}, "
+                f"override={box_coordinate_mode!r}. Use 'auto'."
+            )
     cartesian_gt_root = normalize_optional_path(
         checkpoint_config.get("cartesian_gt_root")
     )
@@ -1163,8 +1669,18 @@ def main():
             box_coordinate_mode=box_coordinate_mode,
         )
 
-        fig, ax = plt.subplots(figsize=(10, 8))
-        show_frame(ax, frame_data, class_names)
+        if args.visualization_view == "both":
+            fig, axes = plt.subplots(1, 2, figsize=(18, 8))
+            show_frame(axes[0], frame_data, class_names, view_mode="polar")
+            show_frame(axes[1], frame_data, class_names, view_mode="cartesian")
+        else:
+            fig, ax = plt.subplots(figsize=(10, 8))
+            show_frame(
+                ax,
+                frame_data,
+                class_names,
+                view_mode=args.visualization_view,
+            )
         fig.tight_layout()
 
         item = frame_data["item"]
@@ -1173,6 +1689,7 @@ def main():
             f"sequence={item['sequence']} "
             f"file_idx={item['file_idx']} "
             f"gt_frame_idx={item['gt_frame_idx']} "
+            f"view={args.visualization_view} "
             f"mode={args.pred_mode} "
             f"GT={len(frame_data['gt_boxes'])} "
             f"Pred={len(frame_data['pred_boxes'])}"
@@ -1181,7 +1698,9 @@ def main():
         if args.save_images:
             output_path = os.path.join(
                 args.save_dir,
-                f"ra_map_{args.pred_mode}_val_{val_idx:05d}_seq_{item['sequence']}_file_{item['file_idx']:05d}.png"
+                f"ra_map_{args.visualization_view}_{args.pred_mode}_val_"
+                f"{val_idx:05d}_seq_{item['sequence']}_file_"
+                f"{item['file_idx']:05d}.png"
             )
             fig.savefig(output_path, dpi=160)
             print(f"saved={output_path}")

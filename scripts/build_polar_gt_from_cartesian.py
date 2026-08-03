@@ -11,9 +11,11 @@ The output keeps the Polar ``gt.txt`` layout used by this project::
     frame_idx,object_label,a_idx,r_idx,a_width,r_width,e_idx,e_width,yaw_deg,class
 
 Each Cartesian box is converted by transforming all eight corners to RAE and
-taking the clipped min/max envelope.  This preserves the full physical box
-size; it does not multiply or divide the Cartesian dimensions again.
-Rows with ``object_label == -1`` are deliberately excluded.
+taking the min/max envelope.  Boxes that intersect the tensor are clipped to
+the tensor range; fully out-of-view boxes retain their unclipped envelope.
+This preserves the full physical box size; it does not multiply or divide the
+Cartesian dimensions again.
+Rows with ``object_label == -1`` are retained.
 """
 
 from __future__ import annotations
@@ -141,10 +143,14 @@ def cartesian_box_to_polar(row):
     e_high = min(E_MAX, max(e_values))
 
     if r_high <= r_low or a_high <= a_low or e_high <= e_low:
-        # This box is completely outside the radar tensor's visible R/A/E
-        # range.  It must not become a Polar GT target because no radar voxel
-        # can contain it.  Partially clipped boxes are kept below.
-        return None
+        # Keep completely out-of-view boxes instead of dropping them.  The
+        # unclipped envelope is intentional: it preserves the original box
+        # geometry and makes the out-of-range index visible in the GT file.
+        # Downstream target builders may still clip it to the model tensor
+        # when constructing a heatmap target.
+        r_low, r_high = min(r_values), max(r_values)
+        a_low, a_high = min(a_values), max(a_values)
+        e_low, e_high = min(e_values), max(e_values)
 
     r_center = (r_low + r_high) / 2.0
     a_center = (a_low + a_high) / 2.0
@@ -181,12 +187,8 @@ def build_sequence(
 
     rows = read_cartesian_gt(input_path)
     kept_rows = []
-    ignored_rows = 0
-    ignored_out_of_view = 0
+    retained_out_of_view = 0
     for row in rows:
-        if row["object_label"] == -1:
-            ignored_rows += 1
-            continue
         if row["frame_idx"] < 1 or row["frame_idx"] > len(shared_names):
             raise ValueError(
                 f"Cartesian frame_idx {row['frame_idx']} is outside the "
@@ -194,8 +196,19 @@ def build_sequence(
             )
         polar = cartesian_box_to_polar(row)
         if polar is None:
-            ignored_out_of_view += 1
-            continue
+            raise RuntimeError(
+                "cartesian_box_to_polar unexpectedly returned None; "
+                "out-of-view boxes must be retained"
+            )
+        if (
+            polar["a_idx"] < 0.0
+            or polar["a_idx"] >= A_SIZE
+            or polar["r_idx"] < 0.0
+            or polar["r_idx"] >= R_SIZE
+            or polar["e_idx"] < 0.0
+            or polar["e_idx"] >= E_SIZE
+        ):
+            retained_out_of_view += 1
         kept_rows.append((row, polar))
 
     with output_path.open("w", newline="") as output_file:
@@ -223,8 +236,7 @@ def build_sequence(
         "sequence": sequence,
         "radar_frames": len(shared_names),
         "input_rows": len(rows),
-        "ignored_label_minus_one": ignored_rows,
-        "ignored_out_of_view": ignored_out_of_view,
+        "retained_out_of_view": retained_out_of_view,
         "output_rows": len(kept_rows),
     }
 
@@ -269,17 +281,10 @@ def main():
     print("azimuth_step_deg_per_bin=", A_STEP)
     print("elevation_step_deg_per_bin=", E_STEP)
     print("total_input_rows=", sum(item["input_rows"] for item in summaries))
-    print(
-        "total_ignored_label_minus_one=",
-        sum(item["ignored_label_minus_one"] for item in summaries),
-    )
-    print(
-        "total_ignored_out_of_view=",
-        sum(item["ignored_out_of_view"] for item in summaries),
-    )
+    print("total_retained_out_of_view=", sum(item["retained_out_of_view"] for item in summaries))
     print("total_output_rows=", sum(item["output_rows"] for item in summaries))
     for item in summaries:
-        if item["ignored_label_minus_one"] or item["ignored_out_of_view"]:
+        if item["retained_out_of_view"]:
             print(item)
 
 

@@ -191,7 +191,7 @@ def read_cartesian_gt_txt(gt_txt_path):
 def read_kradar_revised_label_dir(
         label_root,
         sequence,
-        radar_visibility_tokens=("R",),
+        radar_visibility_tokens=("R", "LR"),
     ):
     """Read official K-Radar v2.1 Cartesian labels keyed by tesseract frame name.
 

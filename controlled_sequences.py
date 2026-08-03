@@ -3,20 +3,34 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 from collections import Counter
 from pathlib import Path
 
+from cfg_model import RANGE_AXIS, cartesian_to_rae
+from coordinate_modes import BOX_COORDINATE_CARTESIAN
 from dataset import KRadarRADRAEDataset
 from zxy_data_path import get_gt_txt_path, get_rad_rae_npy_root_dir
-from zxy_label_utils import read_gt_txt
+from zxy_label_utils import (
+    read_cartesian_gt_txt,
+    read_gt_txt,
+    read_kradar_revised_label_dir,
+)
 
 
 SEDAN_CLASS_NAME = "Sedan"
 BUS_CLASS_NAME = "Bus or Truck"
 TARGET_CLASS_NAMES = (SEDAN_CLASS_NAME, BUS_CLASS_NAME)
-DEFAULT_RIDX_BINS = ((0.0, 30.0), (30.0, 60.0), (60.0, 90.0), (90.0, 120.0), (120.0, 144.0))
-CONTROL_SCHEMA_VERSION = 3
+DEFAULT_RANGE_M_BINS = (
+    (0.0, 20.0),
+    (20.0, 40.0),
+    (40.0, 60.0),
+    (60.0, 80.0),
+    (80.0, 120.0),
+)
+CONTROL_SCHEMA_VERSION = 5
+OUTSIDE_RANGE_CATEGORY_KEY = "__outside_range__"
 REQUIRED_CONTROL_OUTPUT_FILENAMES = (
     "train.txt",
     "test.txt",
@@ -42,18 +56,18 @@ def _normalize_sequences(value, name):
 
 def _normalize_bins(value):
     if value is None:
-        return DEFAULT_RIDX_BINS
+        return DEFAULT_RANGE_M_BINS
 
     bins = tuple((float(pair[0]), float(pair[1])) for pair in value)
     if len(bins) == 0:
-        raise ValueError("control_ridx_bins must not be empty")
+        raise ValueError("control_range_m_bins must not be empty")
 
     previous_upper = None
     for lower, upper in bins:
         if lower < 0.0 or upper <= lower:
-            raise ValueError(f"Invalid control r_idx bin: {(lower, upper)!r}")
+            raise ValueError(f"Invalid control range bin: {(lower, upper)!r}")
         if previous_upper is not None and lower != previous_upper:
-            raise ValueError("control_ridx_bins must be contiguous")
+            raise ValueError("control_range_m_bins must be contiguous")
         previous_upper = upper
     return bins
 
@@ -66,50 +80,118 @@ def _format_number(value):
 
 
 def _bin_key(class_name, lower, upper):
-    return f"{class_name.lower().replace(' ', '_')}_ridx_{_format_number(lower)}_{_format_number(upper)}"
+    return f"{class_name.lower().replace(' ', '_')}_range_m_{_format_number(lower)}_{_format_number(upper)}"
 
 
-def _category_keys(ridx_bins):
+def _category_keys(range_m_bins):
     return tuple(
         _bin_key(class_name, lower, upper)
         for class_name in TARGET_CLASS_NAMES
-        for lower, upper in ridx_bins
+        for lower, upper in range_m_bins
     )
 
 
-def _category_key(obj, ridx_bins):
+def _category_key(obj, range_m_bins):
     class_name = str(obj["cls"])
     if class_name not in TARGET_CLASS_NAMES:
         return None
 
-    r_idx = float(obj["raw"]["r_idx"])
-    for lower, upper in ridx_bins:
-        if lower <= r_idx < upper:
+    range_m = float(obj["range_m"])
+    for lower, upper in range_m_bins:
+        if lower <= range_m < upper:
             return _bin_key(class_name, lower, upper)
     return None
 
 
-def _build_frame_infos(sequence, ridx_bins):
+def _load_cartesian_control_gt(sequence, cartesian_gt_root):
+    """Load Cartesian GT using the same two formats as the training dataset."""
+    if cartesian_gt_root in (None, ""):
+        raise ValueError(
+            "Cartesian controlled training requires cartesian_gt_root."
+        )
+
+    flat_gt_path = os.path.join(
+        str(cartesian_gt_root),
+        str(int(sequence)),
+        "gt",
+        "gt.txt",
+    )
+    if os.path.isfile(flat_gt_path):
+        return "file_idx", read_cartesian_gt_txt(flat_gt_path)
+
+    return "frame_name", read_kradar_revised_label_dir(
+        label_root=cartesian_gt_root,
+        sequence=sequence,
+        radar_visibility_tokens=("R", "LR"),
+    )
+
+
+def _cartesian_object_range_m(obj):
+    box_metric = obj.get("box_metric")
+    if box_metric is None or len(box_metric) < 3:
+        raise ValueError("Cartesian controlled GT object has no valid box_metric")
+    x = float(box_metric[0])
+    y = float(box_metric[1])
+    z = float(box_metric[2])
+    range_m, _azimuth, _elevation = cartesian_to_rae(x, y, z)
+    return float(range_m)
+
+
+def _polar_object_range_m(obj):
+    """Convert legacy Polar center r_idx to the current physical range."""
+    r_idx = float(obj["raw"]["r_idx"])
+    return float(RANGE_AXIS.minimum + r_idx * RANGE_AXIS.step)
+
+
+def _build_frame_infos(
+        sequence,
+        range_m_bins,
+        box_coordinate_mode,
+        cartesian_gt_root=None,
+    ):
     radar_dataset = KRadarRADRAEDataset(
         get_rad_rae_npy_root_dir(),
         int(sequence),
     )
-    gt_by_file_idx = read_gt_txt(get_gt_txt_path(None, sequence=int(sequence)))
-    category_keys = _category_keys(ridx_bins)
+    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        gt_key_mode, cartesian_gt = _load_cartesian_control_gt(
+            sequence=sequence,
+            cartesian_gt_root=cartesian_gt_root,
+        )
+        polar_gt = None
+    else:
+        gt_key_mode = "file_idx"
+        cartesian_gt = None
+        polar_gt = read_gt_txt(get_gt_txt_path(None, sequence=int(sequence)))
+
+    category_keys = _category_keys(range_m_bins)
     frame_infos = []
 
     for file_idx, frame_name in enumerate(radar_dataset.frame_names):
         category_object_labels = {key: [] for key in category_keys}
         all_target_object_labels = []
         outside_bin_object_labels = []
-        for obj in gt_by_file_idx.get(file_idx, []):
+        if gt_key_mode == "frame_name":
+            frame_objects = cartesian_gt.get(frame_name, [])
+        elif cartesian_gt is not None:
+            frame_objects = cartesian_gt.get(file_idx, [])
+        else:
+            frame_objects = polar_gt.get(file_idx, [])
+
+        for obj in frame_objects:
             class_name = str(obj["cls"])
             if class_name not in TARGET_CLASS_NAMES:
                 continue
 
             object_label = int(obj["object_label"])
             all_target_object_labels.append(object_label)
-            category_key = _category_key(obj, ridx_bins)
+            obj_with_range = dict(obj)
+            obj_with_range["range_m"] = (
+                _cartesian_object_range_m(obj)
+                if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
+                else _polar_object_range_m(obj)
+            )
+            category_key = _category_key(obj_with_range, range_m_bins)
             if category_key is None:
                 outside_bin_object_labels.append(object_label)
             else:
@@ -166,6 +248,10 @@ def _summarize_frames(frame_infos, kept_by_frame=None):
                 )
                 for key, labels in frame_info["category_object_labels"].items()
             }
+            outside_bin_objects += sum(
+                int(label) in kept_labels
+                for label in frame_info["outside_bin_object_labels"]
+            )
             effective_target_objects += len(kept_labels)
 
         all_target_objects += len(frame_info["all_target_object_labels"])
@@ -189,6 +275,15 @@ def _summarize_frames(frame_infos, kept_by_frame=None):
         },
         "total_boxes_in_bins": int(sum(category_totals.values())),
         "all_target_objects": int(all_target_objects),
+        "total_target_objects": int(all_target_objects),
+        "selected_target_objects": int(
+            sum(
+                len(set(kept_by_frame.get(frame_idx, set())))
+                for frame_idx in range(len(frame_infos))
+            )
+            if kept_by_frame is not None
+            else all_target_objects
+        ),
         "effective_target_objects": int(effective_target_objects),
         "outside_bin_objects": int(outside_bin_objects),
         "frame_total_histogram": {
@@ -207,6 +302,14 @@ def _build_population(frame_infos):
                 (int(frame_idx), int(object_label))
                 for object_label in labels
             )
+        # Keep out-of-bin objects available to the primary total-bbox
+        # decision.  A distance-bin mismatch must not delete them when the
+        # overall bbox count is already close to the reference.
+        population.setdefault(OUTSIDE_RANGE_CATEGORY_KEY, [])
+        population[OUTSIDE_RANGE_CATEGORY_KEY].extend(
+            (int(frame_idx), int(object_label))
+            for object_label in frame_info["outside_bin_object_labels"]
+        )
     return population
 
 
@@ -216,40 +319,226 @@ def _category_keys_from_frames(frame_infos):
     return tuple(frame_infos[0]["category_counts"].keys())
 
 
-def _run_trial(window_frame_infos, reference_summary, population, seed):
+def _ordered_control_categories(range_m_bins):
+    """Return distance categories in the configured range-bin order."""
+    ordered = [
+        _bin_key(class_name, lower, upper)
+        for lower, upper in range_m_bins
+        for class_name in TARGET_CLASS_NAMES
+    ]
+    ordered.append(OUTSIDE_RANGE_CATEGORY_KEY)
+    return ordered
+
+
+def _range_priority_delta(after_summary, reference_summary, range_m_bins):
+    """Compare 0-80 m first, then 80-120 m, using old bin differences."""
+    deltas = []
+    for lower, upper in range_m_bins:
+        deltas.append(
+            sum(
+                abs(
+                    int(after_summary["category_totals"].get(key, 0))
+                    - int(reference_summary["category_totals"].get(key, 0))
+                )
+                for key in (
+                    _bin_key(class_name, lower, upper)
+                    for class_name in TARGET_CLASS_NAMES
+                )
+            )
+        )
+    outside_delta = (
+        abs(
+            int(after_summary["outside_bin_objects"])
+            - int(reference_summary.get("outside_bin_objects", 0))
+        )
+    )
+    near_deltas = [
+        delta
+        for (lower, _upper), delta in zip(range_m_bins, deltas)
+        if lower < 80.0
+    ]
+    far_deltas = [
+        delta
+        for (lower, _upper), delta in zip(range_m_bins, deltas)
+        if lower >= 80.0
+    ]
+    # The first two values preserve the old absolute-difference behavior,
+    # but make the 0-80 m group more important than 80-120 m.  The remaining
+    # values keep the individual bins visible for tie-breaking and reporting.
+    return tuple(
+        [
+            int(sum(near_deltas)),
+            int(sum(far_deltas) + outside_delta),
+        ]
+        + [int(delta) for delta in deltas]
+        + [int(outside_delta)]
+    )
+
+
+def _run_trial(
+    window_frame_infos,
+    reference_summary,
+    population,
+    seed,
+    range_m_bins=DEFAULT_RANGE_M_BINS,
+    total_bbox_tolerance_ratio=0.05,
+):
     rng = random.Random(int(seed))
     keep_by_frame = {
         frame_idx: set()
         for frame_idx in range(len(window_frame_infos))
     }
 
-    requested_counts = reference_summary["category_totals"]
+    requested_counts = dict(reference_summary["category_totals"])
+    requested_counts[OUTSIDE_RANGE_CATEGORY_KEY] = int(
+        reference_summary.get("outside_bin_objects", 0)
+    )
+    source_total = sum(len(objects) for objects in population.values())
+    reference_total = int(
+        reference_summary.get(
+            "total_target_objects",
+            reference_summary.get("all_target_objects", 0),
+        )
+    )
+    tolerance = (
+        max(
+            1,
+            int(round(reference_total * float(total_bbox_tolerance_ratio))),
+        )
+        if reference_total
+        else 0
+    )
+
+    # Total bbox count is the primary control target.  If the source is below
+    # the reference count, or is already within the configured tolerance,
+    # keep every bbox.  In that case a different range distribution is not a
+    # reason to delete data.
+    keep_all = source_total <= reference_total + tolerance
     actual_requested_counts = {}
-    for category_key, objects in population.items():
-        requested = int(requested_counts.get(category_key, 0))
-        keep_count = min(requested, len(objects))
-        actual_requested_counts[category_key] = keep_count
-        for frame_idx, object_label in rng.sample(objects, keep_count):
-            keep_by_frame[frame_idx].add(int(object_label))
+    if keep_all:
+        for frame_idx, frame_info in enumerate(window_frame_infos):
+            keep_by_frame[frame_idx] = {
+                int(object_label)
+                for object_label in frame_info["all_target_object_labels"]
+            }
+        actual_requested_counts = {
+            category_key: len(objects)
+            for category_key, objects in population.items()
+        }
+    else:
+        desired_total = min(source_total, reference_total)
+        selected_counts = {
+            category_key: min(
+                int(requested_counts.get(category_key, 0)),
+                len(objects),
+            )
+            for category_key, objects in population.items()
+        }
+        selected_total = sum(selected_counts.values())
+
+        # Only when total-count control requires deletion do we use the
+        # distance bins as a secondary objective.  Preserve the old behavior
+        # of handling the largest remaining bin deficit first, but restrict
+        # that choice to 0-80 m before considering 80-120 m.
+        ordered_categories = _ordered_control_categories(range_m_bins)
+        category_order = {
+            category_key: index
+            for index, category_key in enumerate(ordered_categories)
+        }
+
+        def distance_group(category_key):
+            if category_key == OUTSIDE_RANGE_CATEGORY_KEY:
+                return 1
+            for lower, upper in range_m_bins:
+                if category_key in {
+                    _bin_key(class_name, lower, upper)
+                    for class_name in TARGET_CLASS_NAMES
+                }:
+                    return 0 if lower < 80.0 else 1
+            return 1
+
+        while selected_total < desired_total:
+            candidates = [
+                category_key
+                for category_key, objects in population.items()
+                if selected_counts[category_key] < len(objects)
+            ]
+            if not candidates:
+                break
+            deficit_candidates = [
+                category_key
+                for category_key in candidates
+                if selected_counts[category_key]
+                < int(requested_counts.get(category_key, 0))
+            ]
+            if deficit_candidates:
+                near_deficits = [
+                    category_key
+                    for category_key in deficit_candidates
+                    if distance_group(category_key) == 0
+                ]
+                chosen_pool = near_deficits or deficit_candidates
+                chosen_pool.sort(
+                    key=lambda category_key: (
+                        int(requested_counts.get(category_key, 0))
+                        - selected_counts[category_key],
+                        -category_order.get(category_key, len(category_order)),
+                    ),
+                    reverse=True,
+                )
+            else:
+                near_candidates = [
+                    category_key
+                    for category_key in candidates
+                    if distance_group(category_key) == 0
+                ]
+                chosen_pool = near_candidates or candidates
+                rng.shuffle(chosen_pool)
+                chosen_pool.sort(
+                    key=lambda category_key: category_order.get(
+                        category_key,
+                        len(category_order),
+                    )
+                )
+            selected_counts[chosen_pool[0]] += 1
+            selected_total += 1
+
+        for category_key, objects in population.items():
+            keep_count = int(selected_counts[category_key])
+            actual_requested_counts[category_key] = keep_count
+            for frame_idx, object_label in rng.sample(objects, keep_count):
+                keep_by_frame[frame_idx].add(int(object_label))
 
     after_summary = _summarize_frames(
         window_frame_infos,
         kept_by_frame=keep_by_frame,
     )
+    total_bbox_delta = abs(
+        int(after_summary["selected_target_objects"])
+        - reference_total
+    )
+    range_priority_delta = _range_priority_delta(
+        after_summary,
+        reference_summary,
+        range_m_bins,
+    )
     empty_delta = abs(
         int(after_summary["empty_frames"])
         - int(reference_summary["empty_frames"])
     )
-    bbox_delta = sum(
-        abs(
-            int(after_summary["category_totals"].get(key, 0))
-            - int(reference_summary["category_totals"].get(key, 0))
-        )
-        for key in reference_summary["category_totals"]
-    )
     return {
         "seed": int(seed),
-        "score": (int(empty_delta), int(bbox_delta), int(seed)),
+        "keep_all": bool(keep_all),
+        "total_bbox_tolerance": int(tolerance),
+        # Primary: total bbox count. Secondary: largest bin difference in
+        # 0-80 m, then 80-120 m. Tertiary: empty-frame count, then seed.
+        "score": (
+            int(total_bbox_delta),
+            range_priority_delta,
+            int(empty_delta),
+            int(seed),
+        ),
+        "range_priority_delta": list(range_priority_delta),
         "keep_by_frame": keep_by_frame,
         "actual_requested_counts": actual_requested_counts,
         "after_summary": after_summary,
@@ -289,16 +578,18 @@ def _format_rate(rate):
     return f"{float(rate) * 100.0:.2f}%"
 
 
-def _comparison_text(pair_results, ridx_bins):
+def _comparison_text(pair_results, range_m_bins, box_coordinate_mode):
     lines = [
         "Controlled sequence comparison",
         "",
         "The before and after values refer to the selected continuous source window.",
         "Ignored bboxes are not removed from gt.txt; they are applied through the training ignore override.",
+        "Control priority: total bbox count first, largest distance-bin difference within 0-80 m second, 80-120 m third, empty-frame count fourth.",
         "",
-        "r_idx bins: " + ", ".join(
+        f"Coordinate mode: {box_coordinate_mode}",
+        "Center range bins (m): " + ", ".join(
             f"[{_format_number(lower)},{_format_number(upper)})"
-            for lower, upper in ridx_bins
+            for lower, upper in range_m_bins
         ),
     ]
 
@@ -319,9 +610,10 @@ def _comparison_text(pair_results, ridx_bins):
             f"Frames | {before['frames']} | {after['frames']} | {target['frames']}",
             f"Empty frames | {before['empty_frames']} | {after['empty_frames']} | {target['empty_frames']}",
             f"Empty rate | {_format_rate(before['empty_rate'])} | {_format_rate(after['empty_rate'])} | {_format_rate(target['empty_rate'])}",
+            f"Total target bbox | {before['total_target_objects']} | {after['selected_target_objects']} | {target['total_target_objects']}",
         ])
         for class_name in TARGET_CLASS_NAMES:
-            for lower, upper in ridx_bins:
+            for lower, upper in range_m_bins:
                 key = _bin_key(class_name, lower, upper)
                 lines.append(
                     f"{class_name} bbox [{_format_number(lower)},{_format_number(upper)}) | "
@@ -360,14 +652,37 @@ def _requested_config(args):
         getattr(args, "controled_sequences", None),
         getattr(args, "reference_sequences", None),
     )
-    bins = _normalize_bins(getattr(args, "control_ridx_bins", None))
+    box_coordinate_mode = str(
+        getattr(args, "box_coordinate_mode", "polar")
+    ).strip().lower()
+    configured_range_bins = getattr(args, "control_range_m_bins", None)
+    if configured_range_bins is None:
+        # Keep old custom Polar configurations usable.  New Cartesian
+        # configurations should use control_range_m_bins explicitly.
+        legacy_ridx_bins = getattr(args, "control_ridx_bins", None)
+        if legacy_ridx_bins is not None and box_coordinate_mode != "cartesian":
+            bins = tuple(
+                (
+                    float(lower) * RANGE_AXIS.step,
+                    float(upper) * RANGE_AXIS.step,
+                )
+                for lower, upper in _normalize_bins(legacy_ridx_bins)
+            )
+        else:
+            bins = _normalize_bins(None)
+    else:
+        bins = _normalize_bins(configured_range_bins)
     return {
         "schema_version": CONTROL_SCHEMA_VERSION,
         "pairs": [[int(source), int(reference)] for source, reference in pairs],
-        "ridx_bins": [[float(lower), float(upper)] for lower, upper in bins],
+        "box_coordinate_mode": box_coordinate_mode,
+        "range_m_bins": [[float(lower), float(upper)] for lower, upper in bins],
         "window_position": str(getattr(args, "control_window_position", "last")),
         "seed": int(getattr(args, "seed", 42)),
         "num_trials": int(getattr(args, "control_num_trials", 300)),
+        "total_bbox_tolerance_ratio": float(
+            getattr(args, "control_total_bbox_tolerance_ratio", 0.05)
+        ),
     }, pairs, bins
 
 
@@ -375,10 +690,14 @@ def _request_signature(request):
     """Only compare settings that change the generated controlled data."""
     return {
         "pairs": request.get("pairs"),
-        "ridx_bins": request.get("ridx_bins"),
+        "box_coordinate_mode": request.get("box_coordinate_mode"),
+        "range_m_bins": request.get("range_m_bins"),
         "window_position": request.get("window_position"),
         "seed": request.get("seed"),
         "num_trials": request.get("num_trials"),
+        "total_bbox_tolerance_ratio": request.get(
+            "total_bbox_tolerance_ratio"
+        ),
     }
 
 
@@ -445,7 +764,7 @@ def prepare_controlled_train_data(args):
         getattr(args, "train_sequences", None),
         "train_sequences",
     )
-    request, pairs, ridx_bins = _requested_config(args)
+    request, pairs, range_m_bins = _requested_config(args)
     controlled_sequences = tuple(source for source, _ in pairs)
     missing = sorted(set(controlled_sequences) - set(train_sequences))
     if missing:
@@ -457,6 +776,10 @@ def prepare_controlled_train_data(args):
         raise ValueError("control_window_position must be 'first' or 'last'")
     if request["num_trials"] <= 0:
         raise ValueError("control_num_trials must be greater than 0")
+    if not 0.0 <= request["total_bbox_tolerance_ratio"] <= 1.0:
+        raise ValueError(
+            "control_total_bbox_tolerance_ratio must be between 0 and 1"
+        )
 
     output_dir, should_generate = _select_output_dir(
         getattr(args, "controlled_split_base_dir", "split"),
@@ -466,8 +789,18 @@ def prepare_controlled_train_data(args):
         pair_results = []
         override_sequences = {}
         for source_sequence, reference_sequence in pairs:
-            source_infos = _build_frame_infos(source_sequence, ridx_bins)
-            reference_infos = _build_frame_infos(reference_sequence, ridx_bins)
+            source_infos = _build_frame_infos(
+                sequence=source_sequence,
+                range_m_bins=range_m_bins,
+                box_coordinate_mode=request["box_coordinate_mode"],
+                cartesian_gt_root=getattr(args, "cartesian_gt_root", None),
+            )
+            reference_infos = _build_frame_infos(
+                sequence=reference_sequence,
+                range_m_bins=range_m_bins,
+                box_coordinate_mode=request["box_coordinate_mode"],
+                cartesian_gt_root=getattr(args, "cartesian_gt_root", None),
+            )
             if not source_infos or not reference_infos:
                 raise ValueError(
                     f"Cannot control seq{source_sequence} -> seq{reference_sequence}: "
@@ -492,6 +825,10 @@ def prepare_controlled_train_data(args):
                     reference_summary=reference_summary,
                     population=population,
                     seed=request["seed"] + trial_idx,
+                    range_m_bins=range_m_bins,
+                    total_bbox_tolerance_ratio=request[
+                        "total_bbox_tolerance_ratio"
+                    ],
                 )
                 if best_trial is None or trial["score"] < best_trial["score"]:
                     best_trial = trial
@@ -538,9 +875,9 @@ def prepare_controlled_train_data(args):
                 "Automatically generated training-only object ignore control. "
                 "Original gt.txt files are not modified."
             ),
-            "ridx_bins": [
+            "range_m_bins": [
                 [float(lower), float(upper)]
-                for lower, upper in ridx_bins
+                for lower, upper in range_m_bins
             ],
             "control_config": request,
             "sequences": override_sequences,
@@ -562,7 +899,11 @@ def prepare_controlled_train_data(args):
             encoding="utf-8",
         )
         (output_dir / "comparison.txt").write_text(
-            _comparison_text(pair_results, ridx_bins),
+            _comparison_text(
+                pair_results,
+                range_m_bins,
+                request["box_coordinate_mode"],
+            ),
             encoding="utf-8",
         )
         train_lines = []
@@ -600,5 +941,5 @@ def prepare_controlled_train_data(args):
     )
     args.controlled_sequences = tuple(source for source, _ in pairs)
     args.reference_sequences = tuple(reference for _, reference in pairs)
-    args.control_ridx_bins = tuple(tuple(pair) for pair in ridx_bins)
+    args.control_range_m_bins = tuple(tuple(pair) for pair in range_m_bins)
     return args
