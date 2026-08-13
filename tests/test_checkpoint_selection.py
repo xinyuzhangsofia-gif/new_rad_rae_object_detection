@@ -24,6 +24,33 @@ from eval.checkpoints import (
 
 
 class CheckpointSelectionTests(unittest.TestCase):
+    def test_find_epoch_checkpoints_respects_inclusive_epoch_range(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            checkpoint_dir = Path(temporary_dir)
+            for epoch in range(1, 31):
+                (checkpoint_dir / f"0806_epoch_{epoch:03d}.pth").touch()
+
+            selected = find_epoch_checkpoints(
+                str(checkpoint_dir),
+                epoch_step=1,
+                start_epoch=5,
+                end_epoch=24,
+            )
+
+        self.assertEqual(
+            [epoch for epoch, _checkpoint_path in selected],
+            list(range(5, 25)),
+        )
+
+    def test_find_epoch_checkpoints_rejects_reversed_epoch_range(self):
+        with self.assertRaisesRegex(ValueError, "less than or equal"):
+            find_epoch_checkpoints(
+                "/unused",
+                epoch_step=1,
+                start_epoch=25,
+                end_epoch=24,
+            )
+
     def test_legacy_controlled_checkpoint_restores_domain_groups(self):
         metadata = extract_checkpoint_source_metadata({
             "config": {

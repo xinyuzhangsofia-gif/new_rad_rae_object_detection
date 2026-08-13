@@ -602,6 +602,8 @@ def compute_official_kradar_style_metrics(
         detection_score_thresh=0.3,
         official_eval_class_ids=None,
         official_class_name_map=None,
+        official_eval_fn=None,
+        official_iou_backend_used=None,
     ):
     if not official_eval_enabled:
         return {}
@@ -614,10 +616,13 @@ def compute_official_kradar_style_metrics(
         class_ids=official_eval_class_ids,
     )
     official_eval_class_ids = sorted(official_class_name_map.keys())
-    official_eval_fn, official_iou_backend_used = load_official_eval_function(
-        official_eval_version,
-        official_eval_iou_backend,
-    )
+    if official_eval_fn is None:
+        official_eval_fn, official_iou_backend_used = load_official_eval_function(
+            official_eval_version,
+            official_eval_iou_backend,
+        )
+    elif official_iou_backend_used is None:
+        official_iou_backend_used = str(official_eval_iou_backend)
     official_result_text, official_per_class = official_metrics_for_classes(
         eval_fn=official_eval_fn,
         gt_annos=state["official_gt_annos"],

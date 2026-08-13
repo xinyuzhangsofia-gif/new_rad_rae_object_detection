@@ -1,0 +1,47 @@
+Controlled sequence comparison
+
+The before and after values refer to the selected continuous source window.
+Ignored bboxes are not removed from gt.txt; they are applied through the training ignore override.
+Controlled classes: Sedan
+Control priority: controlled-class bbox count first, largest distance-bin difference within 0-80 m second, 80-120 m third, empty-frame count fourth.
+
+Coordinate mode: cartesian
+Center range bins (m): [0,20), [20,40), [40,60), [60,80), [80,120)
+
+Sequence pair: controlled seq15 -> reference seq23
+Selected source window: file_idx 0 - 590
+Selected random seed: 42
+
+Metric | Before control | After control | Reference
+--- | ---: | ---: | ---:
+Frames | 591 | 591 | 611
+Empty frames | 57 | 57 | 13
+Empty rate | 9.64% | 9.64% | 2.13%
+Controlled-class bbox | 1645 | 1570 | 1570
+Sedan bbox [0,20) | 408 | 408 | 271
+Sedan bbox [20,40) | 712 | 712 | 521
+Sedan bbox [40,60) | 358 | 358 | 701
+Sedan bbox [60,80) | 91 | 91 | 77
+Sedan bbox [80,120) | 76 | 1 | 0
+Total bbox in bins | 1645 | 1570 | 1570
+Effective target bbox in bins | 1645 | 1570 | 1570
+Original target bbox in GT | 1645 | 1645 | 1570
+
+Sequence pair: controlled seq5 -> reference seq24
+Selected source window: file_idx 0 - 597
+Selected random seed: 54
+
+Metric | Before control | After control | Reference
+--- | ---: | ---: | ---:
+Frames | 598 | 598 | 610
+Empty frames | 1 | 12 | 12
+Empty rate | 0.17% | 2.01% | 1.97%
+Controlled-class bbox | 2662 | 2032 | 2032
+Sedan bbox [0,20) | 508 | 470 | 172
+Sedan bbox [20,40) | 967 | 559 | 559
+Sedan bbox [40,60) | 956 | 772 | 772
+Sedan bbox [60,80) | 204 | 204 | 398
+Sedan bbox [80,120) | 27 | 27 | 131
+Total bbox in bins | 2662 | 2032 | 2032
+Effective target bbox in bins | 2662 | 2032 | 2032
+Original target bbox in GT | 2662 | 2662 | 2032

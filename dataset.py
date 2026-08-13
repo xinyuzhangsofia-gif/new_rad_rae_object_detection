@@ -112,6 +112,7 @@ class KRadarGTDetectionDataset(Dataset):
             cartesian_gt_root=None,
             ignore_object_label_minus_one=False,
             ignore_out_of_scope_gt=True,
+            strict_object_ignore_override=False,
             ):
         super().__init__()
         self.radar_dataset = radar_dataset
@@ -185,9 +186,61 @@ class KRadarGTDetectionDataset(Dataset):
             sequence=self.sequence,
             frame_names=getattr(self.radar_dataset, "frame_names", ()),
         )
+        if strict_object_ignore_override and gt_object_ignore_override_path is not None:
+            self._validate_object_ignore_overrides()
 
     def __len__(self):
         return len(self.radar_dataset)
+
+    def _validate_object_ignore_overrides(self):
+        missing_frames = tuple(
+            self.object_ignore_override_summary.get("missing_frame_names", ())
+        )
+        if missing_frames:
+            raise ValueError(
+                "Evaluation object-ignore override contains frames absent from "
+                f"sequence {self.sequence}: {missing_frames[:10]}"
+            )
+
+        validated = 0
+        frame_names = tuple(getattr(self.radar_dataset, "frame_names", ()))
+        for file_idx, requested_labels in self.object_ignore_override_map.items():
+            if self.gt_by_file_idx is not None:
+                frame_objects = self.gt_by_file_idx.get(int(file_idx), [])
+            else:
+                frame_name = frame_names[int(file_idx)]
+                frame_objects = self.gt_by_frame_name.get(frame_name, [])
+            by_label = {}
+            for obj in frame_objects:
+                by_label.setdefault(int(obj["object_label"]), []).append(obj)
+            for object_label in requested_labels:
+                matches = by_label.get(int(object_label), [])
+                if len(matches) != 1:
+                    raise ValueError(
+                        "Evaluation object-ignore override must identify exactly "
+                        "one existing GT object: "
+                        f"sequence={self.sequence}, file_idx={file_idx}, "
+                        f"object_label={object_label}, matches={len(matches)}"
+                    )
+                class_name = str(matches[0]["cls"])
+                if class_name not in self.class_to_idx:
+                    raise ValueError(
+                        "Evaluation object-ignore override may contain only "
+                        "evaluable target classes: "
+                        f"sequence={self.sequence}, file_idx={file_idx}, "
+                        f"object_label={object_label}, class={class_name!r}"
+                    )
+                validated += 1
+        expected = int(
+            self.object_ignore_override_summary.get("object_override_count", 0)
+        )
+        if validated != expected:
+            raise ValueError(
+                "Evaluation object-ignore override validation count mismatch: "
+                f"expected={expected}, validated={validated}."
+            )
+        self.object_ignore_override_summary["strict_validation"] = True
+        self.object_ignore_override_summary["validated_object_count"] = validated
 
     def __getitem__(self, index):
         radar_data = self.radar_dataset[index]
@@ -212,6 +265,8 @@ class KRadarGTDetectionDataset(Dataset):
         )
         objects = []
         ignore_objects = []
+        override_ignore_objects = []
+        generic_ignore_objects = []
         num_override_ignored = 0
         for obj in all_objects:
             cls = obj["cls"]
@@ -220,6 +275,7 @@ class KRadarGTDetectionDataset(Dataset):
             )
             if is_override_ignored:
                 ignore_objects.append(obj)
+                override_ignore_objects.append(obj)
                 num_override_ignored += 1
                 continue
 
@@ -229,6 +285,7 @@ class KRadarGTDetectionDataset(Dataset):
 
             if cls in self.ignore_class_names and cls not in self.class_to_idx:
                 ignore_objects.append(obj)
+                generic_ignore_objects.append(obj)
 
         rad = torch.from_numpy(radar_data["rad"]).float()
         rae = torch.from_numpy(radar_data["rae"]).float()
@@ -244,12 +301,24 @@ class KRadarGTDetectionDataset(Dataset):
                 if self._object_overlaps_rae_fov(obj, full_rae_shape)
                 and self._object_center_in_scope(obj)
             ]
+            override_ignore_objects_in_fov = [
+                obj for obj in override_ignore_objects
+                if self._object_overlaps_rae_fov(obj, full_rae_shape)
+                and self._object_center_in_scope(obj)
+            ]
+            generic_ignore_objects_in_fov = [
+                obj for obj in generic_ignore_objects
+                if self._object_overlaps_rae_fov(obj, full_rae_shape)
+                and self._object_center_in_scope(obj)
+            ]
         else:
             # Keep all parsed GT rows, including boxes outside the radar RAE
             # tensor or the selected narrow scope.  The target builder may
             # clamp their heatmap location to the tensor boundary.
             objects_in_fov = list(objects)
             ignore_objects_in_fov = list(ignore_objects)
+            override_ignore_objects_in_fov = list(override_ignore_objects)
+            generic_ignore_objects_in_fov = list(generic_ignore_objects)
 
         gt_boxes, gt_boxes_raw, gt_metric_boxes = self._build_box_tensors(
             objects_in_fov,
@@ -263,6 +332,31 @@ class KRadarGTDetectionDataset(Dataset):
             ignore_objects_in_fov,
             full_rae_shape,
         )
+        # Keep explicit control-mask objects independently addressable. The
+        # legacy gt_ignore_* tensors above intentionally remain the union so
+        # existing training loss masking is unchanged.
+        override_evaluable_objects_in_fov = [
+            obj for obj in override_ignore_objects_in_fov
+            if obj["cls"] in self.class_to_idx
+        ]
+        (
+            gt_override_ignore_boxes,
+            gt_override_ignore_boxes_raw,
+            gt_override_ignore_metric_boxes,
+        ) = self._build_box_tensors(
+            override_evaluable_objects_in_fov,
+            full_rae_shape,
+        )
+        if override_evaluable_objects_in_fov:
+            gt_override_ignore_labels = torch.tensor(
+                [
+                    self.class_to_idx[obj["cls"]]
+                    for obj in override_evaluable_objects_in_fov
+                ],
+                dtype=torch.long,
+            )
+        else:
+            gt_override_ignore_labels = torch.zeros((0,), dtype=torch.long)
 
         if len(objects_in_fov) > 0:
             gt_labels = torch.tensor(
@@ -286,6 +380,10 @@ class KRadarGTDetectionDataset(Dataset):
             "gt_ignore_boxes_raw": gt_ignore_boxes_raw,
             "gt_ignore_metric_boxes": gt_ignore_metric_boxes,
             "gt_ignore_class_names": gt_ignore_class_names,
+            "gt_override_ignore_boxes": gt_override_ignore_boxes,
+            "gt_override_ignore_boxes_raw": gt_override_ignore_boxes_raw,
+            "gt_override_ignore_metric_boxes": gt_override_ignore_metric_boxes,
+            "gt_override_ignore_labels": gt_override_ignore_labels,
             "gt_labels": gt_labels,
             "gt_frame_idx": gt_frame_idx,
             "file_idx": file_idx,
@@ -302,6 +400,12 @@ class KRadarGTDetectionDataset(Dataset):
             "num_ignore_before_fov": len(ignore_objects),
             "num_ignore_after_fov": len(ignore_objects_in_fov),
             "num_override_ignored": int(num_override_ignored),
+            "num_override_ignored_after_fov": int(
+                len(override_ignore_objects_in_fov)
+            ),
+            "num_generic_ignored_after_fov": int(
+                len(generic_ignore_objects_in_fov)
+            ),
             "num_invalid_cartesian_object_labels_ignored": int(
                 self.num_invalid_cartesian_object_labels_ignored
             ),
@@ -574,6 +678,18 @@ def detection_collate(batch):
             item["gt_ignore_metric_boxes"] for item in batch
         ],
         "gt_ignore_class_names": [item["gt_ignore_class_names"] for item in batch],
+        "gt_override_ignore_boxes": [
+            item["gt_override_ignore_boxes"] for item in batch
+        ],
+        "gt_override_ignore_boxes_raw": [
+            item["gt_override_ignore_boxes_raw"] for item in batch
+        ],
+        "gt_override_ignore_metric_boxes": [
+            item["gt_override_ignore_metric_boxes"] for item in batch
+        ],
+        "gt_override_ignore_labels": [
+            item["gt_override_ignore_labels"] for item in batch
+        ],
         "gt_labels": [item["gt_labels"] for item in batch],
         "gt_frame_idx": [item["gt_frame_idx"] for item in batch],
         "file_idx": [item["file_idx"] for item in batch],
@@ -592,6 +708,9 @@ def detection_collate(batch):
         "num_ignore_before_fov": [item["num_ignore_before_fov"] for item in batch],
         "num_ignore_after_fov": [item["num_ignore_after_fov"] for item in batch],
         "num_override_ignored": [item["num_override_ignored"] for item in batch],
+        "num_override_ignored_after_fov": [
+            item["num_override_ignored_after_fov"] for item in batch
+        ],
     }
 
 

@@ -72,11 +72,24 @@ TRAIN_CONFIG = {
     "split_mode": "sequence",              # "sequence", "random", or "file"
     "split_dir": "split",  # used when split_mode == "file"
 
-    # Ordered domain-shift experiment queue. When enabled, one top-level
-    # train.py reads this table and dispatches source/target branch tasks in
-    # table order; the worker settings below allow both branches to overlap.
+    # Ordered multi-weather domain-shift queue. One top-level train.py reads
+    # every table in this list and advances to the next table automatically.
+    # Within each table, source/target branch workers can overlap.
     "experiment_queue_enabled": True,
-    "experiment_sheet_path": "experiments/rain_experiments.txt",
+    "experiment_sheet_paths": (
+        "experiments/heavy_snow_experiments.txt",
+        "experiments/light_snow_experiments.txt",
+        "experiments/overcast_experiments.txt",
+        "experiments/rain_experiments.txt",
+        "experiments/sleet_experiments.txt",
+    ),
+    # Global queue order: finish seed42 weather by weather, then seed43,
+    # then seed44. Within a weather/seed, the existing test/group order stays.
+    "experiment_queue_order": "seed_then_weather",
+    "experiment_queue_seed_order": (42, 43, 44),
+    # For each seed: finish every training task first, then evaluate all of
+    # its checkpoints. The next seed starts only after both phases finish.
+    "experiment_queue_execution_mode": "seed_two_phase",
     "experiment_queue_branches": ("source", "target"),
     # Completed branches are skipped. Missing AP values are trained/evaluated
     # and written back into the same CSV, including TD and the average row.
@@ -84,22 +97,39 @@ TRAIN_CONFIG = {
     "experiment_queue_update_sheet_results": True,
     "experiment_queue_require_full_table": True,
     "experiment_results_base_dir": "evaluation_plots",
-    # Asynchronous table scheduler. Two independent training subprocesses keep
-    # the current three-GPU DataParallel configuration. Completed checkpoints
-    # enter a separate two-worker evaluation queue, so the next training task
-    # does not wait for evaluation. Only the parent process writes the table.
-    "experiment_queue_train_workers": 2,
-    "experiment_queue_eval_workers": 2,
-    "experiment_queue_gpu_strategy": "shared_dynamic",
+    # One batch-size-32 training process per GPU. A real model7 smoke test used
+    # 12.55 GiB peak reserved memory on one 16-GiB RTX 5060 Ti.
+    "experiment_queue_train_workers": 3,
+    "experiment_queue_gpu_strategy": "isolated",
     "experiment_queue_train_gpu_slots": (
-        "0,1,2",
-        "0,1,2",
+        "0",
+        "1",
+        "2",
     ),
+    # Resume the two seed-43 tasks that still need epochs after the queue
+    # interruption.  group11/source already reached epoch 30; its queue state
+    # is recorded as trained so it goes directly to evaluation.
+    "experiment_queue_resume_checkpoints": {
+        "overcast_022_group11_seed43_target": (
+            "checkpoints/overcast/0807_train_seq9_13_test_seq22/"
+            "0808_epoch_018.pth"
+        ),
+        "overcast_023_group12_seed43_source": (
+            "checkpoints/overcast/0807_train_seq12_11_test_seq22/"
+            "0808_epoch_014.pth"
+        ),
+    },
+    # Evaluation starts only after all training for the active seed. Run three
+    # evaluators per GPU (nine total); monitor host RAM because each evaluator
+    # can use roughly 3 GiB and this machine has 30 GiB.
+    "experiment_queue_eval_workers": 9,
     "experiment_queue_eval_gpu_pool": "0,1,2",
-    "experiment_queue_eval_min_free_memory_mb": 4000,
+    "experiment_queue_eval_max_per_gpu": 3,
+    "experiment_queue_eval_batch_size": 32,
+    "experiment_queue_eval_min_free_memory_mb": 1500,
     # A temporary reservation prevents two evaluations launched in the same
     # polling cycle from both assuming that the same free memory is available.
-    "experiment_queue_eval_reservation_memory_mb": 3500,
+    "experiment_queue_eval_reservation_memory_mb": 2500,
     "experiment_queue_poll_seconds": 1.0,
 
     # Domain-shift experiment design.
@@ -137,10 +167,14 @@ TRAIN_CONFIG = {
         (60.0, 80.0),
         (80.0, 120.0),
     ),
+    # Sedan-only control: match Sedan positives first. Bus/Truck remains an
+    # ignore-mask class and is not counted as a controlled positive bbox.
+    "control_class_names": ("Sedan",),
     "control_num_trials": 300,  # random trials for secondary distribution tie-breaking
-    # Primary control: if the source total is within this ratio of the
-    # reference total, keep every bbox and ignore distance-bin differences.
-    "control_total_bbox_tolerance_ratio": 0.05,
+    # Exact Sedan-count control.  If source has more Sedan boxes than its
+    # reference, mask the excess using near-to-far retention until counts are
+    # equal.  If source has fewer boxes, keep all because masking cannot add GT.
+    "control_total_bbox_tolerance_ratio": 0.0,
     "train_control_split_dir": None,  # filled automatically when control is enabled
 
     # Runtime, output, and model choice

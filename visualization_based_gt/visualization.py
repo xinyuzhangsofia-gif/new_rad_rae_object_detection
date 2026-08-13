@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 import path_setup
 import cv2
 import matplotlib
@@ -12,12 +14,56 @@ from tqdm import tqdm
 from zxy_label_utils import *
 from zxy_data_path import *
 from sensor_transformation import *
+from info_label_reader import read_info_label
+from visualization_cfg import (
+    SENSOR_LAYOUT_CAMERA_LIDAR_RADAR,
+    SENSOR_LAYOUT_CAMERA_RADAR,
+    VISUALIZE_MODE_PICTURES,
+    VISUALIZE_MODE_VIDEO,
+)
+from visualization_utils import (
+    get_picture_save_path,
+    resolve_sensor_layout,
+    resolve_visualize_mode,
+)
 from PIL import Image, ImageDraw, ImageFont
+
+
+_BOX_COLORS = {
+    "green": {
+        "bgr": (0, 255, 0),
+        "rgb": (0.0, 1.0, 0.0),
+        "matplotlib": "lime",
+    },
+    "red": {
+        "bgr": (0, 0, 255),
+        "rgb": (1.0, 0.0, 0.0),
+        "matplotlib": "red",
+    },
+}
+
+
+def _box_color(color_name, color_space):
+    """Resolve a semantic overlay color for a specific rendering backend."""
+    normalized = str(color_name).strip().lower()
+    if normalized not in _BOX_COLORS:
+        supported = ", ".join(sorted(_BOX_COLORS))
+        raise ValueError(
+            f"Unknown box color {color_name!r}; choose one of: {supported}"
+        )
+    return _BOX_COLORS[normalized][color_space]
+
+
+def _positive_linewidth(value, name):
+    linewidth = float(value)
+    if linewidth <= 0.0:
+        raise ValueError(f"{name} must be positive, got {value!r}")
+    return linewidth
 
 
 # Lidar Visualization PointCloud and BeV
 
-def draw_bbx_lines(lidar_corners):
+def draw_bbx_lines(lidar_corners, box_colors=None):
     edges = [
         [0,1],[1,2],[2,3],[3,0],
         [4,5],[5,6],[6,7],[7,4],
@@ -26,12 +72,17 @@ def draw_bbx_lines(lidar_corners):
 
     line_sets=[]
 
-    for corners in lidar_corners:
+    for box_idx, corners in enumerate(lidar_corners):
         line_set = o3d.geometry.LineSet()
         line_set.points = o3d.utility.Vector3dVector(corners)
         line_set.lines = o3d.utility.Vector2iVector(edges)
 
-        colors=[[1,0,0]for _ in edges]
+        color = (
+            box_colors[box_idx]
+            if box_colors is not None and box_idx < len(box_colors)
+            else (1.0, 0.0, 0.0)
+        )
+        colors = [color for _ in edges]
         line_set.colors = o3d.utility.Vector3dVector(colors)
 
         line_sets.append(line_set)
@@ -442,7 +493,8 @@ def add_label_to_camera_bbx(
         text_y,
         text,
         font_size=0.5,
-        y_offset=10
+        y_offset=10,
+        color=(0, 0, 255),
     ):
 
     if text is None:
@@ -460,13 +512,20 @@ def add_label_to_camera_bbx(
         (text_x, text_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         font_size,
-        (0, 0, 255),
+        color,
         1,
         cv2.LINE_AA
     )
 
 
-def visualize_bbx_on_camera(camera_2d_points, image,valid_mask,texts=None,show_texts=True):
+def visualize_bbx_on_camera(
+        camera_2d_points,
+        image,
+        valid_mask,
+        texts=None,
+        show_texts=True,
+        box_colors=None,
+    ):
 
     edges = [
         [0,1],[1,2],[2,3],[3,0],
@@ -479,6 +538,11 @@ def visualize_bbx_on_camera(camera_2d_points, image,valid_mask,texts=None,show_t
     for i in range(camera_2d_points.shape[0]):
         box = camera_2d_points[i]
         box_valid = valid_mask[i]
+        color = (
+            box_colors[i]
+            if box_colors is not None and i < len(box_colors)
+            else (0, 0, 255)
+        )
 
         for start, end in edges:
             if not (box_valid[start] and box_valid[end]):
@@ -498,7 +562,14 @@ def visualize_bbx_on_camera(camera_2d_points, image,valid_mask,texts=None,show_t
             x1, y1 = np.round(point1).astype(np.int32)
             x2, y2 = np.round(point2).astype(np.int32)
 
-            cv2.line(image_with_bbx, (x1, y1), (x2, y2), (0, 0, 255), 1,cv2.LINE_AA)
+            cv2.line(
+                image_with_bbx,
+                (x1, y1),
+                (x2, y2),
+                color,
+                1,
+                cv2.LINE_AA,
+            )
 
         if show_texts and texts is not None and i < len(texts):
             valid_points = box[box_valid]
@@ -520,7 +591,8 @@ def visualize_bbx_on_camera(camera_2d_points, image,valid_mask,texts=None,show_t
                         text_y,
                         texts[i],
                         font_size=0.3,
-                        y_offset=10
+                        y_offset=10,
+                        color=color,
                     )
 
 
@@ -613,16 +685,47 @@ def play_camera_video(
 
 # Radar RA Map Visualization
 
+def add_ra_box_label(ax, bbx_2d, text, color, offset=0.8):
+    """Draw GT above a Radar box and predictions below it."""
+    if text is None or str(text).strip() == "":
+        return
+
+    box_points = np.asarray(bbx_2d)[:-1]
+    text_x = float(box_points[:, 0].mean())
+    is_prediction = str(text).strip().lower().startswith("pred")
+
+    if is_prediction:
+        text_y = float(box_points[:, 1].min()) - offset
+        vertical_alignment = "top"
+    else:
+        text_y = float(box_points[:, 1].max()) + offset
+        vertical_alignment = "bottom"
+
+    ax.text(
+        text_x,
+        text_y,
+        text,
+        color=color,
+        fontsize=9,
+        ha="center",
+        va=vertical_alignment,
+    )
+
+
 def visualize_bbx_on_ra_polar(ax,
                         ra_map, 
                         rae_corners,
                         arr_range, 
                         arr_azimuth_deg,
                         frame_idx,
-                        texts):
+                        texts,
+                        box_colors=None,
+                        box_linewidths=None):
     ax.clear()
     
-    ra_map = np.log10(ra_map + 1e-6)
+    # Current RAD/RAE npy reader already applies the same abs + log1p
+    # projection used by the train.py visualization path.
+    ra_map = np.asarray(ra_map)
 
     ax.imshow(ra_map,
                origin='lower', 
@@ -632,27 +735,24 @@ def visualize_bbx_on_ra_polar(ax,
 
     bbxes_2d = get_ra_bbx_2d(rae_corners)
     for box_idx,bbx_2d in enumerate(bbxes_2d):
+        color = (
+            box_colors[box_idx]
+            if box_colors is not None and box_idx < len(box_colors)
+            else "red"
+        )
+        linewidth = (
+            box_linewidths[box_idx]
+            if box_linewidths is not None and box_idx < len(box_linewidths)
+            else 2.0
+        )
         ax.plot(
             bbx_2d[:, 0],
             bbx_2d[:, 1],
-            color="r",
-            linewidth=2
+            color=color,
+            linewidth=linewidth,
         )
         if texts is not None and box_idx < len(texts):
-            text = texts[box_idx]
-
-            text_x = bbx_2d[:-1, 0].mean()
-            text_y = bbx_2d[:-1, 1].max()
-
-            ax.text(
-                text_x,
-                text_y + 0.8,
-                text,
-                color="red",
-                fontsize=9,
-                ha="center",
-                va="bottom",
-                )
+            add_ra_box_label(ax, bbx_2d, texts[box_idx], color)
 
     title = "RA map with bounding boxes"
     if frame_idx is not None:
@@ -741,11 +841,13 @@ def visualize_bbx_on_ra_cartesian(
         arr_range: np.ndarray,
         arr_azimuth_deg: np.ndarray,
         frame_idx: int = None,
-        texts=None
+        texts=None,
+        box_colors=None,
+        box_linewidths=None,
     ):
     ax.clear()
 
-    ra_map_log = np.log10(ra_map + 1e-6)
+    ra_map_log = np.asarray(ra_map)
 
     range_edges = np.zeros(len(arr_range) + 1, dtype=np.float32)
     range_edges[1:-1] = 0.5 * (arr_range[:-1] + arr_range[1:])
@@ -774,6 +876,16 @@ def visualize_bbx_on_ra_cartesian(
     )
 
     for box_idx, corners in enumerate(radar_corners):
+        color = (
+            box_colors[box_idx]
+            if box_colors is not None and box_idx < len(box_colors)
+            else "red"
+        )
+        linewidth = (
+            box_linewidths[box_idx]
+            if box_linewidths is not None and box_idx < len(box_linewidths)
+            else 2.0
+        )
         x3d = corners[:, 0]
         y3d = corners[:, 1]
 
@@ -800,25 +912,12 @@ def visualize_bbx_on_ra_cartesian(
         ax.plot(
             bbx_2d[:, 0],
             bbx_2d[:, 1],
-            color="r",
-            linewidth=2
+            color=color,
+            linewidth=linewidth,
         )
         
         if texts is not None and box_idx < len(texts):
-            text = texts[box_idx]
-
-            text_x = bbx_2d[:-1, 0].mean()
-            text_y = bbx_2d[:-1, 1].max()
-
-            ax.text(
-                text_x,
-                text_y + 0.8,
-                text,
-                color="red",
-                fontsize=9,
-                ha="center",
-                va="bottom",
-                )
+            add_ra_box_label(ax, bbx_2d, texts[box_idx], color)
 
     x_min, x_max, y_min, y_max = get_ra_cartesian_limits(arr_range,arr_azimuth_deg)
 
@@ -908,11 +1007,13 @@ def visualize_bbx_on_ra_cartesian_with_yaw(
         arr_range: np.ndarray,
         arr_azimuth_deg: np.ndarray,
         frame_idx: int = None,
-        texts=None
+        texts=None,
+        box_colors=None,
+        box_linewidths=None,
     ):
     ax.clear()
 
-    ra_map_log = np.log10(ra_map + 1e-6)
+    ra_map_log = np.asarray(ra_map)
 
     range_edges = np.zeros(len(arr_range) + 1, dtype=np.float32)
     range_edges[1:-1] = 0.5 * (arr_range[:-1] + arr_range[1:])
@@ -941,6 +1042,16 @@ def visualize_bbx_on_ra_cartesian_with_yaw(
     )
 
     for box_idx, corners in enumerate(radar_corners):
+        color = (
+            box_colors[box_idx]
+            if box_colors is not None and box_idx < len(box_colors)
+            else "red"
+        )
+        linewidth = (
+            box_linewidths[box_idx]
+            if box_linewidths is not None and box_idx < len(box_linewidths)
+            else 2.0
+        )
         x3d = corners[:, 0]
         y3d = corners[:, 1]
 
@@ -984,25 +1095,12 @@ def visualize_bbx_on_ra_cartesian_with_yaw(
         ax.plot(
             bbx_2d[:, 0],
             bbx_2d[:, 1],
-            color="r",
-            linewidth=2
+            color=color,
+            linewidth=linewidth,
         )
         
         if texts is not None and box_idx < len(texts):
-            text = texts[box_idx]
-
-            text_x = bbx_2d[:-1, 0].mean()
-            text_y = bbx_2d[:-1, 1].max()
-
-            ax.text(
-                text_x,
-                text_y + 0.8,
-                text,
-                color="red",
-                fontsize=9,
-                ha="center",
-                va="bottom",
-                )
+            add_ra_box_label(ax, bbx_2d, texts[box_idx], color)
 
     x_min, x_max, y_min, y_max = get_ra_cartesian_limits(arr_range,arr_azimuth_deg)
 
@@ -1328,7 +1426,12 @@ def get_camera_frame(
         camera_dir,
         path_calib,
         frame_idx,
-        show_texts=True
+        show_texts=True,
+        show_gt_texts=True,
+        prediction_lidar_boxes=None,
+        prediction_texts=None,
+        ground_truth_box_color="red",
+        prediction_box_color="green",
     ):
 
     label_path = os.path.join(label_dir, label_files[frame_idx])
@@ -1336,10 +1439,14 @@ def get_camera_frame(
 
     objects = info_label["objects"]
     cam_front_idx = info_label["cam_front_idx"]
-    texts = [
-        f"{obj['detec_sensor']} | {obj['label']}"
-        for obj in objects
-    ]
+    gt_texts = (
+        [
+            f"GT | {obj['detec_sensor']} | {obj['label']}"
+            for obj in objects
+        ]
+        if show_gt_texts
+        else [None] * len(objects)
+    )
 
     K, distortion, R, T = load_full_camera_calib(path_calib)
 
@@ -1355,10 +1462,31 @@ def get_camera_frame(
         distortion=distortion
     )
 
-    if len(objects) == 0:
+    prediction_count = (
+        0
+        if prediction_lidar_boxes is None
+        else int(prediction_lidar_boxes.shape[0])
+    )
+    if len(objects) == 0 and prediction_count == 0:
         return img_undistort
 
-    boxes = torch.stack([obj["box"] for obj in objects], dim=0)
+    box_parts = []
+    texts = []
+    box_colors = []
+    if len(objects) > 0:
+        box_parts.append(torch.stack([obj["box"] for obj in objects], dim=0))
+        texts.extend(gt_texts)
+        box_colors.extend(
+            [_box_color(ground_truth_box_color, "bgr")] * len(objects)
+        )
+    if prediction_count > 0:
+        box_parts.append(prediction_lidar_boxes.to(torch.float32).cpu())
+        texts.extend(prediction_texts or ["Pred"] * prediction_count)
+        box_colors.extend(
+            [_box_color(prediction_box_color, "bgr")] * prediction_count
+        )
+
+    boxes = torch.cat(box_parts, dim=0)
     lidar_corners = boxes_to_corners_3d(boxes)
     camera_corners = transform_lidar_to_camera(lidar_corners, T, R)
     camera_2d_points, valid_mask = camera_corners_to_2d_undistort(
@@ -1371,7 +1499,8 @@ def get_camera_frame(
         img_undistort,
         valid_mask,
         texts,
-        show_texts
+        show_texts,
+        box_colors=box_colors,
     )
 
 
@@ -1383,15 +1512,20 @@ def get_lidar_frame(
         lidar_type,
         frame_idx,
         old_geometries,
-        show_texts=True
+        show_texts=True,
+        show_gt_texts=True,
+        prediction_lidar_boxes=None,
+        prediction_texts=None,
+        ground_truth_box_color="red",
+        prediction_box_color="green",
     ):
 
     label_path = os.path.join(label_dir, label_files[frame_idx])
     info_label = read_info_label(label_path)
 
     objects = info_label["objects"]
-    texts = [
-        f"{obj['detec_sensor']} | {obj['label']}"
+    gt_texts = [
+        f"GT | {obj['detec_sensor']} | {obj['label']}"
         for obj in objects
     ]
 
@@ -1413,18 +1547,54 @@ def get_lidar_frame(
     if len(objects) > 0:
         boxes = torch.stack([obj["box"] for obj in objects], dim=0)
         lidar_corners = boxes_to_corners_3d(boxes)
-        current_geometries.extend(draw_bbx_lines(lidar_corners))
+        current_geometries.extend(
+            draw_bbx_lines(
+                lidar_corners,
+                box_colors=[
+                    _box_color(ground_truth_box_color, "rgb")
+                ] * len(objects),
+            )
+        )
 
-        if show_texts:
+        if show_texts and show_gt_texts:
             current_geometries.extend(
                 create_bbx_text_geometries(
                     lidar_corners,
-                    texts=texts,
+                    texts=gt_texts,
                     z_offset=0.3,
                     outside_offset=1.0,
                     text_scale=0.1,
-                    text_color=(1.0, 0.0, 0.0),
+                    text_color=_box_color(ground_truth_box_color, "rgb"),
                     rotate_deg=-90
+                )
+            )
+
+    prediction_count = (
+        0
+        if prediction_lidar_boxes is None
+        else int(prediction_lidar_boxes.shape[0])
+    )
+    if prediction_count > 0:
+        prediction_lidar_boxes = prediction_lidar_boxes.to(torch.float32).cpu()
+        prediction_corners = boxes_to_corners_3d(prediction_lidar_boxes)
+        current_geometries.extend(
+            draw_bbx_lines(
+                prediction_corners,
+                box_colors=[
+                    _box_color(prediction_box_color, "rgb")
+                ] * prediction_count,
+            )
+        )
+        if show_texts:
+            current_geometries.extend(
+                create_bbx_text_geometries(
+                    prediction_corners,
+                    texts=prediction_texts or ["Pred"] * prediction_count,
+                    z_offset=0.3,
+                    outside_offset=1.0,
+                    text_scale=0.1,
+                    text_color=_box_color(prediction_box_color, "rgb"),
+                    rotate_deg=-90,
                 )
             )
 
@@ -1462,6 +1632,30 @@ def combine_sensor_frames(camera_frame, lidar_frame, radar_frame):  #from here t
         lidar_frame,
         camera_frame
     ])
+
+
+def combine_camera_radar_frames(camera_frame, radar_frame):
+    """Place Camera above Radar BEV while preserving both aspect ratios."""
+    if camera_frame is None or radar_frame is None:
+        raise ValueError("camera_frame and radar_frame must both be available")
+    if camera_frame.ndim != 3 or radar_frame.ndim != 3:
+        raise ValueError("camera_frame and radar_frame must be color images")
+
+    target_width = int(radar_frame.shape[1])
+    camera_height = max(
+        1,
+        int(round(camera_frame.shape[0] * target_width / camera_frame.shape[1]))
+    )
+    resized_camera = cv2.resize(
+        camera_frame,
+        (target_width, camera_height),
+        interpolation=(
+            cv2.INTER_AREA
+            if camera_frame.shape[1] >= target_width
+            else cv2.INTER_LINEAR
+        ),
+    )
+    return cv2.vconcat([resized_camera, radar_frame])
 
 
 def preload_radar_frames_for_mode(
@@ -1533,7 +1727,16 @@ def get_radar_frame(
         T_l2r,
         radar_mode,
         frame_idx,
-        show_texts=True
+        show_texts=True,
+        show_gt_texts=True,
+        prediction_lidar_boxes=None,
+        prediction_texts=None,
+        radar_data=None,
+        show_title=True,
+        ground_truth_box_color="red",
+        prediction_box_color="green",
+        ground_truth_box_linewidth=2.0,
+        prediction_box_linewidth=2.0,
     ):
 
     label_path = os.path.join(label_dir, label_files[frame_idx])
@@ -1541,19 +1744,56 @@ def get_radar_frame(
 
     objects = info_label["objects"]
     tesseract_idx = info_label["tesseract_idx"]
-    texts = [
-        f"{obj['detec_sensor']} | {obj['label']}"
-        for obj in objects
-    ]
-
-    if not show_texts:
-        texts = None
-
-    radar_data = radar_dataset.get_by_tesseract_idx(tesseract_idx)
+    if radar_data is None:
+        radar_data = radar_dataset.get_by_tesseract_idx(tesseract_idx)
     ra_map = radar_data["ra_map"]
 
+    prediction_count = (
+        0
+        if prediction_lidar_boxes is None
+        else int(prediction_lidar_boxes.shape[0])
+    )
+    box_parts = []
+    texts = []
+    box_colors = []
+    box_linewidths = []
     if len(objects) > 0:
-        boxes = torch.stack([obj["box"] for obj in objects], dim=0)
+        box_parts.append(torch.stack([obj["box"] for obj in objects], dim=0))
+        if show_gt_texts:
+            texts.extend(
+                f"GT | {obj['detec_sensor']} | {obj['label']}"
+                for obj in objects
+            )
+        else:
+            texts.extend([None] * len(objects))
+        box_colors.extend(
+            [_box_color(ground_truth_box_color, "matplotlib")] * len(objects)
+        )
+        box_linewidths.extend(
+            [
+                _positive_linewidth(
+                    ground_truth_box_linewidth,
+                    "ground_truth_box_linewidth",
+                )
+            ] * len(objects)
+        )
+    if prediction_count > 0:
+        box_parts.append(prediction_lidar_boxes.to(torch.float32).cpu())
+        texts.extend(prediction_texts or ["Pred"] * prediction_count)
+        box_colors.extend(
+            [_box_color(prediction_box_color, "matplotlib")] * prediction_count
+        )
+        box_linewidths.extend(
+            [
+                _positive_linewidth(
+                    prediction_box_linewidth,
+                    "prediction_box_linewidth",
+                )
+            ] * prediction_count
+        )
+
+    if len(box_parts) > 0:
+        boxes = torch.cat(box_parts, dim=0)
         lidar_corners = boxes_to_corners_3d(boxes)
         radar_corners = transform_lidar_to_radar(
             lidar_corners,
@@ -1566,6 +1806,9 @@ def get_radar_frame(
         rae_corners = np.zeros((0, 8, 3), dtype=np.float32)
         texts = None
 
+    if not show_texts:
+        texts = None
+
     if radar_mode == 0:
         fig, ax = plt.subplots(figsize=(8, 6))
         visualize_bbx_on_ra_polar(
@@ -1575,7 +1818,9 @@ def get_radar_frame(
             arr_range,
             arr_azimuth_deg,
             frame_idx,
-            texts=texts
+            texts=texts,
+            box_colors=box_colors,
+            box_linewidths=box_linewidths,
         )
 
     elif radar_mode == 1 or radar_mode == 2:
@@ -1595,7 +1840,16 @@ def get_radar_frame(
 
         fig = plt.figure(figsize=(fig_w, fig_h), dpi=120, facecolor="black")
         ax = fig.add_axes([0, 0, 1, 1], facecolor="black")
-        fig.text(0.5, 0.96, title, color="white", ha="center", va="center", fontsize=12)
+        if show_title:
+            fig.text(
+                0.5,
+                0.96,
+                title,
+                color="white",
+                ha="center",
+                va="center",
+                fontsize=12,
+            )
 
         if radar_mode == 1:
             visualize_bbx_on_ra_cartesian(
@@ -1605,7 +1859,9 @@ def get_radar_frame(
                 arr_range,
                 arr_azimuth_deg,
                 frame_idx,
-                texts=texts
+                texts=texts,
+                box_colors=box_colors,
+                box_linewidths=box_linewidths,
             )
         else:
             visualize_bbx_on_ra_cartesian_with_yaw(
@@ -1615,7 +1871,9 @@ def get_radar_frame(
                 arr_range,
                 arr_azimuth_deg,
                 frame_idx,
-                texts=texts
+                texts=texts,
+                box_colors=box_colors,
+                box_linewidths=box_linewidths,
             )
 
     else:
@@ -1627,7 +1885,21 @@ def get_radar_frame(
     return image
 
 
-def play_all_sensors_video(
+def save_combined_picture(combined_image, cfg, label_filename, frame_idx):
+    """Save one Radar + LiDAR + Camera frame and return its absolute path."""
+    picture_path = get_picture_save_path(
+        cfg=cfg,
+        label_filename=label_filename,
+        frame_idx=frame_idx,
+    )
+    picture_path.parent.mkdir(parents=True, exist_ok=True)
+    saved = cv2.imwrite(str(picture_path), combined_image)
+    if not saved:
+        raise RuntimeError(f"Cannot save combined picture: {picture_path}")
+    return picture_path
+
+
+def visualize_all_sensors(
         cfg,
         label_dir,
         label_files,
@@ -1638,9 +1910,12 @@ def play_all_sensors_video(
         arr_range,
         arr_azimuth_deg,
         R_l2r,
-        T_l2r
+        T_l2r,
+        checkpoint_predictor=None,
     ):
 
+    visualize_mode = resolve_visualize_mode(cfg.visualize_mode)
+    sensor_layout = resolve_sensor_layout(cfg.sensor_layout)
     start_frame_idx = cfg.start_frame_idx
 
     if cfg.max_frames is None:
@@ -1649,11 +1924,13 @@ def play_all_sensors_video(
         max_frames = min(cfg.max_frames, len(label_files))
 
     step = max(1, cfg.step)
-    if cfg.all_sensors_mode == 0:
-        frame_indices = list(range(start_frame_idx, max_frames, step))
+    frame_indices = list(range(start_frame_idx, max_frames, step))
+    if (
+        visualize_mode == VISUALIZE_MODE_PICTURES
+        or checkpoint_predictor is not None
+    ):
         radar_frames = None
-    elif cfg.all_sensors_mode == 1:
-        frame_indices = list(range(start_frame_idx, max_frames, step))
+    elif visualize_mode == VISUALIZE_MODE_VIDEO:
         radar_frames = preload_radar_frames_for_mode(
             cfg.radar_mode,
             label_dir,
@@ -1665,29 +1942,43 @@ def play_all_sensors_video(
             R_l2r,
             T_l2r,
             cfg.start_frame_idx,
-            cfg.show_texts
+            cfg.show_texts and cfg.show_gt_texts
         )
     else:
-        raise ValueError(f"Unknown all_sensors_mode: {cfg.all_sensors_mode}")
+        raise AssertionError(f"Unhandled visualize_mode: {visualize_mode}")
 
-    wait_each_frame = cfg.all_sensors_mode == 0
+    display_window = bool(cfg.display_window)
+    if (
+        visualize_mode == VISUALIZE_MODE_PICTURES
+        and not cfg.save_pictures
+        and not display_window
+    ):
+        raise ValueError(
+            "pictures mode needs save_pictures=True or display_window=True"
+        )
 
-    vis = o3d.visualization.Visualizer()
-    vis.create_window(
-        window_name="LiDAR renderer",
-        width=720,
-        height=720,
-        visible=False
-    )
+    vis = None
+    if sensor_layout == SENSOR_LAYOUT_CAMERA_LIDAR_RADAR:
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(
+            window_name="LiDAR renderer",
+            width=720,
+            height=720,
+            visible=False
+        )
 
     old_geometries = []
     delay = int(1000 / cfg.fps)
     writer = None
+    saved_picture_count = 0
 
-    window_name = "Radar + LiDAR + Camera"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    window_name = "Camera + Radar" if (
+        sensor_layout == SENSOR_LAYOUT_CAMERA_RADAR
+    ) else "Radar + LiDAR + Camera"
+    if display_window:
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
-    if cfg.all_sensors_mode == 1:
+    if visualize_mode == VISUALIZE_MODE_VIDEO:
         expected_duration = len(frame_indices) / cfg.fps
         print(
             f"Saving/playing {len(frame_indices)} combined frames "
@@ -1697,6 +1988,32 @@ def play_all_sensors_video(
     try:
         for frame_idx in frame_indices:
             print(f"Playing frame_idx = {frame_idx}")
+
+            prediction_lidar_boxes = None
+            prediction_texts = None
+            radar_data = None
+            if checkpoint_predictor is not None:
+                label_path = os.path.join(label_dir, label_files[frame_idx])
+                frame_info = read_info_label(label_path)
+                tesseract_idx = frame_info["tesseract_idx"]
+                radar_data = radar_dataset.get_by_tesseract_idx(tesseract_idx)
+                prediction = checkpoint_predictor.predict(radar_data)
+                if prediction["frame_name"] != str(tesseract_idx):
+                    raise ValueError(
+                        "Prediction/label frame mismatch: "
+                        f"prediction={prediction['frame_name']}, "
+                        f"label={tesseract_idx}"
+                    )
+                prediction_lidar_boxes = transform_radar_boxes_to_lidar(
+                    prediction["radar_boxes"],
+                    R_l2r,
+                    T_l2r,
+                )
+                prediction_texts = prediction["texts"]
+                print(
+                    f"Prediction frame {tesseract_idx}: "
+                    f"{len(prediction_texts)} box(es)"
+                )
 
             if radar_frames is None:
                 radar_frame = get_radar_frame(
@@ -1709,21 +2026,35 @@ def play_all_sensors_video(
                     T_l2r=T_l2r,
                     radar_mode=cfg.radar_mode,
                     frame_idx=frame_idx,
-                    show_texts=cfg.show_texts
+                    show_texts=cfg.show_texts,
+                    show_gt_texts=cfg.show_gt_texts,
+                    prediction_lidar_boxes=prediction_lidar_boxes,
+                    prediction_texts=prediction_texts,
+                    radar_data=radar_data,
+                    show_title=getattr(cfg, "show_radar_title", True),
+                    ground_truth_box_color=getattr(
+                        cfg,
+                        "ground_truth_box_color",
+                        "red",
+                    ),
+                    prediction_box_color=getattr(
+                        cfg,
+                        "prediction_box_color",
+                        "green",
+                    ),
+                    ground_truth_box_linewidth=getattr(
+                        cfg,
+                        "radar_ground_truth_linewidth",
+                        2.0,
+                    ),
+                    prediction_box_linewidth=getattr(
+                        cfg,
+                        "radar_prediction_linewidth",
+                        2.0,
+                    ),
                 )
             else:
                 radar_frame = radar_frames[frame_idx - start_frame_idx]
-
-            lidar_frame = get_lidar_frame(
-                vis=vis,
-                label_dir=label_dir,
-                label_files=label_files,
-                lidar_dir=lidar_dir,
-                lidar_type=cfg.lidar_type,
-                frame_idx=frame_idx,
-                old_geometries=old_geometries,
-                show_texts=cfg.show_texts
-            )
 
             camera_frame = get_camera_frame(
                 label_dir=label_dir,
@@ -1731,16 +2062,77 @@ def play_all_sensors_video(
                 camera_dir=camera_dir,
                 path_calib=path_calib,
                 frame_idx=frame_idx,
-                show_texts=cfg.show_texts
+                show_texts=cfg.show_texts,
+                show_gt_texts=cfg.show_gt_texts,
+                prediction_lidar_boxes=prediction_lidar_boxes,
+                prediction_texts=prediction_texts,
+                ground_truth_box_color=getattr(
+                    cfg,
+                    "ground_truth_box_color",
+                    "red",
+                ),
+                prediction_box_color=getattr(
+                    cfg,
+                    "prediction_box_color",
+                    "green",
+                ),
             )
 
-            combined = combine_sensor_frames(
-                camera_frame,
-                lidar_frame,
-                radar_frame
-            )
+            if sensor_layout == SENSOR_LAYOUT_CAMERA_RADAR:
+                combined = combine_camera_radar_frames(
+                    camera_frame,
+                    radar_frame,
+                )
+            elif sensor_layout == SENSOR_LAYOUT_CAMERA_LIDAR_RADAR:
+                lidar_frame = get_lidar_frame(
+                    vis=vis,
+                    label_dir=label_dir,
+                    label_files=label_files,
+                    lidar_dir=lidar_dir,
+                    lidar_type=cfg.lidar_type,
+                    frame_idx=frame_idx,
+                    old_geometries=old_geometries,
+                    show_texts=cfg.show_texts,
+                    show_gt_texts=cfg.show_gt_texts,
+                    prediction_lidar_boxes=prediction_lidar_boxes,
+                    prediction_texts=prediction_texts,
+                    ground_truth_box_color=getattr(
+                        cfg,
+                        "ground_truth_box_color",
+                        "red",
+                    ),
+                    prediction_box_color=getattr(
+                        cfg,
+                        "prediction_box_color",
+                        "green",
+                    ),
+                )
+                combined = combine_sensor_frames(
+                    camera_frame,
+                    lidar_frame,
+                    radar_frame,
+                )
+            else:
+                raise AssertionError(f"Unhandled sensor_layout: {sensor_layout}")
 
-            if writer is None and cfg.all_sensors_save_path != "":
+            if (
+                visualize_mode == VISUALIZE_MODE_PICTURES
+                and cfg.save_pictures
+            ):
+                picture_path = save_combined_picture(
+                    combined_image=combined,
+                    cfg=cfg,
+                    label_filename=label_files[frame_idx],
+                    frame_idx=frame_idx,
+                )
+                saved_picture_count += 1
+                print(f"Saved picture: {picture_path}")
+
+            if (
+                visualize_mode == VISUALIZE_MODE_VIDEO
+                and writer is None
+                and cfg.all_sensors_save_path != ""
+            ):
                 h, w = combined.shape[:2]
                 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
                 writer = cv2.VideoWriter(
@@ -1758,48 +2150,63 @@ def play_all_sensors_video(
             if writer is not None:
                 writer.write(combined)
 
-            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-            cv2.imshow(window_name, combined)
+            if display_window:
+                cv2.imshow(window_name, combined)
 
-            if wait_each_frame:
-                print("Press any key or close the window for next frame, q/ESC to quit.")
-                while True:
-                    key = cv2.waitKey(100) & 0xFF
-
-                    if key == ord("q") or key == 27:
-                        return
-
-                    if key != 255:
-                        break
-
-                    try:
-                        window_closed = cv2.getWindowProperty(
-                            window_name,
-                            cv2.WND_PROP_VISIBLE
-                        ) < 1
-                    except cv2.error:
-                        window_closed = True
-
-                    if window_closed:
-                        break
-            else:
-                key = cv2.waitKey(delay) & 0xFF
-
-                if key == ord("q") or key == 27:
-                    break
-
-                if key == ord(" "):
+                if visualize_mode == VISUALIZE_MODE_PICTURES:
+                    print(
+                        "Press any key for next frame, q/ESC to quit."
+                    )
                     while True:
-                        key2 = cv2.waitKey(0) & 0xFF
+                        key = cv2.waitKey(100) & 0xFF
 
-                        if key2 == ord(" "):
+                        if key == ord("q") or key == 27:
+                            return
+
+                        if key != 255:
                             break
 
-                        if key2 == ord("q") or key2 == 27:
-                            return
+                        try:
+                            window_closed = cv2.getWindowProperty(
+                                window_name,
+                                cv2.WND_PROP_VISIBLE
+                            ) < 1
+                        except cv2.error:
+                            window_closed = True
+
+                        if window_closed:
+                            break
+                else:
+                    key = cv2.waitKey(delay) & 0xFF
+
+                    if key == ord("q") or key == 27:
+                        break
+
+                    if key == ord(" "):
+                        while True:
+                            key2 = cv2.waitKey(0) & 0xFF
+
+                            if key2 == ord(" "):
+                                break
+
+                            if key2 == ord("q") or key2 == 27:
+                                return
 
     finally:
         if writer is not None:
             writer.release()
-        vis.destroy_window()
-        cv2.destroyAllWindows()
+        if vis is not None:
+            vis.destroy_window()
+        if display_window:
+            cv2.destroyAllWindows()
+
+    if visualize_mode == VISUALIZE_MODE_PICTURES and cfg.save_pictures:
+        print(
+            f"Saved {saved_picture_count} combined picture(s) under "
+            f"{Path(cfg.picture_save_dir).expanduser().resolve()}"
+        )
+
+
+def play_all_sensors_video(*args, **kwargs):
+    """Backward-compatible alias for older callers."""
+    return visualize_all_sensors(*args, **kwargs)

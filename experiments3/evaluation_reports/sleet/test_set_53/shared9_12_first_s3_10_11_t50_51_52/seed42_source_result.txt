@@ -1,0 +1,71 @@
+model_type: sleet_model7_64_128_ig_train_9,12,11,3,10_seq10_first-seq11_first-seq12_first_controlled_lr5e-5
+checkpoint_root: /home/local/xinyu/MVRSS/mvrss/checkpoints/sleet/0805_train_seq9_12_first_11_first_3_10_first_test_seq53
+checkpoint_group: 0805_train_seq9_12_first_11_first_3_10_first_test_seq53
+weather_group: sleet
+seed: 42
+train_sequences: (9, 12, 11, 3, 10)
+train_sequence_half_selection: {10: 'first', 11: 'first', 12: 'first'}
+train_sequence_half_ratio: 0.5
+val_sequences: (53,)
+eval_val_sequences: None
+eval_frame_manifest_path: None
+eval_gt_object_ignore_override_path: None
+eval_report_path: None
+official_neutral_gt_count: 0
+domain_shift_train_branch: source
+shared_train_sequences: (9, 12)
+source_train_sequences: (11, 3, 10)
+target_train_sequences: (50, 51, 52)
+target_test_sequences: (53,)
+eval_scope: full
+eval_coordinate_mode: auto
+effective_eval_coordinate_mode: cartesian
+box_coordinate_mode: cartesian
+include_bus_as_target: False
+checkpoint_include_bus_as_target: False
+gt_object_ignore_override_path: split/controled_seq11_first_ref50__seq3_ref51__seq10_first_ref52/object_ignore_override.json
+train_control_split_enabled: True
+ap_score_thresh: 0.01
+score_thresh: 0.3
+distance_range_eval_enabled: False
+distance_range_bins: ((0.0, 30.0), (30.0, 60.0), (60.0, 90.0), (90.0, 120.0))
+distance_quartile_eval_enabled: True
+distance_quartile_bins_mode: derived
+distance_quartile_bins: [{"bbox_count": 148, "lower_m": 0.0, "num_gt": 148, "tag": "q1", "upper_m": 15.216213279938529}, {"bbox_count": 147, "lower_m": 15.216213279938529, "num_gt": 147, "tag": "q2", "upper_m": 25.973658974726895}, {"bbox_count": 148, "lower_m": 25.973658974726895, "num_gt": 148, "tag": "q3", "upper_m": 32.59275985882853}, {"bbox_count": 147, "lower_m": 32.59275985882853, "num_gt": 147, "tag": "q4", "upper_m": Infinity}]
+train_frames: 4197
+test_frames: 611
+train_ratio_frames: 0.8729201331114809
+train_bbox_total: 12164
+train_bbox_sedan: 8207
+train_bbox_bus: 3957
+test_bbox_total: 590
+test_bbox_sedan: 590
+test_bbox_bus: 0
+train_ratio_bboxes: 0.9537400031362709
+
+best_epoch_bev@0.3: epoch 7 (bev@0.3=91.5673)
+best_epoch_3d@0.3: epoch 11 (3d@0.3=67.6388)
+average_AP_epoch_5_to_24 (epochs_used=20): bev@0.3=87.8362 | bev@0.5=83.4911 | 3d@0.3=54.9907 | 3d@0.5=15.9867 | bev@0.3_quartile_q1=85.9806 | 3d@0.3_quartile_q1=85.2246 | bev@0.3_quartile_q2=82.8788 | 3d@0.3_quartile_q2=61.0530 | bev@0.3_quartile_q3=96.5769 | 3d@0.3_quartile_q3=43.2263 | bev@0.3_quartile_q4=54.8520 | 3d@0.3_quartile_q4=9.0179
+
+epoch   bev@0.3   bev@0.5    3d@0.3    3d@0.5 bev@0.3_quartile_q1 3d@0.3_quartile_q1 bev@0.3_quartile_q2 3d@0.3_quartile_q2 bev@0.3_quartile_q3 3d@0.3_quartile_q3 bev@0.3_quartile_q4 3d@0.3_quartile_q4        p        r       f1  ign_sup neutral_gt
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    5   84.2037   82.0456   62.0122   22.4757             87.1448            87.0134             79.9790            63.5538             94.7920            53.3740             39.5853             7.7488   1.0000   0.4729   0.6421        0          0
+    6   91.2340   89.6346   66.7713   20.8391             87.1637            89.0792             85.6696            75.2684             98.9638            57.6754             61.9301            16.7551   0.8933   0.8797   0.8864        0          0
+    7   91.5673   89.3833   46.4296   13.5158             87.6001            87.2533             84.9218            40.2790             97.9191            31.9610             62.0746             7.0296   0.8908   0.8847   0.8878        0          0
+    8   89.8747   83.0997   49.2237   17.6322             84.8345            84.3250             76.0100            47.6070             97.4100            28.6668             59.5637             3.8055   0.9520   0.8068   0.8734        0          0
+    9   89.1338   83.2599   44.2409   10.4711             82.7199            79.2120             79.9299            42.3907             97.9738            27.4049             56.9496             2.6625   0.9704   0.7780   0.8636        0          0
+   10   87.2312   80.0799   57.3586   16.7813             85.9877            85.6028             77.7907            53.7825             96.4393            49.0715             50.4886             8.1121   0.9724   0.7153   0.8242        0          0
+   11   86.2642   80.5674   67.6388   22.8837             83.0685            84.0159             79.5060            73.3794             96.8731            58.8443             43.4327            16.8068   0.8806   0.8000   0.8384        0          0
+   12   88.6653   85.3331   56.5752   18.4591             89.6843            89.2739             84.5920            68.6392             97.3812            38.6181             56.8778             7.2769   0.9721   0.7678   0.8580        0          0
+   13   91.0136   86.2966   58.7595   15.2222             86.0192            85.9349             84.7763            67.4175             98.4336            43.9235             61.7700            11.5885   0.8510   0.9000   0.8748        0          0
+   14   87.0893   83.1828   66.7095   17.3855             81.5686            81.4480             83.7108            77.6619             97.0200            58.2444             55.2169            23.7957   0.9185   0.7068   0.7989        0          0
+   15   91.0754   88.0914   60.8739   16.4578             84.3401            82.0996             80.0302            63.6430             97.0125            50.8560             65.3858            14.0711   0.9793   0.7203   0.8301        0          0
+   16   88.2722   82.3920   49.8605   12.4448             85.6051            83.4495             77.6118            49.3850             97.1346            38.8199             58.0119             7.3737   0.9747   0.7186   0.8273        0          0
+   17   89.1640   83.8344   58.4597   16.4150             88.6289            88.6289             84.5608            72.5494             97.9615            49.1066             57.8646             4.6297   0.9550   0.7915   0.8656        0          0
+   18   89.5472   86.2778   45.2041   11.4148             87.4538            86.9600             82.0197            54.3887             96.2675            25.3994             65.5345             5.8819   0.9215   0.8356   0.8764        0          0
+   19   86.4221   82.5115   53.4387   14.5870             91.0215            91.0149             86.4855            58.6924             92.0463            45.9895             55.7825             6.6635   0.9172   0.7508   0.8257        0          0
+   20   89.6826   84.5282   56.7026   15.0295             84.9982            84.5708             83.1021            59.0498             96.6816            41.0087             62.6376            15.0766   0.8557   0.8339   0.8446        0          0
+   21   84.1506   79.7240   51.0565   18.6128             88.2822            85.7229             86.5397            59.7006             97.5314            40.2250             39.5648             4.7594   0.8100   0.7949   0.8024        0          0
+   22   88.7250   84.4098   39.6402    7.8061             89.8123            88.1571             88.3971            51.5573             94.9413            28.4296             60.4819             1.7949   0.6165   0.9017   0.7323        0          0
+   23   77.3873   74.0059   57.2331   19.1901             82.0026            82.0026             88.1556            75.5496             93.2308            58.5204             31.7949             4.5793   0.9248   0.6254   0.7462        0          0
+   24   86.0198   81.1645   51.6249   12.1112             81.6749            78.7272             83.7869            66.5644             95.5244            38.3868             52.0925             9.9454   0.9720   0.6475   0.7772        0          0

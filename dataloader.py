@@ -1,3 +1,4 @@
+import json
 import math
 import os
 
@@ -106,6 +107,7 @@ def build_detection_dataset_for_sequence(
         polar_gt_root=None,
         ignore_object_label_minus_one=False,
         ignore_out_of_scope_gt=True,
+        strict_object_ignore_override=False,
     ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     radar_dataset = KRadarRADRAEDataset(
@@ -135,6 +137,7 @@ def build_detection_dataset_for_sequence(
         cartesian_gt_root=cartesian_gt_root,
         ignore_object_label_minus_one=ignore_object_label_minus_one,
         ignore_out_of_scope_gt=ignore_out_of_scope_gt,
+        strict_object_ignore_override=strict_object_ignore_override,
     )
     override_summary = getattr(dataset, "object_ignore_override_summary", None)
     if override_summary and override_summary.get("override_path"):
@@ -183,6 +186,7 @@ def build_train_val_dataloaders(
     polar_gt_root=None,
     ignore_object_label_minus_one=False,
     ignore_out_of_scope_gt=True,
+    eval_gt_object_ignore_override_path=None,
 ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     if train_sequence_half_selection and split_mode != "sequence":
@@ -238,6 +242,31 @@ def build_train_val_dataloaders(
         train_source_dataset = KRadarMultiSequenceGTDetectionDataset(
             sequence_datasets=controlled_sequence_datasets
         )
+    eval_source_dataset = full_dataset
+    if eval_gt_object_ignore_override_path is not None:
+        eval_sequence_datasets = [
+            build_detection_dataset_for_sequence(
+                cfg=cfg,
+                sequence=sequence,
+                class_to_idx=class_to_idx,
+                ignore_unmapped_classes=ignore_unmapped_classes,
+                ignore_class_names=ignore_class_names,
+                gt_object_ignore_override_path=(
+                    eval_gt_object_ignore_override_path
+                ),
+                scope_mode=scope_mode,
+                box_coordinate_mode=box_coordinate_mode,
+                cartesian_gt_root=cartesian_gt_root,
+                polar_gt_root=polar_gt_root,
+                ignore_object_label_minus_one=ignore_object_label_minus_one,
+                ignore_out_of_scope_gt=ignore_out_of_scope_gt,
+                strict_object_ignore_override=True,
+            )
+            for sequence in dataset_sequences
+        ]
+        eval_source_dataset = KRadarMultiSequenceGTDetectionDataset(
+            sequence_datasets=eval_sequence_datasets
+        )
 
     if split_mode == "random":
         train_indices, val_indices = build_random_split_indices(
@@ -291,7 +320,7 @@ def build_train_val_dataloaders(
     # Keep generated object ignores out of validation, even for file splits
     # where train and validation frames can belong to the same sequence.
     train_dataset = Subset(train_source_dataset, train_indices)
-    val_dataset = Subset(full_dataset, val_indices)
+    val_dataset = Subset(eval_source_dataset, val_indices)
 
     loader_generator = torch.Generator()
     loader_generator.manual_seed(seed)
@@ -314,6 +343,181 @@ def build_train_val_dataloaders(
     )
 
     return train_dataset, val_dataset, train_loader, val_loader
+
+
+def build_exact_frame_manifest_indices(full_dataset, manifest_path):
+    """Resolve an evaluation manifest exactly, preserving its row order."""
+    manifest_path = os.path.abspath(os.path.expanduser(str(manifest_path)))
+    if not os.path.isfile(manifest_path):
+        raise FileNotFoundError(
+            f"Evaluation frame manifest not found: {manifest_path}"
+        )
+    sequence_lookup = build_sequence_index_lookup(full_dataset)
+    indices = []
+    seen_indices = set()
+    with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+        for line_number, line in enumerate(manifest_file, start=1):
+            try:
+                parsed = split_line_to_sequence_and_frame_names(line)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid evaluation manifest row {line_number} in "
+                    f"{manifest_path}: {exc}"
+                ) from exc
+            if parsed is None:
+                continue
+            sequence, frame_name_candidates = parsed
+            if sequence not in sequence_lookup:
+                raise ValueError(
+                    f"Evaluation manifest row {line_number} requests sequence "
+                    f"{sequence}, which is not in eval_val_sequences "
+                    f"{tuple(sorted(sequence_lookup))}."
+                )
+            lookup = sequence_lookup[sequence]
+            local_index = None
+            for frame_name in frame_name_candidates:
+                local_index = lookup["frame_name_to_local_idx"].get(frame_name)
+                if local_index is not None:
+                    break
+            if local_index is None:
+                raise ValueError(
+                    f"Evaluation manifest row {line_number} frame "
+                    f"{frame_name_candidates[0]!r} was not found in sequence "
+                    f"{sequence}."
+                )
+            global_index = int(lookup["start"]) + int(local_index)
+            if global_index in seen_indices:
+                raise ValueError(
+                    f"Evaluation manifest row {line_number} duplicates sequence "
+                    f"{sequence}, frame {frame_name_candidates[0]!r}."
+                )
+            indices.append(global_index)
+            seen_indices.add(global_index)
+    if not indices:
+        raise ValueError(f"Evaluation frame manifest is empty: {manifest_path}")
+    return indices
+
+
+def build_evaluation_dataloader(
+        cfg,
+        batch_size,
+        num_workers,
+        val_sequences,
+        limit_samples=None,
+        frame_manifest_path=None,
+        class_to_idx=None,
+        ignore_unmapped_classes=True,
+        ignore_class_names=None,
+        gt_object_ignore_override_path=None,
+        scope_mode=SCOPE_FULL,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        cartesian_gt_root=None,
+        polar_gt_root=None,
+        ignore_object_label_minus_one=False,
+        ignore_out_of_scope_gt=True,
+    ):
+    """Build a validation-only loader from explicit sequences/frames.
+
+    This path is intentionally independent from training/checkpoint splits so
+    a source-domain test control cannot accidentally include target frames.
+    """
+    val_sequences = normalize_sequence_list(
+        val_sequences,
+        name="eval_val_sequences",
+    )
+    if not val_sequences:
+        raise ValueError("eval_val_sequences must not be empty.")
+    if gt_object_ignore_override_path is not None:
+        with open(
+            gt_object_ignore_override_path,
+            "r",
+            encoding="utf-8",
+        ) as override_file:
+            override_payload = json.load(override_file)
+        override_sequences_payload = override_payload.get("sequences")
+        if not isinstance(override_sequences_payload, dict):
+            raise ValueError(
+                "Evaluation object-ignore override must contain a top-level "
+                "'sequences' object."
+            )
+        try:
+            override_sequences = {
+                int(sequence) for sequence in override_sequences_payload
+            }
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Evaluation object-ignore override sequence keys must be integers."
+            ) from exc
+        extra_sequences = sorted(override_sequences - set(val_sequences))
+        if extra_sequences:
+            raise ValueError(
+                "Evaluation object-ignore override contains sequences outside "
+                f"eval_val_sequences: {extra_sequences}"
+            )
+    sequence_datasets = [
+        build_detection_dataset_for_sequence(
+            cfg=cfg,
+            sequence=sequence,
+            class_to_idx=class_to_idx,
+            ignore_unmapped_classes=ignore_unmapped_classes,
+            ignore_class_names=ignore_class_names,
+            gt_object_ignore_override_path=gt_object_ignore_override_path,
+            scope_mode=scope_mode,
+            box_coordinate_mode=box_coordinate_mode,
+            cartesian_gt_root=cartesian_gt_root,
+            polar_gt_root=polar_gt_root,
+            ignore_object_label_minus_one=ignore_object_label_minus_one,
+            ignore_out_of_scope_gt=ignore_out_of_scope_gt,
+            strict_object_ignore_override=(
+                gt_object_ignore_override_path is not None
+            ),
+        )
+        for sequence in val_sequences
+    ]
+    full_dataset = KRadarMultiSequenceGTDetectionDataset(
+        sequence_datasets=sequence_datasets
+    )
+    if frame_manifest_path is None:
+        val_indices = list(range(len(full_dataset)))
+    else:
+        val_indices = build_exact_frame_manifest_indices(
+            full_dataset,
+            frame_manifest_path,
+        )
+    if limit_samples is not None:
+        val_indices = val_indices[:int(limit_samples)]
+    if not val_indices:
+        raise ValueError("Controlled evaluation split is empty.")
+    if gt_object_ignore_override_path is not None:
+        selected_indices = set(int(index) for index in val_indices)
+        missing_override_frames = []
+        start = 0
+        for sequence_dataset in full_dataset.sequence_datasets:
+            for file_idx in sequence_dataset.object_ignore_override_map:
+                global_index = start + int(file_idx)
+                if global_index not in selected_indices:
+                    frame_name = sequence_dataset.radar_dataset.frame_names[
+                        int(file_idx)
+                    ]
+                    missing_override_frames.append(
+                        f"{int(sequence_dataset.sequence)},{frame_name}"
+                    )
+            start += len(sequence_dataset)
+        if missing_override_frames:
+            raise ValueError(
+                "Evaluation object-ignore override contains frames outside the "
+                "selected evaluation manifest/limit: "
+                f"{missing_override_frames[:10]}"
+            )
+    val_dataset = Subset(full_dataset, val_indices)
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=detection_collate,
+        num_workers=num_workers,
+    )
+    return val_dataset, val_loader
 
 
 def apply_train_control_split_indices(

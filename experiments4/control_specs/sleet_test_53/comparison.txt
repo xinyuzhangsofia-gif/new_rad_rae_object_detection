@@ -1,0 +1,35 @@
+Test-domain control comparison
+
+Weather experiment: sleet
+Target test: seq53 (sleet, highway, day)
+Controlled source test: seq11 (normal, highway, day)
+Road type match: True
+Source normal weather: True
+Training-frame overlap: 0
+
+Surplus source GT boxes are neutral ignore regions: they are neither positive GT nor false-positive background. Original GT is unchanged.
+
+Metric | Target | Source before | Source after
+--- | ---: | ---: | ---:
+Frames | 611 | 597 | 597
+Eligible Sedan bbox | 590 | 1857 | 590
+Control-bin Sedan range_0_20 | 232 | 347 | 232
+Control-bin Sedan range_20_40 | 301 | 646 | 301
+Control-bin Sedan range_40_60 | 44 | 495 | 44
+Control-bin Sedan range_60_80 | 13 | 351 | 13
+Control-bin Sedan range_80_120 | 0 | 18 | 0
+Control-bin Sedan outside_120_inf | 0 | 0 | 0
+
+Reporting-only counts under the target's fixed AP quartiles:
+Sedan bbox Q1 | 148 | 193 | 128
+Sedan bbox Q2 | 147 | 353 | 185
+Sedan bbox Q3 | 148 | 213 | 99
+Sedan bbox Q4 | 147 | 1098 | 178
+Masked surplus bbox | 0 | 0 | 1267
+Unrecoverable bbox deficit | 0 | 0 | 0
+
+Target-fixed quartile bounds:
+- Q1: [0.000000, 15.216213) m; target N=148
+- Q2: [15.216213, 25.973659) m; target N=147
+- Q3: [25.973659, 32.592760) m; target N=148
+- Q4: [32.592760, inf) m; target N=147

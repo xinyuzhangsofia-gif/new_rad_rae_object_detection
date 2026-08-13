@@ -1,11 +1,13 @@
 import path_setup
 
-from zxy_config import DataConfig
 from zxy_label_utils import *
 from zxy_data_path import *
 from sensor_transformation import *
 from visualization import *
-from dataset import KRadarDataset
+from visualization_cfg import DataConfig
+from visualization_utils import get_label_dir, get_visualization_camera_dir
+from radar_npy_reader import build_current_radar_dataset, get_current_radar_axes
+from checkpoint_predictor import build_checkpoint_predictor
 
 
 if __name__ == "__main__":
@@ -15,22 +17,18 @@ if __name__ == "__main__":
     label_dir = get_label_dir(cfg)
     label_files = get_label_files(label_dir)
 
-    camera_dir = get_camera_dir(cfg)
+    camera_dir = get_visualization_camera_dir(cfg)
     path_calib = get_camera_calib_path(cfg)
 
     lidar_dir = get_lidar_dir(cfg)
 
-    radar_dir = get_radar_dir(cfg)
-    radar_dataset = KRadarDataset(radar_dir)
-
-    info_array_path = get_info_array_path(cfg)
-    arr_range, arr_azimuth_deg, arr_elevation_deg = load_axis_from_mat(
-        info_array_path
-    )
+    radar_dataset = build_current_radar_dataset(cfg)
+    arr_range, arr_azimuth_deg, arr_elevation_deg = get_current_radar_axes()
+    checkpoint_predictor = build_checkpoint_predictor(cfg)
 
     R_l2r, T_l2r = load_lidar2radar_calib(cfg.lidar2radar_calib_path)
 
-    play_all_sensors_video(
+    visualize_all_sensors(
         cfg=cfg,
         label_dir=label_dir,
         label_files=label_files,
@@ -41,5 +39,6 @@ if __name__ == "__main__":
         arr_range=arr_range,
         arr_azimuth_deg=arr_azimuth_deg,
         R_l2r=R_l2r,
-        T_l2r=T_l2r
+        T_l2r=T_l2r,
+        checkpoint_predictor=checkpoint_predictor
     )

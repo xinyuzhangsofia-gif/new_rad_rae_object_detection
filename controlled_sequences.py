@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 from collections import Counter
@@ -21,7 +22,8 @@ from zxy_label_utils import (
 
 SEDAN_CLASS_NAME = "Sedan"
 BUS_CLASS_NAME = "Bus or Truck"
-TARGET_CLASS_NAMES = (SEDAN_CLASS_NAME, BUS_CLASS_NAME)
+SUPPORTED_CONTROL_CLASS_NAMES = (SEDAN_CLASS_NAME, BUS_CLASS_NAME)
+DEFAULT_CONTROL_CLASS_NAMES = (SEDAN_CLASS_NAME,)
 DEFAULT_RANGE_M_BINS = (
     (0.0, 20.0),
     (20.0, 40.0),
@@ -29,7 +31,7 @@ DEFAULT_RANGE_M_BINS = (
     (60.0, 80.0),
     (80.0, 120.0),
 )
-CONTROL_SCHEMA_VERSION = 5
+CONTROL_SCHEMA_VERSION = 10
 OUTSIDE_RANGE_CATEGORY_KEY = "__outside_range__"
 REQUIRED_CONTROL_OUTPUT_FILENAMES = (
     "train.txt",
@@ -52,6 +54,108 @@ def _normalize_sequences(value, name):
                 values.append(int(token))
         return tuple(values)
     return tuple(int(sequence) for sequence in value)
+
+
+def _normalize_sequence_parts(value, name):
+    if value is None:
+        return ()
+    normalized = []
+    for raw_part in value:
+        if isinstance(raw_part, int):
+            sequence, position = int(raw_part), "full"
+        elif isinstance(raw_part, (tuple, list)) and len(raw_part) == 2:
+            sequence, position = int(raw_part[0]), str(raw_part[1]).strip().lower()
+        else:
+            raise ValueError(
+                f"{name} entries must be sequence IDs or (sequence, part) "
+                f"pairs, got {raw_part!r}"
+            )
+        if position not in {"full", "first", "last"}:
+            raise ValueError(
+                f"Invalid {name} part for sequence {sequence}: {position!r}"
+            )
+        normalized.append((sequence, position))
+    return tuple(normalized)
+
+
+def _sequence_part_label(sequence, position):
+    sequence = int(sequence)
+    position = str(position)
+    return f"seq{sequence}" if position == "full" else f"seq{sequence}_{position}"
+
+
+def _pair_sequence_parts(args):
+    controlled_parts = _normalize_sequence_parts(
+        getattr(args, "controlled_sequence_parts", None),
+        "controlled_sequence_parts",
+    )
+    reference_parts = _normalize_sequence_parts(
+        getattr(args, "reference_sequence_parts", None),
+        "reference_sequence_parts",
+    )
+    if not controlled_parts:
+        controlled_parts = tuple(
+            (sequence, "full")
+            for sequence in _normalize_sequences(
+                getattr(args, "controled_sequences", None),
+                "controled_sequences",
+            )
+        )
+    if not reference_parts:
+        reference_parts = tuple(
+            (sequence, "full")
+            for sequence in _normalize_sequences(
+                getattr(args, "reference_sequences", None),
+                "reference_sequences",
+            )
+        )
+    if not controlled_parts:
+        raise ValueError("controlled sequence parts must not be empty")
+    if not reference_parts:
+        raise ValueError("reference sequence parts must not be empty")
+    if len(reference_parts) == 1:
+        reference_parts = reference_parts * len(controlled_parts)
+    if len(controlled_parts) != len(reference_parts):
+        raise ValueError(
+            "reference sequence parts must contain one item or the same "
+            "number of items as controlled sequence parts"
+        )
+    return tuple(
+        (
+            int(source_sequence),
+            str(source_position),
+            int(reference_sequence),
+            str(reference_position),
+        )
+        for (source_sequence, source_position), (
+            reference_sequence,
+            reference_position,
+        ) in zip(controlled_parts, reference_parts)
+    )
+
+
+def _select_sequence_part(frame_infos, position, ratio, complementary=False):
+    frame_infos = list(frame_infos)
+    position = str(position)
+    if position == "full":
+        return frame_infos
+    if position not in {"first", "last"}:
+        raise ValueError(f"Unsupported sequence part: {position!r}")
+    if complementary:
+        if abs(float(ratio) - 0.5) > 1e-12:
+            raise ValueError(
+                "Using both first and last parts of one sequence requires "
+                "train_sequence_half_ratio=0.5 so the parts are disjoint."
+            )
+        split_index = int(math.ceil(len(frame_infos) * 0.5))
+        return (
+            frame_infos[:split_index]
+            if position == "first"
+            else frame_infos[split_index:]
+        )
+
+    keep_size = max(1, int(math.ceil(len(frame_infos) * float(ratio))))
+    return frame_infos[:keep_size] if position == "first" else frame_infos[-keep_size:]
 
 
 def _normalize_bins(value):
@@ -83,17 +187,50 @@ def _bin_key(class_name, lower, upper):
     return f"{class_name.lower().replace(' ', '_')}_range_m_{_format_number(lower)}_{_format_number(upper)}"
 
 
-def _category_keys(range_m_bins):
+def _normalize_control_class_names(value):
+    if value is None:
+        return DEFAULT_CONTROL_CLASS_NAMES
+    if isinstance(value, str):
+        names = tuple(
+            token.strip()
+            for token in value.split(",")
+            if token.strip()
+        )
+    else:
+        names = tuple(str(name).strip() for name in value if str(name).strip())
+    if not names:
+        raise ValueError("control_class_names must not be empty")
+    invalid = [
+        name
+        for name in names
+        if name not in SUPPORTED_CONTROL_CLASS_NAMES
+    ]
+    if invalid:
+        raise ValueError(
+            "control_class_names contains unsupported classes: "
+            f"{invalid}; supported={SUPPORTED_CONTROL_CLASS_NAMES}"
+        )
+    return tuple(dict.fromkeys(names))
+
+
+def _category_keys(
+        range_m_bins,
+        control_class_names=DEFAULT_CONTROL_CLASS_NAMES,
+    ):
     return tuple(
         _bin_key(class_name, lower, upper)
-        for class_name in TARGET_CLASS_NAMES
+        for class_name in control_class_names
         for lower, upper in range_m_bins
     )
 
 
-def _category_key(obj, range_m_bins):
+def _category_key(
+        obj,
+        range_m_bins,
+        control_class_names=DEFAULT_CONTROL_CLASS_NAMES,
+    ):
     class_name = str(obj["cls"])
-    if class_name not in TARGET_CLASS_NAMES:
+    if class_name not in control_class_names:
         return None
 
     range_m = float(obj["range_m"])
@@ -148,6 +285,7 @@ def _build_frame_infos(
         range_m_bins,
         box_coordinate_mode,
         cartesian_gt_root=None,
+        control_class_names=DEFAULT_CONTROL_CLASS_NAMES,
     ):
     radar_dataset = KRadarRADRAEDataset(
         get_rad_rae_npy_root_dir(),
@@ -164,7 +302,10 @@ def _build_frame_infos(
         cartesian_gt = None
         polar_gt = read_gt_txt(get_gt_txt_path(None, sequence=int(sequence)))
 
-    category_keys = _category_keys(range_m_bins)
+    category_keys = _category_keys(
+        range_m_bins,
+        control_class_names=control_class_names,
+    )
     frame_infos = []
 
     for file_idx, frame_name in enumerate(radar_dataset.frame_names):
@@ -180,7 +321,7 @@ def _build_frame_infos(
 
         for obj in frame_objects:
             class_name = str(obj["cls"])
-            if class_name not in TARGET_CLASS_NAMES:
+            if class_name not in control_class_names:
                 continue
 
             object_label = int(obj["object_label"])
@@ -191,7 +332,11 @@ def _build_frame_infos(
                 if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
                 else _polar_object_range_m(obj)
             )
-            category_key = _category_key(obj_with_range, range_m_bins)
+            category_key = _category_key(
+                obj_with_range,
+                range_m_bins,
+                control_class_names=control_class_names,
+            )
             if category_key is None:
                 outside_bin_object_labels.append(object_label)
             else:
@@ -319,18 +464,26 @@ def _category_keys_from_frames(frame_infos):
     return tuple(frame_infos[0]["category_counts"].keys())
 
 
-def _ordered_control_categories(range_m_bins):
+def _ordered_control_categories(
+        range_m_bins,
+        control_class_names=DEFAULT_CONTROL_CLASS_NAMES,
+    ):
     """Return distance categories in the configured range-bin order."""
     ordered = [
         _bin_key(class_name, lower, upper)
         for lower, upper in range_m_bins
-        for class_name in TARGET_CLASS_NAMES
+        for class_name in control_class_names
     ]
     ordered.append(OUTSIDE_RANGE_CATEGORY_KEY)
     return ordered
 
 
-def _range_priority_delta(after_summary, reference_summary, range_m_bins):
+def _range_priority_delta(
+        after_summary,
+        reference_summary,
+        range_m_bins,
+        control_class_names=DEFAULT_CONTROL_CLASS_NAMES,
+    ):
     """Compare 0-80 m first, then 80-120 m, using old bin differences."""
     deltas = []
     for lower, upper in range_m_bins:
@@ -342,7 +495,7 @@ def _range_priority_delta(after_summary, reference_summary, range_m_bins):
                 )
                 for key in (
                     _bin_key(class_name, lower, upper)
-                    for class_name in TARGET_CLASS_NAMES
+                    for class_name in control_class_names
                 )
             )
         )
@@ -381,7 +534,8 @@ def _run_trial(
     population,
     seed,
     range_m_bins=DEFAULT_RANGE_M_BINS,
-    total_bbox_tolerance_ratio=0.05,
+    total_bbox_tolerance_ratio=0.0,
+    control_class_names=DEFAULT_CONTROL_CLASS_NAMES,
 ):
     rng = random.Random(int(seed))
     keep_by_frame = {
@@ -400,13 +554,11 @@ def _run_trial(
             reference_summary.get("all_target_objects", 0),
         )
     )
+    tolerance_ratio = float(total_bbox_tolerance_ratio)
     tolerance = (
-        max(
-            1,
-            int(round(reference_total * float(total_bbox_tolerance_ratio))),
-        )
-        if reference_total
-        else 0
+        0
+        if not reference_total or tolerance_ratio <= 0.0
+        else max(1, int(round(reference_total * tolerance_ratio)))
     )
 
     # Total bbox count is the primary control target.  If the source is below
@@ -437,25 +589,18 @@ def _run_trial(
         selected_total = sum(selected_counts.values())
 
         # Only when total-count control requires deletion do we use the
-        # distance bins as a secondary objective.  Preserve the old behavior
-        # of handling the largest remaining bin deficit first, but restrict
-        # that choice to 0-80 m before considering 80-120 m.
-        ordered_categories = _ordered_control_categories(range_m_bins)
+        # distance bins as a secondary objective.  First reserve as many boxes
+        # as the corresponding reference bin contains.  If more source boxes
+        # must be kept to reach the reference total, keep the remaining boxes
+        # strictly from near to far: 0-20, 20-40, 40-60, 60-80, then 80-120 m.
+        ordered_categories = _ordered_control_categories(
+            range_m_bins,
+            control_class_names=control_class_names,
+        )
         category_order = {
             category_key: index
             for index, category_key in enumerate(ordered_categories)
         }
-
-        def distance_group(category_key):
-            if category_key == OUTSIDE_RANGE_CATEGORY_KEY:
-                return 1
-            for lower, upper in range_m_bins:
-                if category_key in {
-                    _bin_key(class_name, lower, upper)
-                    for class_name in TARGET_CLASS_NAMES
-                }:
-                    return 0 if lower < 80.0 else 1
-            return 1
 
         while selected_total < desired_total:
             candidates = [
@@ -465,42 +610,14 @@ def _run_trial(
             ]
             if not candidates:
                 break
-            deficit_candidates = [
-                category_key
-                for category_key in candidates
-                if selected_counts[category_key]
-                < int(requested_counts.get(category_key, 0))
-            ]
-            if deficit_candidates:
-                near_deficits = [
-                    category_key
-                    for category_key in deficit_candidates
-                    if distance_group(category_key) == 0
-                ]
-                chosen_pool = near_deficits or deficit_candidates
-                chosen_pool.sort(
-                    key=lambda category_key: (
-                        int(requested_counts.get(category_key, 0))
-                        - selected_counts[category_key],
-                        -category_order.get(category_key, len(category_order)),
-                    ),
-                    reverse=True,
-                )
-            else:
-                near_candidates = [
-                    category_key
-                    for category_key in candidates
-                    if distance_group(category_key) == 0
-                ]
-                chosen_pool = near_candidates or candidates
-                rng.shuffle(chosen_pool)
-                chosen_pool.sort(
-                    key=lambda category_key: category_order.get(
-                        category_key,
-                        len(category_order),
-                    )
-                )
-            selected_counts[chosen_pool[0]] += 1
+            chosen_category = min(
+                candidates,
+                key=lambda category_key: category_order.get(
+                    category_key,
+                    len(category_order),
+                ),
+            )
+            selected_counts[chosen_category] += 1
             selected_total += 1
 
         for category_key, objects in population.items():
@@ -521,6 +638,7 @@ def _run_trial(
         after_summary,
         reference_summary,
         range_m_bins,
+        control_class_names=control_class_names,
     )
     empty_delta = abs(
         int(after_summary["empty_frames"])
@@ -578,13 +696,20 @@ def _format_rate(rate):
     return f"{float(rate) * 100.0:.2f}%"
 
 
-def _comparison_text(pair_results, range_m_bins, box_coordinate_mode):
+def _comparison_text(
+        pair_results,
+        range_m_bins,
+        box_coordinate_mode,
+        control_class_names=DEFAULT_CONTROL_CLASS_NAMES,
+    ):
+    controlled_class_text = ", ".join(control_class_names)
     lines = [
         "Controlled sequence comparison",
         "",
         "The before and after values refer to the selected continuous source window.",
         "Ignored bboxes are not removed from gt.txt; they are applied through the training ignore override.",
-        "Control priority: total bbox count first, largest distance-bin difference within 0-80 m second, 80-120 m third, empty-frame count fourth.",
+        f"Controlled classes: {controlled_class_text}",
+        "Control priority: controlled-class bbox count first, largest distance-bin difference within 0-80 m second, 80-120 m third, empty-frame count fourth.",
         "",
         f"Coordinate mode: {box_coordinate_mode}",
         "Center range bins (m): " + ", ".join(
@@ -594,14 +719,20 @@ def _comparison_text(pair_results, range_m_bins, box_coordinate_mode):
     ]
 
     for result in pair_results:
-        source = result["source_sequence"]
-        reference = result["reference_sequence"]
+        source = _sequence_part_label(
+            result["source_sequence"],
+            result.get("source_position", "full"),
+        )
+        reference = _sequence_part_label(
+            result["reference_sequence"],
+            result.get("reference_position", "full"),
+        )
         before = result["before_summary"]
         after = result["after_summary"]
         target = result["reference_summary"]
         lines.extend([
             "",
-            f"Sequence pair: controlled seq{source} -> reference seq{reference}",
+            f"Sequence pair: controlled {source} -> reference {reference}",
             f"Selected source window: file_idx {result['start_file_idx']} - {result['end_file_idx']}",
             f"Selected random seed: {result['selected_seed']}",
             "",
@@ -610,9 +741,9 @@ def _comparison_text(pair_results, range_m_bins, box_coordinate_mode):
             f"Frames | {before['frames']} | {after['frames']} | {target['frames']}",
             f"Empty frames | {before['empty_frames']} | {after['empty_frames']} | {target['empty_frames']}",
             f"Empty rate | {_format_rate(before['empty_rate'])} | {_format_rate(after['empty_rate'])} | {_format_rate(target['empty_rate'])}",
-            f"Total target bbox | {before['total_target_objects']} | {after['selected_target_objects']} | {target['total_target_objects']}",
+            f"Controlled-class bbox | {before['total_target_objects']} | {after['selected_target_objects']} | {target['total_target_objects']}",
         ])
-        for class_name in TARGET_CLASS_NAMES:
+        for class_name in control_class_names:
             for lower, upper in range_m_bins:
                 key = _bin_key(class_name, lower, upper)
                 lines.append(
@@ -648,9 +779,9 @@ def _pair_sequences(controlled_sequences, reference_sequences):
 
 
 def _requested_config(args):
-    pairs = _pair_sequences(
-        getattr(args, "controled_sequences", None),
-        getattr(args, "reference_sequences", None),
+    pairs = _pair_sequence_parts(args)
+    control_class_names = _normalize_control_class_names(
+        getattr(args, "control_class_names", None)
     )
     box_coordinate_mode = str(
         getattr(args, "box_coordinate_mode", "polar")
@@ -672,16 +803,25 @@ def _requested_config(args):
             bins = _normalize_bins(None)
     else:
         bins = _normalize_bins(configured_range_bins)
+    half_ratio = float(getattr(args, "train_sequence_half_ratio", 0.5))
     return {
         "schema_version": CONTROL_SCHEMA_VERSION,
-        "pairs": [[int(source), int(reference)] for source, reference in pairs],
+        "pairs": [
+            {
+                "source": [int(source), str(source_position)],
+                "reference": [int(reference), str(reference_position)],
+            }
+            for source, source_position, reference, reference_position in pairs
+        ],
         "box_coordinate_mode": box_coordinate_mode,
+        "control_class_names": list(control_class_names),
         "range_m_bins": [[float(lower), float(upper)] for lower, upper in bins],
+        "half_ratio": half_ratio,
         "window_position": str(getattr(args, "control_window_position", "last")),
         "seed": int(getattr(args, "seed", 42)),
         "num_trials": int(getattr(args, "control_num_trials", 300)),
         "total_bbox_tolerance_ratio": float(
-            getattr(args, "control_total_bbox_tolerance_ratio", 0.05)
+            getattr(args, "control_total_bbox_tolerance_ratio", 0.0)
         ),
     }, pairs, bins
 
@@ -689,9 +829,15 @@ def _requested_config(args):
 def _request_signature(request):
     """Only compare settings that change the generated controlled data."""
     return {
+        "schema_version": request.get("schema_version"),
         "pairs": request.get("pairs"),
         "box_coordinate_mode": request.get("box_coordinate_mode"),
+        "control_class_names": request.get(
+            "control_class_names",
+            list(SUPPORTED_CONTROL_CLASS_NAMES),
+        ),
         "range_m_bins": request.get("range_m_bins"),
+        "half_ratio": request.get("half_ratio", 0.5),
         "window_position": request.get("window_position"),
         "seed": request.get("seed"),
         "num_trials": request.get("num_trials"),
@@ -741,8 +887,9 @@ def _select_output_dir(base_dir, request):
         return matching_dir, False
 
     pairs_text = "__".join(
-        f"seq{source}_ref{reference}"
-        for source, reference in request["pairs"]
+        f"{_sequence_part_label(*pair['source'])}_ref"
+        f"{_sequence_part_label(*pair['reference']).removeprefix('seq')}"
+        for pair in request["pairs"]
     )
     base_dir = Path(base_dir)
     desired = base_dir / f"controled_{pairs_text}"
@@ -765,7 +912,8 @@ def prepare_controlled_train_data(args):
         "train_sequences",
     )
     request, pairs, range_m_bins = _requested_config(args)
-    controlled_sequences = tuple(source for source, _ in pairs)
+    control_class_names = tuple(request["control_class_names"])
+    controlled_sequences = tuple(source for source, _part, _reference, _ref_part in pairs)
     missing = sorted(set(controlled_sequences) - set(train_sequences))
     if missing:
         raise ValueError(
@@ -781,6 +929,24 @@ def prepare_controlled_train_data(args):
             "control_total_bbox_tolerance_ratio must be between 0 and 1"
         )
 
+    source_positions = {}
+    reference_positions = {}
+    for source, source_position, reference, reference_position in pairs:
+        source_positions.setdefault(int(source), set()).add(source_position)
+        reference_positions.setdefault(int(reference), set()).add(
+            reference_position
+        )
+    for sequence, positions in (
+        list(source_positions.items()) + list(reference_positions.items())
+    ):
+        if {"first", "last"}.issubset(positions) and abs(
+            float(request["half_ratio"]) - 0.5
+        ) > 1e-12:
+            raise ValueError(
+                f"Sequence {sequence} uses both first and last parts; "
+                "train_sequence_half_ratio must be 0.5."
+            )
+
     output_dir, should_generate = _select_output_dir(
         getattr(args, "controlled_split_base_dir", "split"),
         request,
@@ -788,22 +954,48 @@ def prepare_controlled_train_data(args):
     if should_generate:
         pair_results = []
         override_sequences = {}
-        for source_sequence, reference_sequence in pairs:
-            source_infos = _build_frame_infos(
+        for (
+            source_sequence,
+            source_position,
+            reference_sequence,
+            reference_position,
+        ) in pairs:
+            all_source_infos = _build_frame_infos(
                 sequence=source_sequence,
                 range_m_bins=range_m_bins,
                 box_coordinate_mode=request["box_coordinate_mode"],
                 cartesian_gt_root=getattr(args, "cartesian_gt_root", None),
+                control_class_names=control_class_names,
             )
-            reference_infos = _build_frame_infos(
+            all_reference_infos = _build_frame_infos(
                 sequence=reference_sequence,
                 range_m_bins=range_m_bins,
                 box_coordinate_mode=request["box_coordinate_mode"],
                 cartesian_gt_root=getattr(args, "cartesian_gt_root", None),
+                control_class_names=control_class_names,
+            )
+            source_infos = _select_sequence_part(
+                all_source_infos,
+                source_position,
+                request["half_ratio"],
+                complementary={"first", "last"}.issubset(
+                    source_positions[int(source_sequence)]
+                ),
+            )
+            reference_infos = _select_sequence_part(
+                all_reference_infos,
+                reference_position,
+                request["half_ratio"],
+                complementary={"first", "last"}.issubset(
+                    reference_positions[int(reference_sequence)]
+                ),
             )
             if not source_infos or not reference_infos:
                 raise ValueError(
-                    f"Cannot control seq{source_sequence} -> seq{reference_sequence}: "
+                    "Cannot control "
+                    f"{_sequence_part_label(source_sequence, source_position)} "
+                    "-> "
+                    f"{_sequence_part_label(reference_sequence, reference_position)}: "
                     "one sequence has no frames"
                 )
 
@@ -814,6 +1006,8 @@ def prepare_controlled_train_data(args):
                 start_file_idx = len(source_infos) - window_length
             end_file_idx = start_file_idx + window_length - 1
             window_infos = source_infos[start_file_idx:end_file_idx + 1]
+            window_start_file_idx = int(window_infos[0]["file_idx"])
+            window_end_file_idx = int(window_infos[-1]["file_idx"])
             before_summary = _summarize_frames(window_infos)
             reference_summary = _summarize_frames(reference_infos)
             population = _build_population(window_infos)
@@ -829,6 +1023,7 @@ def prepare_controlled_train_data(args):
                     total_bbox_tolerance_ratio=request[
                         "total_bbox_tolerance_ratio"
                     ],
+                    control_class_names=control_class_names,
                 )
                 if best_trial is None or trial["score"] < best_trial["score"]:
                     best_trial = trial
@@ -847,16 +1042,37 @@ def prepare_controlled_train_data(args):
                 for frame_info in source_infos
                 if frame_info["frame_name"] not in set(selected_frame_names)
             ]
-            override_sequences[str(int(source_sequence))] = {
-                "matched_to_sequence": int(reference_sequence),
-                "frame_overrides": override_frames,
-                "frame_after_counts": frame_after_counts,
-            }
+            sequence_payload = override_sequences.setdefault(
+                str(int(source_sequence)),
+                {
+                    "matched_parts": [],
+                    "frame_overrides": {},
+                    "frame_after_counts": {},
+                },
+            )
+            sequence_payload["matched_parts"].append({
+                "source_position": str(source_position),
+                "reference_sequence": int(reference_sequence),
+                "reference_position": str(reference_position),
+            })
+            for frame_name, frame_payload in override_frames.items():
+                existing_payload = sequence_payload["frame_overrides"].setdefault(
+                    frame_name,
+                    {"ignore_object_labels": []},
+                )
+                merged_labels = set(existing_payload.get("ignore_object_labels", ()))
+                merged_labels.update(frame_payload.get("ignore_object_labels", ()))
+                existing_payload["ignore_object_labels"] = sorted(
+                    int(label) for label in merged_labels
+                )
+            sequence_payload["frame_after_counts"].update(frame_after_counts)
             pair_results.append({
                 "source_sequence": int(source_sequence),
+                "source_position": str(source_position),
                 "reference_sequence": int(reference_sequence),
-                "start_file_idx": int(start_file_idx),
-                "end_file_idx": int(end_file_idx),
+                "reference_position": str(reference_position),
+                "start_file_idx": window_start_file_idx,
+                "end_file_idx": window_end_file_idx,
                 "start_frame_name": selected_frame_names[0],
                 "end_frame_name": selected_frame_names[-1],
                 "selected_frame_names": selected_frame_names,
@@ -903,22 +1119,37 @@ def prepare_controlled_train_data(args):
                 pair_results,
                 range_m_bins,
                 request["box_coordinate_mode"],
+                control_class_names=control_class_names,
             ),
             encoding="utf-8",
         )
-        train_lines = []
-        test_lines = []
+        train_entries = set()
+        test_entries = set()
         for result in pair_results:
             selected_names = result["selected_frame_names"]
             excluded_names = result["excluded_frame_names"]
-            train_lines.extend(
-                f"{result['source_sequence']},{frame_name}.txt\n"
+            train_entries.update(
+                (int(result["source_sequence"]), frame_name)
                 for frame_name in selected_names
             )
-            test_lines.extend(
-                f"{result['source_sequence']},{frame_name}.txt\n"
+            test_entries.update(
+                (int(result["source_sequence"]), frame_name)
                 for frame_name in excluded_names
             )
+        overlap_entries = train_entries & test_entries
+        if overlap_entries:
+            raise RuntimeError(
+                "Controlled sequence parts produced overlapping train/test "
+                f"entries: {sorted(overlap_entries)[:10]}"
+            )
+        train_lines = [
+            f"{sequence},{frame_name}.txt\n"
+            for sequence, frame_name in sorted(train_entries)
+        ]
+        test_lines = [
+            f"{sequence},{frame_name}.txt\n"
+            for sequence, frame_name in sorted(test_entries)
+        ]
         (output_dir / "train.txt").write_text("".join(train_lines), encoding="utf-8")
         (output_dir / "test.txt").write_text("".join(test_lines), encoding="utf-8")
 
@@ -928,7 +1159,10 @@ def prepare_controlled_train_data(args):
             after = result["after_summary"]
             reference = result["reference_summary"]
             print(
-                f"  seq{result['source_sequence']} -> seq{result['reference_sequence']}: "
+                "  "
+                f"{_sequence_part_label(result['source_sequence'], result['source_position'])} "
+                "-> "
+                f"{_sequence_part_label(result['reference_sequence'], result['reference_position'])}: "
                 f"frames {after['frames']}/{reference['frames']}, "
                 f"empty rate {_format_rate(after['empty_rate'])}/{_format_rate(reference['empty_rate'])}"
             )
@@ -939,7 +1173,20 @@ def prepare_controlled_train_data(args):
     args.gt_object_ignore_override_path = str(
         output_dir / "object_ignore_override.json"
     )
-    args.controlled_sequences = tuple(source for source, _ in pairs)
-    args.reference_sequences = tuple(reference for _, reference in pairs)
+    args.controlled_sequences = tuple(dict.fromkeys(
+        source for source, _part, _reference, _ref_part in pairs
+    ))
+    args.reference_sequences = tuple(dict.fromkeys(
+        reference for _source, _part, reference, _ref_part in pairs
+    ))
+    args.controlled_sequence_parts = tuple(
+        (source, source_position)
+        for source, source_position, _reference, _reference_position in pairs
+    )
+    args.reference_sequence_parts = tuple(
+        (reference, reference_position)
+        for _source, _source_position, reference, reference_position in pairs
+    )
     args.control_range_m_bins = tuple(tuple(pair) for pair in range_m_bins)
+    args.control_class_names = tuple(control_class_names)
     return args

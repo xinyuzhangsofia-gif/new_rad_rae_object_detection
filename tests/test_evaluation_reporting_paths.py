@@ -150,6 +150,9 @@ class EvaluationReportingPathTests(unittest.TestCase):
                 "overcast",
             )
             summary_text = summary_path.read_text(encoding="utf-8")
+            total_result_text = (
+                Path(temporary_dir) / "total_result.txt"
+            ).read_text(encoding="utf-8")
 
         self.assertIn("epochs 5-24 inclusive (20 epochs)", summary_text)
         self.assertIn("14.5000", summary_text)
@@ -163,6 +166,17 @@ class EvaluationReportingPathTests(unittest.TestCase):
         )
         self.assertNotIn("| seed", summary_text)
         self.assertIn("\n---", summary_text)
+        self.assertIn("BEV_src", total_result_text)
+        self.assertIn("3D_src", total_result_text)
+        self.assertIn("BEV_tgt", total_result_text)
+        self.assertIn("3D_tgt", total_result_text)
+        self.assertIn("overcast", total_result_text)
+        self.assertIn("14.5000", total_result_text)
+        self.assertIn("7.2500", total_result_text)
+        self.assertIn("16.5000", total_result_text)
+        self.assertIn("8.2500", total_result_text)
+        self.assertIn("2.0000 ± 0.0000", total_result_text)
+        self.assertIn("1.0000 ± 0.0000", total_result_text)
 
     def test_sequence_half_selection_separates_output_directories(self):
         common_kwargs = {

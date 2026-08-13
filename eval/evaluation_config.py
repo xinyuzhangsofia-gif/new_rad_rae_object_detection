@@ -14,6 +14,11 @@ from coordinate_modes import (
     resolve_evaluation_coordinate_mode,
 )
 from eval.custom_iou_range import DEFAULT_CUSTOM_IOU_THRESHOLDS
+from eval.distance_ranges import (
+    DEFAULT_DISTANCE_RANGES,
+    normalize_distance_ranges,
+)
+from eval.distance_quartiles import normalize_distance_quartile_bins
 from models import MODEL_TYPES
 from train_mode_utils import initialize_model_from_checkpoint
 
@@ -153,6 +158,7 @@ def parse_args():
             "0620_model_12_global_best_epoch_059_seq1-11.pth"
         ),
         "epoch_step": 1,
+        "start_epoch": None,
         "end_epoch": None,
         "batch_size": 100,
         "train_ratio": 0.7,
@@ -160,6 +166,10 @@ def parse_args():
         "split_dir": "split",
         "train_sequences": None,
         "val_sequences": None,
+        "eval_val_sequences": None,
+        "eval_frame_manifest_path": None,
+        "eval_gt_object_ignore_override_path": None,
+        "eval_report_path": None,
         "seed": 42,
         "num_workers": 0,
         "limit_samples": None,
@@ -206,6 +216,10 @@ def parse_args():
         "official_eval_iou_mode": "easy",
         "custom_iou_range_eval_enabled": False,
         "custom_iou_thresholds": DEFAULT_CUSTOM_IOU_THRESHOLDS.tolist(),
+        "distance_range_eval_enabled": False,
+        "distance_range_bins": DEFAULT_DISTANCE_RANGES,
+        "distance_quartile_eval_enabled": False,
+        "distance_quartile_bins": None,
         "nuscenes_style_eval_enabled": False,
         "official_detection_metrics_enabled": True,
         "polar_iou_thresholds": [0.3, 0.5],
@@ -232,6 +246,7 @@ def parse_args():
     )
     parser.add_argument("--checkpoint-root", default=cfg_defaults["checkpoint_root"])
     parser.add_argument("--epoch-step", type=int, default=cfg_defaults["epoch_step"])
+    parser.add_argument("--start-epoch", type=int, default=cfg_defaults["start_epoch"])
     parser.add_argument("--end-epoch", type=int, default=cfg_defaults["end_epoch"])
     parser.add_argument("--batch-size", type=int, default=cfg_defaults["batch_size"])
     parser.add_argument("--train-ratio", type=float, default=cfg_defaults["train_ratio"])
@@ -239,6 +254,32 @@ def parse_args():
     parser.add_argument("--split-dir", default=cfg_defaults["split_dir"])
     parser.add_argument("--train-sequences", default=cfg_defaults["train_sequences"])
     parser.add_argument("--val-sequences", default=cfg_defaults["val_sequences"])
+    parser.add_argument(
+        "--eval-val-sequences",
+        default=cfg_defaults["eval_val_sequences"],
+        help=(
+            "Authoritative standalone-evaluation sequences. When supplied, "
+            "these replace checkpoint val_sequences after checkpoint defaults."
+        ),
+    )
+    parser.add_argument(
+        "--eval-frame-manifest-path",
+        default=cfg_defaults["eval_frame_manifest_path"],
+        help="Strict sequence,frame.txt manifest for validation-only evaluation.",
+    )
+    parser.add_argument(
+        "--eval-gt-object-ignore-override-path",
+        default=cfg_defaults["eval_gt_object_ignore_override_path"],
+        help=(
+            "Evaluation-only object ignore JSON. It never changes checkpoint "
+            "training metadata or the legacy training dataset."
+        ),
+    )
+    parser.add_argument(
+        "--eval-report-path",
+        default=cfg_defaults["eval_report_path"],
+        help="Exact evaluation TXT report path; implies --table-txt-enabled.",
+    )
     parser.add_argument("--seed", type=int, default=cfg_defaults["seed"])
     parser.add_argument("--num-workers", type=int, default=cfg_defaults["num_workers"])
     parser.add_argument("--limit-samples", type=int, default=cfg_defaults["limit_samples"])
@@ -346,7 +387,7 @@ def parse_args():
     parser.add_argument(
         "--official-eval-iou-backend",
         default=cfg_defaults["official_eval_iou_backend"],
-        choices=["auto", "cuda", "cpu"],
+        choices=["auto", "cuda", "gpu", "cpu"],
     )
     parser.add_argument(
         "--official-eval-iou-mode",
@@ -360,6 +401,34 @@ def parse_args():
     parser.add_argument(
         "--custom-iou-thresholds",
         default=cfg_defaults["custom_iou_thresholds"],
+    )
+    parser.add_argument(
+        "--distance-range-eval-enabled",
+        default=cfg_defaults["distance_range_eval_enabled"],
+    )
+    parser.add_argument(
+        "--distance-range-bins",
+        default=cfg_defaults["distance_range_bins"],
+        help=(
+            "Comma-separated half-open distance bins in metres, for example "
+            "0-30,30-60,60-90,90-120."
+        ),
+    )
+    parser.add_argument(
+        "--distance-quartile-eval-enabled",
+        default=cfg_defaults["distance_quartile_eval_enabled"],
+        help=(
+            "Derive four half-open GT-distance quartiles from the evaluation "
+            "set and report official BEV/3D AP@0.3 for each quartile."
+        ),
+    )
+    parser.add_argument(
+        "--distance-quartile-bins",
+        default=cfg_defaults["distance_quartile_bins"],
+        help=(
+            "Optional fixed target-domain quartile boundaries as JSON/list, "
+            "evaluation report/JSON path, or 0-a,a-b,b-c,c-inf."
+        ),
     )
     parser.add_argument(
         "--nuscenes-style-eval-enabled",
@@ -423,8 +492,27 @@ def parse_args():
     # Evaluation always keeps object_label=-1 rows.  This is intentionally
     # not exposed as an eval_cfg or command-line switch.
     args.ignore_object_label_minus_one = False
+    if args.start_epoch is not None:
+        args.start_epoch = int(args.start_epoch)
     if args.end_epoch is not None:
         args.end_epoch = int(args.end_epoch)
+    if args.start_epoch is not None and args.start_epoch <= 0:
+        raise ValueError(
+            f"start_epoch must be greater than 0, got {args.start_epoch}"
+        )
+    if args.end_epoch is not None and args.end_epoch <= 0:
+        raise ValueError(
+            f"end_epoch must be greater than 0, got {args.end_epoch}"
+        )
+    if (
+        args.start_epoch is not None
+        and args.end_epoch is not None
+        and args.start_epoch > args.end_epoch
+    ):
+        raise ValueError(
+            "start_epoch must be less than or equal to end_epoch, got "
+            f"{args.start_epoch}>{args.end_epoch}"
+        )
     args.ap_score_thresh = float(args.ap_score_thresh)
     args.detection_score_thresh = float(args.score_thresh)
     if args.ap_score_thresh < 0.0:
@@ -439,6 +527,28 @@ def parse_args():
         args.custom_iou_thresholds,
         name="custom_iou_thresholds",
     )
+    args.distance_range_eval_enabled = normalize_bool_flag(
+        args.distance_range_eval_enabled,
+        name="distance_range_eval_enabled",
+    )
+    args.distance_range_bins = normalize_distance_ranges(
+        args.distance_range_bins
+    )
+    args.distance_quartile_eval_enabled = normalize_bool_flag(
+        args.distance_quartile_eval_enabled,
+        name="distance_quartile_eval_enabled",
+    )
+    args.distance_quartile_bins = normalize_distance_quartile_bins(
+        args.distance_quartile_bins
+    )
+    if (
+        args.distance_quartile_bins is not None
+        and not args.distance_quartile_eval_enabled
+    ):
+        raise ValueError(
+            "distance_quartile_bins requires "
+            "distance_quartile_eval_enabled=true."
+        )
     # COCO-style AP is intentionally disabled; custom IoU evaluation is used.
     args.coco_style_eval_enabled = False
     args.nuscenes_style_eval_enabled = normalize_bool_flag(
@@ -472,6 +582,19 @@ def parse_args():
         args.table_txt_enabled,
         name="table_txt_enabled",
     )
+    for path_name in (
+        "eval_frame_manifest_path",
+        "eval_gt_object_ignore_override_path",
+        "eval_report_path",
+    ):
+        value = getattr(args, path_name)
+        if value is not None:
+            value = str(value).strip()
+            if value == "":
+                value = None
+        setattr(args, path_name, value)
+    if args.eval_report_path is not None:
+        args.table_txt_enabled = True
     args.domain_comparison_enabled = normalize_bool_flag(
         args.domain_comparison_enabled,
         name="domain_comparison_enabled",

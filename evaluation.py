@@ -4,7 +4,9 @@ The main evaluation workflow stays here.  Reusable implementation helpers live
 in the ``eval`` package.
 """
 
+import json
 import os
+from pathlib import Path
 
 import tqdm
 
@@ -71,8 +73,10 @@ def main():
         f"effective={args.effective_eval_coordinate_mode}, "
         f"primary={args.evaluation_primary_geometry}"
     )
-    if args.end_epoch is not None:
-        print(f"Evaluation end epoch: {args.end_epoch}")
+    if args.start_epoch is not None or args.end_epoch is not None:
+        start_epoch = args.start_epoch if args.start_epoch is not None else 1
+        end_epoch = args.end_epoch if args.end_epoch is not None else "latest"
+        print(f"Evaluation epoch range: {start_epoch}-{end_epoch}")
     print(
         f"Official K-Radar AP: {'enabled' if args.official_eval_enabled else 'disabled'}"
         f" ({args.official_geometry_source})"
@@ -80,6 +84,16 @@ def main():
     if args.official_eval_enabled:
         print(f"Official evaluator: {args.official_eval_version}")
         print(f"Official IoU mode: {args.official_eval_iou_mode}")
+    print(
+        "Distance-range official AP@0.3: "
+        f"{'enabled' if args.distance_range_eval_enabled else 'disabled'}"
+    )
+    if args.distance_range_eval_enabled:
+        print(f"Distance ranges [lower, upper) metres: {args.distance_range_bins}")
+    print(
+        "GT-distance-quartile official AP@0.3: "
+        f"{'enabled' if args.distance_quartile_eval_enabled else 'disabled'}"
+    )
     print(
         f"Polar BEV AP: {'enabled' if args.polar_eval_enabled else 'disabled'}"
         f" ({args.polar_geometry_source}, IoU={args.polar_iou_thresholds})"
@@ -121,36 +135,40 @@ def main():
         if default_plot_output_path is not None:
             print(f"Plot output path: {default_plot_output_path}", flush=True)
     if args.table_txt_enabled:
-        default_table_txt_path = default_eval_table_txt_path(
-            model_variant_name=model_variant_name,
-            val_sequences=args.val_sequences,
-            checkpoint_root=args.checkpoint_root,
-            base_dir=args.table_output_base_dir,
-            weather_group=source_metadata.get("weather_group"),
-            train_sequences=source_metadata.get("train_sequences"),
-            train_sequence_half_selection=source_metadata.get(
-                "train_sequence_half_selection"
-            ),
-            train_sequence_half_ratio=source_metadata.get(
-                "train_sequence_half_ratio"
-            ),
-            seed=source_metadata.get("seed", args.seed),
-            base_model_type=model_type,
-            domain_shift_train_branch=source_metadata.get(
-                "domain_shift_train_branch"
-            ),
-            shared_train_sequences=source_metadata.get(
-                "shared_train_sequences"
-            ),
-            source_train_sequences=source_metadata.get(
-                "source_train_sequences"
-            ),
-            target_train_sequences=source_metadata.get(
-                "target_train_sequences"
-            ),
-            target_test_sequences=source_metadata.get(
-                "target_test_sequences"
-            ),
+        default_table_txt_path = (
+            Path(args.eval_report_path).expanduser().resolve()
+            if getattr(args, "eval_report_path", None) is not None
+            else default_eval_table_txt_path(
+                model_variant_name=model_variant_name,
+                val_sequences=args.val_sequences,
+                checkpoint_root=args.checkpoint_root,
+                base_dir=args.table_output_base_dir,
+                weather_group=source_metadata.get("weather_group"),
+                train_sequences=source_metadata.get("train_sequences"),
+                train_sequence_half_selection=source_metadata.get(
+                    "train_sequence_half_selection"
+                ),
+                train_sequence_half_ratio=source_metadata.get(
+                    "train_sequence_half_ratio"
+                ),
+                seed=source_metadata.get("seed", args.seed),
+                base_model_type=model_type,
+                domain_shift_train_branch=source_metadata.get(
+                    "domain_shift_train_branch"
+                ),
+                shared_train_sequences=source_metadata.get(
+                    "shared_train_sequences"
+                ),
+                source_train_sequences=source_metadata.get(
+                    "source_train_sequences"
+                ),
+                target_train_sequences=source_metadata.get(
+                    "target_train_sequences"
+                ),
+                target_test_sequences=source_metadata.get(
+                    "target_test_sequences"
+                ),
+            )
         )
         print(f"Table txt path: {default_table_txt_path}", flush=True)
 
@@ -252,6 +270,17 @@ def main():
                     "train_sequence_half_ratio"
                 ],
                 "val_sequences": args.val_sequences,
+                "eval_val_sequences": getattr(args, "eval_val_sequences", None),
+                "eval_frame_manifest_path": getattr(
+                    args, "eval_frame_manifest_path", None
+                ),
+                "eval_gt_object_ignore_override_path": getattr(
+                    args, "eval_gt_object_ignore_override_path", None
+                ),
+                "eval_report_path": getattr(args, "eval_report_path", None),
+                "official_neutral_gt_count": selection_results[0].get(
+                    "official_neutral_gt_count", 0
+                ) if selection_results else 0,
                 "domain_shift_train_branch": source_metadata.get(
                     "domain_shift_train_branch"
                 ),
@@ -277,6 +306,19 @@ def main():
                 "train_control_split_enabled": source_metadata["train_control_split_enabled"],
                 "ap_score_thresh": args.ap_score_thresh,
                 "score_thresh": args.score_thresh,
+                "distance_range_eval_enabled": args.distance_range_eval_enabled,
+                "distance_range_bins": args.distance_range_bins,
+                "distance_quartile_eval_enabled": args.distance_quartile_eval_enabled,
+                "distance_quartile_bins_mode": selection_results[0].get(
+                    "distance_quartile_bins_mode"
+                ) if selection_results else None,
+                "distance_quartile_bins": (
+                    json.dumps(
+                        selection_results[0].get("distance_quartile_bins"),
+                        sort_keys=True,
+                    )
+                    if selection_results else None
+                ),
                 "group_checkpoint_plot_best_only": True,
                 **split_statistics_metadata,
             }
@@ -364,6 +406,17 @@ def main():
                     "train_sequence_half_ratio"
                 ],
                 "val_sequences": args.val_sequences,
+                "eval_val_sequences": getattr(args, "eval_val_sequences", None),
+                "eval_frame_manifest_path": getattr(
+                    args, "eval_frame_manifest_path", None
+                ),
+                "eval_gt_object_ignore_override_path": getattr(
+                    args, "eval_gt_object_ignore_override_path", None
+                ),
+                "eval_report_path": getattr(args, "eval_report_path", None),
+                "official_neutral_gt_count": results[0].get(
+                    "official_neutral_gt_count", 0
+                ),
                 "domain_shift_train_branch": source_metadata.get(
                     "domain_shift_train_branch"
                 ),
@@ -389,6 +442,16 @@ def main():
                 "train_control_split_enabled": source_metadata["train_control_split_enabled"],
                 "ap_score_thresh": args.ap_score_thresh,
                 "score_thresh": args.score_thresh,
+                "distance_range_eval_enabled": args.distance_range_eval_enabled,
+                "distance_range_bins": args.distance_range_bins,
+                "distance_quartile_eval_enabled": args.distance_quartile_eval_enabled,
+                "distance_quartile_bins_mode": results[0].get(
+                    "distance_quartile_bins_mode"
+                ),
+                "distance_quartile_bins": json.dumps(
+                    results[0].get("distance_quartile_bins"),
+                    sort_keys=True,
+                ),
                 **split_statistics_metadata,
             }
             saved_table_path = save_eval_table_txt(

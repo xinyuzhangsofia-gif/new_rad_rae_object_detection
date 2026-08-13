@@ -73,10 +73,13 @@ __all__ = [
     'resolve_output_base_dir',
     'evaluation_output_dir',
     'refresh_weather_domain_shift_summary',
+    'refresh_total_result_summary',
     'create_evaluation_tensorboard_writer',
     'write_evaluation_tensorboard_result',
     'next_available_output_path',
     'format_custom_iou_range_text',
+    'distance_range_metric_specs',
+    'distance_quartile_metric_specs',
     'format_eval_table',
     'format_best_epoch_summary',
     'format_epoch_range_average_ap_summary',
@@ -179,6 +182,14 @@ def build_plot_metadata(args, model_variant_name, source_metadata):
         ),
         "checkpoint_val_sequences": sequence_name_for_filename(source_val_sequences, "val_unknown"),
         "val_sequences": sequence_name_for_filename(args.val_sequences, "val_unknown"),
+        "eval_val_sequences": getattr(args, "eval_val_sequences", None),
+        "eval_frame_manifest_path": getattr(
+            args, "eval_frame_manifest_path", None
+        ),
+        "eval_gt_object_ignore_override_path": getattr(
+            args, "eval_gt_object_ignore_override_path", None
+        ),
+        "eval_report_path": getattr(args, "eval_report_path", None),
         "eval_scope": str(args.eval_scope),
         "eval_coordinate_mode": str(args.eval_coordinate_mode),
         "effective_eval_coordinate_mode": str(args.effective_eval_coordinate_mode),
@@ -195,6 +206,9 @@ def build_plot_metadata(args, model_variant_name, source_metadata):
         "train_control_split_enabled": bool(
             source_metadata.get("train_control_split_enabled", False)
         ),
+        "start_epoch": (
+            None if args.start_epoch is None else int(args.start_epoch)
+        ),
         "end_epoch": None if args.end_epoch is None else int(args.end_epoch),
         "heatmap_score_mode": str(args.heatmap_score_mode),
         "ap_score_thresh": float(args.ap_score_thresh),
@@ -205,6 +219,17 @@ def build_plot_metadata(args, model_variant_name, source_metadata):
         "group_checkpoint_plot_best_only": bool(args.group_checkpoint_plot_best_only),
         "custom_iou_range_eval_enabled": bool(args.custom_iou_range_eval_enabled),
         "custom_iou_thresholds": [float(value) for value in args.custom_iou_thresholds],
+        "distance_range_eval_enabled": bool(args.distance_range_eval_enabled),
+        "distance_range_bins": [
+            [float(lower_m), float(upper_m)]
+            for lower_m, upper_m in args.distance_range_bins
+        ],
+        "distance_quartile_eval_enabled": bool(
+            getattr(args, "distance_quartile_eval_enabled", False)
+        ),
+        "distance_quartile_bins_requested": getattr(
+            args, "distance_quartile_bins", None
+        ),
         "coco_style_eval_enabled": bool(args.coco_style_eval_enabled),
         "nuscenes_style_eval_enabled": bool(args.nuscenes_style_eval_enabled),
         "official_eval_enabled": bool(args.official_eval_enabled),
@@ -1189,6 +1214,14 @@ def print_checkpoint_metrics(epoch, metrics):
         parts.append(
             f"3d@{suffix}={official_ap_text(metrics.get(f'official_3d_mAP_{suffix}'))}"
         )
+    for metric_key, metric_label in distance_range_metric_specs([metrics]):
+        parts.append(
+            f"{metric_label}={official_ap_text(metrics.get(metric_key))}"
+        )
+    for metric_key, metric_label in distance_quartile_metric_specs([metrics]):
+        parts.append(
+            f"{metric_label}={official_ap_text(metrics.get(metric_key))}"
+        )
     if "official_detection_precision" in metrics:
         parts.extend([
             f"score_thr={metric_text(metrics.get('official_detection_score_threshold'))}",
@@ -1502,6 +1535,14 @@ def create_evaluation_tensorboard_writer(args, model_variant_name, source_metada
         "score_thresh": float(args.score_thresh),
         "custom_iou_range_eval_enabled": bool(args.custom_iou_range_eval_enabled),
         "custom_iou_thresholds": [float(value) for value in args.custom_iou_thresholds],
+        "distance_range_eval_enabled": bool(args.distance_range_eval_enabled),
+        "distance_range_bins": [
+            [float(lower_m), float(upper_m)]
+            for lower_m, upper_m in args.distance_range_bins
+        ],
+        "distance_quartile_eval_enabled": bool(
+            getattr(args, "distance_quartile_eval_enabled", False)
+        ),
         "group_checkpoint_plot_best_only": bool(args.group_checkpoint_plot_best_only),
         "polar_eval_enabled": bool(args.polar_eval_enabled),
         "polar_geometry_source": args.polar_geometry_source,
@@ -1527,6 +1568,8 @@ def write_evaluation_tensorboard_result(writer, result, namespace="evaluation"):
         "coco_",
         "nuscenes_",
         "polar_",
+        "distance_range_",
+        "distance_quartile_",
         "val_",
     )
     epoch = int(result["epoch"])
@@ -1578,6 +1621,83 @@ def format_custom_iou_range_text(thresholds):
     return f"iou=[{threshold_text}]"
 
 
+def distance_range_metric_specs(rows):
+    """Return ordered distance-bin metric keys and parse-safe labels."""
+    tags = []
+    for row in rows:
+        for distance_range in row.get("distance_range_bins", []):
+            if not isinstance(distance_range, dict):
+                continue
+            tag = distance_range.get("tag")
+            if tag not in (None, "") and str(tag) not in tags:
+                tags.append(str(tag))
+        for metric_key in row:
+            match = re.fullmatch(
+                r"official_(?:bev|3d)_mAP_0\.3_range_(.+)",
+                str(metric_key),
+            )
+            if match is not None and match.group(1) not in tags:
+                tags.append(match.group(1))
+
+    def tag_sort_key(tag):
+        match = re.fullmatch(
+            r"(\d+(?:p\d+)?)_(\d+(?:p\d+)?)m",
+            str(tag),
+        )
+        if match is None:
+            return (float("inf"), float("inf"), str(tag))
+        return (
+            float(match.group(1).replace("p", ".")),
+            float(match.group(2).replace("p", ".")),
+            str(tag),
+        )
+
+    metric_specs = []
+    for tag in sorted(tags, key=tag_sort_key):
+        for geometry in ("bev", "3d"):
+            metric_key = f"official_{geometry}_mAP_0.3_range_{tag}"
+            if any(metric_key in row for row in rows):
+                metric_specs.append(
+                    (metric_key, f"{geometry}@0.3_range_{tag}")
+                )
+    return tuple(metric_specs)
+
+
+def distance_quartile_metric_specs(rows):
+    """Return ordered quartile AP@0.3 keys and parse-safe report labels."""
+    tags = []
+    for row in rows:
+        for quartile in row.get("distance_quartile_bins", []):
+            if not isinstance(quartile, dict):
+                continue
+            tag = quartile.get("tag")
+            if tag not in (None, "") and str(tag) not in tags:
+                tags.append(str(tag))
+        for metric_key in row:
+            match = re.fullmatch(
+                r"official_(?:bev|3d)_mAP_0\.3_quartile_(q\d+)",
+                str(metric_key),
+            )
+            if match is not None and match.group(1) not in tags:
+                tags.append(match.group(1))
+
+    def tag_sort_key(tag):
+        match = re.fullmatch(r"q(\d+)", str(tag).lower())
+        if match is None:
+            return (10**9, str(tag))
+        return (int(match.group(1)), str(tag))
+
+    specs = []
+    for tag in sorted(tags, key=tag_sort_key):
+        for geometry in ("bev", "3d"):
+            metric_key = f"official_{geometry}_mAP_0.3_quartile_{tag}"
+            if any(metric_key in row for row in rows):
+                specs.append(
+                    (metric_key, f"{geometry}@0.3_quartile_{tag}")
+                )
+    return tuple(specs)
+
+
 def format_eval_table(rows, metric_group="all"):
     if len(rows) == 0:
         return ""
@@ -1625,6 +1745,15 @@ def format_eval_table(rows, metric_group="all"):
             ("3d@0.3", "official_3d_mAP_0.3", 9, "float"),
             ("3d@0.5", "official_3d_mAP_0.5", 9, "float"),
         ])
+    if metric_group in {"all", "core"}:
+        for metric_key, metric_label in distance_range_metric_specs(rows):
+            columns.append(
+                (metric_label, metric_key, max(12, len(metric_label)), "float")
+            )
+        for metric_key, metric_label in distance_quartile_metric_specs(rows):
+            columns.append(
+                (metric_label, metric_key, max(12, len(metric_label)), "float")
+            )
     if (
         metric_group in {"all", "core"}
         and any("official_detection_precision" in row for row in rows)
@@ -1649,6 +1778,11 @@ def format_eval_table(rows, metric_group="all"):
         and any("eval_ignore_suppressed_predictions" in row for row in rows)
     ):
         columns.append(("ign_sup", "eval_ignore_suppressed_predictions", 8, "int"))
+    if (
+        metric_group in {"all", "core"}
+        and any("official_neutral_gt_count" in row for row in rows)
+    ):
+        columns.append(("neutral_gt", "official_neutral_gt_count", 10, "int"))
     if (
         metric_group in {"all", "custom"}
         and any("custom_iou_bev_mAP" in row for row in rows)
@@ -1765,7 +1899,9 @@ def format_epoch_range_average_ap_summary(
         ("nuscenes_AP_1.0m", "n@1m"),
         ("nuscenes_AP_2.0m", "n@2m"),
         ("nuscenes_AP_4.0m", "n@4m"),
-    )
+    ) + distance_range_metric_specs(
+        selected_rows
+    ) + distance_quartile_metric_specs(selected_rows)
     average_parts = []
     for metric_key, metric_label in metric_specs:
         values = [
@@ -2102,7 +2238,124 @@ def refresh_weather_domain_shift_summary(
         + "\n",
         encoding="utf-8",
     )
+    refresh_total_result_summary(base_dir)
     return summary_path
+
+
+def refresh_total_result_summary(base_dir):
+    """Rebuild the cross-weather target-AP and domain-shift summary."""
+    def mean_and_sample_std_text(values):
+        values = [float(value) for value in values]
+        mean_value = sum(values) / len(values)
+        if len(values) > 1:
+            variance = sum(
+                (value - mean_value) ** 2
+                for value in values
+            ) / (len(values) - 1)
+            std_value = variance ** 0.5
+        else:
+            std_value = 0.0
+        return f"{mean_value:.4f} ± {std_value:.4f}"
+
+    def mean_text(values):
+        values = [float(value) for value in values]
+        return f"{sum(values) / len(values):.4f}"
+
+    output_base_dir = resolve_output_base_dir(base_dir)
+    rows = []
+    for weather_dir in sorted(
+        path
+        for path in output_base_dir.iterdir()
+        if path.is_dir()
+    ):
+        reports = {}
+        for report_path in sorted(
+            weather_dir.glob("test_set_*/*/seed*_*_result.txt")
+        ):
+            report = _read_domain_shift_result_report(report_path)
+            if report is None:
+                continue
+            key = (
+                report["seed"],
+                report["shared_train_sequences"],
+                report["shared_half_selection"],
+                report["source_train_sequences"],
+                report["target_train_sequences"],
+                report["target_test_sequences"],
+            )
+            reports.setdefault(key, {})[report["branch"]] = report
+
+        complete_pairs = [
+            pair
+            for pair in reports.values()
+            if pair.get("source") is not None
+            and pair.get("target") is not None
+        ]
+        if not complete_pairs:
+            continue
+
+        source_bev_values = [
+            pair["source"]["bev_ap"]
+            for pair in complete_pairs
+        ]
+        source_3d_values = [
+            pair["source"]["threed_ap"]
+            for pair in complete_pairs
+        ]
+        target_bev_values = [
+            pair["target"]["bev_ap"]
+            for pair in complete_pairs
+        ]
+        target_3d_values = [
+            pair["target"]["threed_ap"]
+            for pair in complete_pairs
+        ]
+        td_bev_values = [
+            pair["target"]["bev_ap"] - pair["source"]["bev_ap"]
+            for pair in complete_pairs
+        ]
+        td_3d_values = [
+            pair["target"]["threed_ap"]
+            - pair["source"]["threed_ap"]
+            for pair in complete_pairs
+        ]
+        rows.append([
+            weather_dir.name,
+            mean_text(source_bev_values),
+            mean_text(source_3d_values),
+            mean_text(target_bev_values),
+            mean_text(target_3d_values),
+            mean_and_sample_std_text(td_bev_values),
+            mean_and_sample_std_text(td_3d_values),
+        ])
+
+    if not rows:
+        return None
+
+    total_result_path = output_base_dir / "total_result.txt"
+    total_result_path.write_text(
+        "Source and target AP use epochs 5-24 inclusive.\n"
+        "Only complete source/target pairs are included; "
+        "AP values are means; TD=target-source and is shown as "
+        "mean ± sample std.\n\n"
+        + _aligned_text_table(
+            (
+                "weather",
+                "BEV_src",
+                "3D_src",
+                "BEV_tgt",
+                "3D_tgt",
+                "TD_BEV",
+                "TD_3D",
+            ),
+            rows,
+            left_aligned_columns=1,
+            column_gap="  ",
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return total_result_path
 
 
 def init_split_bbox_count_summary():
@@ -2152,7 +2405,11 @@ def compute_subset_bbox_count_summary(dataset_subset):
 
 
 def build_split_statistics_metadata(train_dataset, test_dataset):
-    train_summary = compute_subset_bbox_count_summary(train_dataset)
+    train_summary = (
+        init_split_bbox_count_summary()
+        if train_dataset is None
+        else compute_subset_bbox_count_summary(train_dataset)
+    )
     test_summary = compute_subset_bbox_count_summary(test_dataset)
 
     total_frames = train_summary["frames"] + test_summary["frames"]

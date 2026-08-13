@@ -1,0 +1,66 @@
+Controlled sequence comparison
+
+The before and after values refer to the selected continuous source window.
+Ignored bboxes are not removed from gt.txt; they are applied through the training ignore override.
+Controlled classes: Sedan
+Control priority: controlled-class bbox count first, largest distance-bin difference within 0-80 m second, 80-120 m third, empty-frame count fourth.
+
+Coordinate mode: cartesian
+Center range bins (m): [0,20), [20,40), [40,60), [60,80), [80,120)
+
+Sequence pair: controlled seq3 -> reference seq51
+Selected source window: file_idx 0 - 598
+Selected random seed: 111
+
+Metric | Before control | After control | Reference
+--- | ---: | ---: | ---:
+Frames | 599 | 599 | 608
+Empty frames | 125 | 350 | 390
+Empty rate | 20.87% | 58.43% | 64.14%
+Controlled-class bbox | 487 | 260 | 260
+Sedan bbox [0,20) | 2 | 2 | 77
+Sedan bbox [20,40) | 6 | 6 | 82
+Sedan bbox [40,60) | 4 | 4 | 58
+Sedan bbox [60,80) | 319 | 236 | 31
+Sedan bbox [80,120) | 156 | 12 | 12
+Total bbox in bins | 487 | 260 | 260
+Effective target bbox in bins | 487 | 260 | 260
+Original target bbox in GT | 487 | 487 | 260
+
+Sequence pair: controlled seq10_first -> reference seq52
+Selected source window: file_idx 0 - 601
+Selected random seed: 184
+
+Metric | Before control | After control | Reference
+--- | ---: | ---: | ---:
+Frames | 602 | 602 | 612
+Empty frames | 1 | 270 | 191
+Empty rate | 0.17% | 44.85% | 31.21%
+Controlled-class bbox | 1768 | 438 | 438
+Sedan bbox [0,20) | 281 | 17 | 2
+Sedan bbox [20,40) | 545 | 96 | 96
+Sedan bbox [40,60) | 563 | 267 | 267
+Sedan bbox [60,80) | 378 | 57 | 57
+Sedan bbox [80,120) | 1 | 1 | 16
+Total bbox in bins | 1768 | 438 | 438
+Effective target bbox in bins | 1768 | 438 | 438
+Original target bbox in GT | 1768 | 1768 | 438
+
+Sequence pair: controlled seq10_last -> reference seq53
+Selected source window: file_idx 602 - 1202
+Selected random seed: 127
+
+Metric | Before control | After control | Reference
+--- | ---: | ---: | ---:
+Frames | 601 | 601 | 611
+Empty frames | 262 | 291 | 21
+Empty rate | 43.59% | 48.42% | 3.44%
+Controlled-class bbox | 715 | 590 | 590
+Sedan bbox [0,20) | 153 | 153 | 232
+Sedan bbox [20,40) | 170 | 170 | 301
+Sedan bbox [40,60) | 224 | 224 | 44
+Sedan bbox [60,80) | 146 | 43 | 13
+Sedan bbox [80,120) | 22 | 0 | 0
+Total bbox in bins | 715 | 590 | 590
+Effective target bbox in bins | 715 | 590 | 590
+Original target bbox in GT | 715 | 715 | 590

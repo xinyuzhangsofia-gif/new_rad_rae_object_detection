@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 import unicodedata
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +27,7 @@ from training_utils.runtime import parse_gpu_ids
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 VALID_BRANCHES = ("source", "target")
+QUEUE_TASK_IDENTITY_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,10 @@ class DomainShiftExperiment:
     source_sequences: tuple
     target_sequences: tuple
     test_sequences: tuple
+    shared_parts: tuple
+    source_parts: tuple
+    target_parts: tuple
+    test_parts: tuple
     half_selection: tuple
     source_complete: bool
     target_complete: bool
@@ -66,6 +71,40 @@ def resolve_experiment_sheet_path(path):
     if not sheet_path.is_absolute():
         sheet_path = PROJECT_ROOT / sheet_path
     return sheet_path.resolve()
+
+
+def resolve_experiment_sheet_paths(base_config):
+    """Resolve an ordered multi-weather table list with single-table fallback."""
+    configured_paths = base_config.get("experiment_sheet_paths")
+    if configured_paths in (None, "", ()):
+        configured_paths = base_config.get("experiment_sheet_path")
+    if configured_paths in (None, "", ()):
+        raise ValueError(
+            "Set experiment_sheet_paths (or legacy experiment_sheet_path) "
+            "when experiment_queue_enabled=True."
+        )
+    if isinstance(configured_paths, (str, Path)):
+        configured_paths = (configured_paths,)
+    else:
+        configured_paths = tuple(configured_paths)
+    if not configured_paths:
+        raise ValueError("experiment_sheet_paths must not be empty.")
+
+    resolved_paths = tuple(
+        resolve_experiment_sheet_path(path)
+        for path in configured_paths
+    )
+    duplicate_paths = sorted({
+        str(path)
+        for path in resolved_paths
+        if resolved_paths.count(path) > 1
+    })
+    if duplicate_paths:
+        raise ValueError(
+            "experiment_sheet_paths contains duplicate tables: "
+            f"{duplicate_paths}"
+        )
+    return resolved_paths
 
 
 def _normalized_header(value):
@@ -121,14 +160,15 @@ def _normalize_sequence_cell(value):
     return text
 
 
-def parse_sequence_cell(value, column_name):
-    """Parse ``9``, ``9_first`` or ``9(first half)`` sequence cells."""
+def parse_sequence_cell_parts(value, column_name):
+    """Parse sequence tokens while preserving independent first/last parts."""
     text = _normalize_sequence_cell(value)
     if text in {"", "-", "none", "nan"}:
         raise ValueError(f"{column_name} cannot be empty")
 
     sequences = []
-    half_selection = {}
+    parts = []
+    positions_by_sequence = {}
     for token in (part.strip() for part in text.split(",")):
         if token == "":
             continue
@@ -139,21 +179,48 @@ def parse_sequence_cell(value, column_name):
                 "9, 9_first, 9(last half), or a comma-separated list."
             )
         sequence = int(match.group(1))
-        half = match.group(2)
+        half = match.group(2) or "full"
         if sequence not in sequences:
             sequences.append(sequence)
-        if half is not None:
-            existing = half_selection.get(sequence)
-            if existing is not None and existing != half:
-                raise ValueError(
-                    f"Sequence {sequence} has conflicting half selections "
-                    f"in {column_name}: {existing!r} and {half!r}"
-                )
-            half_selection[sequence] = half
+        part = (sequence, half)
+        if part in parts:
+            raise ValueError(
+                f"Sequence part {sequence}_{half} is duplicated in "
+                f"{column_name}: {value!r}"
+            )
+        parts.append(part)
+        positions_by_sequence.setdefault(sequence, set()).add(half)
 
     if not sequences:
         raise ValueError(f"{column_name} cannot be empty")
-    return tuple(sequences), half_selection
+
+    half_selection = {}
+    for sequence, positions in positions_by_sequence.items():
+        if "full" in positions and len(positions) > 1:
+            raise ValueError(
+                f"Sequence {sequence} cannot combine a full selection with "
+                f"first/last selections in {column_name}: {value!r}"
+            )
+        if positions == {"first"}:
+            half_selection[sequence] = "first"
+        elif positions == {"last"}:
+            half_selection[sequence] = "last"
+        elif positions not in ({"full"}, {"first", "last"}):
+            raise ValueError(
+                f"Unsupported selections for sequence {sequence} in "
+                f"{column_name}: {sorted(positions)}"
+            )
+
+    return tuple(sequences), half_selection, tuple(parts)
+
+
+def parse_sequence_cell(value, column_name):
+    """Parse a sequence cell and return its unique IDs and effective halves."""
+    sequences, half_selection, _parts = parse_sequence_cell_parts(
+        value,
+        column_name,
+    )
+    return sequences, half_selection
 
 
 def _merge_half_selections(*selections):
@@ -168,6 +235,36 @@ def _merge_half_selections(*selections):
                 )
             merged[sequence] = half
     return tuple(sorted(merged.items()))
+
+
+def _half_selection_for_parts(*part_groups):
+    selections = []
+    for parts in part_groups:
+        positions_by_sequence = {}
+        for sequence, position in parts:
+            positions_by_sequence.setdefault(int(sequence), set()).add(
+                str(position)
+            )
+        selection = {}
+        for sequence, positions in positions_by_sequence.items():
+            if positions == {"first"}:
+                selection[sequence] = "first"
+            elif positions == {"last"}:
+                selection[sequence] = "last"
+        selections.append(selection)
+    return dict(_merge_half_selections(*selections))
+
+
+def _branch_half_selection(experiment, branch):
+    active_parts = (
+        experiment.source_parts
+        if branch == "source"
+        else experiment.target_parts
+    )
+    return _half_selection_for_parts(
+        experiment.shared_parts,
+        active_parts,
+    )
 
 
 def _experiment_sort_key(experiment):
@@ -330,23 +427,23 @@ def load_domain_shift_experiments(sheet_path, default_seed=42):
                 "filled or all be '-' for an unused template row."
             )
 
-        shared, shared_half = parse_sequence_cell(
+        shared, shared_half, shared_parts = parse_sequence_cell_parts(
             row.get(shared_column),
             "shared train sequence",
         )
-        source, source_half = parse_sequence_cell(
+        source, source_half, source_parts = parse_sequence_cell_parts(
             row.get(source_column),
             "source train set",
         )
-        target, target_half = parse_sequence_cell(
+        target, target_half, target_parts = parse_sequence_cell_parts(
             row.get(target_column),
             "target train set",
         )
-        test, test_half = parse_sequence_cell(
+        test, test_half, test_parts = parse_sequence_cell_parts(
             row.get(test_column),
             "target test set",
         )
-        if test_half:
+        if any(position != "full" for _sequence, position in test_parts):
             raise ValueError(
                 f"Row {row_number}: target test sequences cannot use "
                 "first/last-half selection."
@@ -363,6 +460,10 @@ def load_domain_shift_experiments(sheet_path, default_seed=42):
             source_sequences=source,
             target_sequences=target,
             test_sequences=test,
+            shared_parts=shared_parts,
+            source_parts=source_parts,
+            target_parts=target_parts,
+            test_parts=test_parts,
             half_selection=_merge_half_selections(
                 shared_half,
                 source_half,
@@ -412,7 +513,7 @@ def _report_matches_experiment(report, experiment, branch):
             experiment.test_sequences,
         )
         and tuple(sorted(report.get("shared_half_selection", ())))
-        == tuple(sorted(experiment.half_selection))
+        == tuple(sorted(_branch_half_selection(experiment, branch).items()))
     )
 
 
@@ -763,24 +864,16 @@ def normalize_queue_branches(value):
 
 def _effective_train_signature(experiment, branch):
     if branch == "source":
-        domain_sequences = experiment.source_sequences
+        domain_parts = experiment.source_parts
     elif branch == "target":
-        domain_sequences = experiment.target_sequences
+        domain_parts = experiment.target_parts
     else:
         raise ValueError(f"Unsupported experiment branch: {branch!r}")
-    half_selection = dict(experiment.half_selection)
-    sequences = {
-        int(sequence)
-        for sequence in (
-            tuple(experiment.shared_sequences) + tuple(domain_sequences)
-        )
-    }
     return tuple(
-        (
-            sequence,
-            half_selection.get(sequence, "full"),
+        (int(sequence), str(position))
+        for sequence, position in (
+            tuple(experiment.shared_parts) + tuple(domain_parts)
         )
-        for sequence in sorted(sequences)
     )
 
 
@@ -811,11 +904,10 @@ def validate_experiment_queue_design(experiments):
 
         definition = (
             int(experiment.seed),
-            tuple(sorted(experiment.shared_sequences)),
-            tuple(sorted(experiment.source_sequences)),
-            tuple(sorted(experiment.target_sequences)),
-            tuple(sorted(experiment.test_sequences)),
-            tuple(sorted(experiment.half_selection)),
+            tuple(experiment.shared_parts),
+            tuple(experiment.source_parts),
+            tuple(experiment.target_parts),
+            tuple(experiment.test_parts),
         )
         previous_definition = definitions.get(definition)
         if previous_definition is not None:
@@ -992,6 +1084,7 @@ def select_parallel_evaluation_gpu(
         min_free_memory_mb,
         reservation_memory_mb,
         gpu_status=None,
+        max_active_per_gpu=None,
     ):
     """Choose an evaluation GPU while reserving room for active evaluations."""
     status_rows = query_gpu_status() if gpu_status is None else gpu_status
@@ -1014,6 +1107,11 @@ def select_parallel_evaluation_gpu(
         gpu_id = int(gpu_id)
         status = status_by_id[gpu_id]
         active_count = int(active_gpu_counts.get(gpu_id, 0))
+        if (
+            max_active_per_gpu is not None
+            and active_count >= int(max_active_per_gpu)
+        ):
+            continue
         effective_free = (
             int(status["free_memory_mb"])
             - active_count * int(reservation_memory_mb)
@@ -1054,6 +1152,7 @@ def _queue_task_slug(task):
 def _queue_task_state_key(task):
     experiment = task.experiment
     identity = {
+        "identity_version": QUEUE_TASK_IDENTITY_VERSION,
         "group": experiment.name,
         "seed": int(experiment.seed),
         "branch": task.branch,
@@ -1062,6 +1161,9 @@ def _queue_task_state_key(task):
         "target": list(experiment.target_sequences),
         "test": list(experiment.test_sequences),
         "half": list(experiment.half_selection),
+        "shared_parts": list(experiment.shared_parts),
+        "source_parts": list(experiment.source_parts),
+        "target_parts": list(experiment.target_parts),
     }
     digest = hashlib.sha256(
         json.dumps(identity, sort_keys=True).encode("utf-8")
@@ -1241,6 +1343,7 @@ def build_experiment_training_config(base_config, experiment, branch):
         "train_control_split_enabled",
         False,
     )
+    branch_half_selection = _branch_half_selection(experiment, branch)
     config.update({
         "experiment_queue_enabled": False,
         "domain_shift_train_branch": branch,
@@ -1248,7 +1351,9 @@ def build_experiment_training_config(base_config, experiment, branch):
         "source_train_sequences": experiment.source_sequences,
         "target_train_sequences": experiment.target_sequences,
         "target_test_sequences": experiment.test_sequences,
-        "train_sequence_half_selection": dict(experiment.half_selection),
+        "train_sequence_half_selection": branch_half_selection,
+        "controlled_sequence_parts": experiment.source_parts,
+        "reference_sequence_parts": experiment.target_parts,
         "seed": experiment.seed,
         "post_training_eval_enabled": True,
         # Distribution control filters the source domain to match its paired
@@ -1270,9 +1375,10 @@ def _print_experiment_task_start(task, total_steps, gpu_slot=None):
         f"(shared={experiment.shared_sequences}, "
         f"source={experiment.source_sequences}, "
         f"target={experiment.target_sequences}, "
+        f"source_parts={experiment.source_parts}, "
         f"effective_train={_effective_train_signature(experiment, task.branch)}, "
         f"test={experiment.test_sequences}, "
-        f"half={dict(experiment.half_selection)}, "
+        f"half={_branch_half_selection(experiment, task.branch)}, "
         f"seed={experiment.seed}{gpu_text})",
         flush=True,
     )
@@ -1303,6 +1409,9 @@ def _record_experiment_result(
             f"Experiment queue result: {report_path} -> {updated_path}",
             flush=True,
         )
+        from eval.reporting import refresh_total_result_summary
+
+        refresh_total_result_summary(results_base_dir)
     return report_path, report
 
 
@@ -1347,8 +1456,9 @@ def _launch_parallel_training_task(
         task,
         gpu_slot,
         session_dir,
+        task_slug=None,
     ):
-    task_slug = _queue_task_slug(task)
+    task_slug = task_slug or _queue_task_slug(task)
     config_path = session_dir / f"{task_slug}.config.pkl"
     result_path = session_dir / f"{task_slug}.train_result.json"
     log_path = session_dir / f"{task_slug}.train.log"
@@ -1363,6 +1473,25 @@ def _launch_parallel_training_task(
         "experiment_queue_task_id": task_slug,
         "experiment_queue_group": task.experiment.name,
     })
+    # A task that was interrupted after writing epoch checkpoints can resume
+    # from the last complete checkpoint.  The mapping is intentionally
+    # keyed by the queue runtime slug so it is unambiguous across weather
+    # tables and experiment groups.
+    resume_checkpoints = base_config.get(
+        "experiment_queue_resume_checkpoints",
+        {},
+    )
+    resume_checkpoint = resume_checkpoints.get(task_slug)
+    if resume_checkpoint:
+        child_config.update({
+            "resume_checkpoint": str(resume_checkpoint),
+            "start_epoch": None,
+            "end_epoch": int(child_config.get("epochs", 30)),
+            "load_optimizer": True,
+            "initial_best_checkpoint": None,
+            "resume_save_in_checkpoint_dir": True,
+            "resume_tensorboard_log_dir": None,
+        })
     _write_training_job_config(config_path, child_config)
     log_file = log_path.open("w", encoding="utf-8", buffering=1)
     environment = os.environ.copy()
@@ -1402,15 +1531,18 @@ def _launch_parallel_evaluation_task(
         pending_state,
         physical_gpu_id,
         session_dir,
+        task_slug=None,
+        evaluation_batch_size=None,
     ):
     task = pending_state["task"]
-    task_slug = _queue_task_slug(task)
+    task_slug = task_slug or _queue_task_slug(task)
     log_path = session_dir / f"{task_slug}.evaluation.log"
     command, root_dir, environment = prepare_post_training_evaluation_launch(
         checkpoint_root=pending_state["checkpoint_root"],
         physical_gpu_id=physical_gpu_id,
         python_executable=sys.executable,
         project_dir=PROJECT_ROOT,
+        batch_size=evaluation_batch_size,
     )
     log_file = log_path.open("w", encoding="utf-8", buffering=1)
     environment["PYTHONUNBUFFERED"] = "1"
@@ -1788,21 +1920,432 @@ def _run_parallel_experiment_queue(
     ]
 
 
-def run_domain_shift_experiment_queue(base_config, train_function):
-    """Run a locked sequential or asynchronous table-driven experiment queue."""
-    sheet_path = base_config.get("experiment_sheet_path")
-    if sheet_path in (None, ""):
+def _experiment_sheet_runtime_tag(sheet_path):
+    stem = Path(sheet_path).stem
+    if stem.endswith("_experiments"):
+        stem = stem[:-len("_experiments")]
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", stem).strip("_") or "weather"
+
+
+def _run_seed_two_phase_experiment_queue(
+        base_config,
+        seed,
+        table_batches,
+        results_base_dir,
+        update_sheet_results,
+    ):
+    """Train every task for one seed, then evaluate all trained checkpoints."""
+    train_worker_count = int(
+        base_config.get("experiment_queue_train_workers", 3)
+    )
+    evaluation_worker_count = int(
+        base_config.get("experiment_queue_eval_workers", 18)
+    )
+    if train_worker_count <= 0 or evaluation_worker_count <= 0:
         raise ValueError(
-            "Set experiment_sheet_path when experiment_queue_enabled=True."
+            "experiment_queue_train_workers and "
+            "experiment_queue_eval_workers must both be positive."
         )
 
-    ensure_no_other_top_level_train_process()
-    with experiment_queue_lock(sheet_path):
-        experiments = load_domain_shift_experiments(
-            sheet_path,
-            default_seed=base_config.get("seed", 42),
+    train_gpu_slots = normalize_parallel_gpu_slots(
+        base_config.get("experiment_queue_train_gpu_slots"),
+        worker_count=train_worker_count,
+        fallback_gpu_ids=base_config.get("gpu_ids", "0"),
+    )
+    gpu_strategy = validate_parallel_gpu_strategy(
+        base_config.get("experiment_queue_gpu_strategy", "isolated"),
+        train_gpu_slots,
+    )
+    evaluation_gpu_ids = tuple(resolve_candidate_physical_gpu_ids(str(
+        base_config.get(
+            "experiment_queue_eval_gpu_pool",
+            base_config.get("gpu_ids", "0"),
         )
-        validate_experiment_queue_design(experiments)
+    )))
+    max_evaluations_per_gpu = int(
+        base_config.get("experiment_queue_eval_max_per_gpu", 6)
+    )
+    if max_evaluations_per_gpu <= 0:
+        raise ValueError(
+            "experiment_queue_eval_max_per_gpu must be positive."
+        )
+    if evaluation_worker_count > (
+        len(evaluation_gpu_ids) * max_evaluations_per_gpu
+    ):
+        raise ValueError(
+            "experiment_queue_eval_workers exceeds the configured per-GPU "
+            "capacity: "
+            f"workers={evaluation_worker_count}, gpus={evaluation_gpu_ids}, "
+            f"max_per_gpu={max_evaluations_per_gpu}."
+        )
+    evaluation_batch_size = int(
+        base_config.get("experiment_queue_eval_batch_size", 8)
+    )
+    if evaluation_batch_size <= 0:
+        raise ValueError(
+            "experiment_queue_eval_batch_size must be positive."
+        )
+    min_free_memory_mb = int(
+        base_config.get(
+            "experiment_queue_eval_min_free_memory_mb",
+            1500,
+        )
+    )
+    reservation_memory_mb = int(
+        base_config.get(
+            "experiment_queue_eval_reservation_memory_mb",
+            2500,
+        )
+    )
+    poll_seconds = max(
+        0.1,
+        float(base_config.get("experiment_queue_poll_seconds", 1.0)),
+    )
+
+    log_base_dir = Path(
+        str(base_config.get("log_base_dir", "runs"))
+    ).expanduser()
+    if not log_base_dir.is_absolute():
+        log_base_dir = PROJECT_ROOT / log_base_dir
+    session_name = (
+        datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        + f"_seed{int(seed)}_pid{os.getpid()}"
+    )
+    session_dir = log_base_dir / "experiment_queue" / session_name
+    session_dir.mkdir(parents=True, exist_ok=False)
+
+    pending_train = []
+    pending_evaluation = []
+    total_seed_tasks = 0
+    for table_index, sheet_path, total_steps, tasks in table_batches:
+        table_config = copy.deepcopy(dict(base_config))
+        table_config["experiment_sheet_path"] = str(sheet_path)
+        (
+            queue_state_path,
+            queue_state,
+            table_pending_train,
+            table_pending_evaluation,
+        ) = _recover_parallel_queue_tasks(
+            tasks=tasks,
+            sheet_path=sheet_path,
+        )
+        sheet_tag = _experiment_sheet_runtime_tag(sheet_path)
+
+        def make_context(task):
+            return {
+                "task": task,
+                "sheet_path": sheet_path,
+                "table_index": int(table_index),
+                "total_steps": int(total_steps),
+                "table_config": table_config,
+                "queue_state_path": queue_state_path,
+                "queue_state": queue_state,
+                "runtime_slug": (
+                    f"{sheet_tag}_{_queue_task_slug(task)}"
+                ),
+                "runtime_label": f"{sheet_tag}/{task.label}",
+            }
+
+        contexts = {
+            task: make_context(task)
+            for task in tasks
+        }
+        pending_train.extend(
+            contexts[task]
+            for task in table_pending_train
+        )
+        for pending_state in table_pending_evaluation:
+            pending_state = dict(pending_state)
+            pending_state["runtime_context"] = contexts[
+                pending_state["task"]
+            ]
+            pending_evaluation.append(pending_state)
+        total_seed_tasks += len(tasks)
+
+    print(
+        f"Seed {int(seed)} two-phase queue: tasks={total_seed_tasks}, "
+        f"pending_train={len(pending_train)}, "
+        f"recovered_for_eval={len(pending_evaluation)}, "
+        f"train_workers={train_worker_count}, "
+        f"train_gpu_slots={train_gpu_slots}, strategy={gpu_strategy}; "
+        f"eval_workers={evaluation_worker_count}, "
+        f"eval_gpu_pool={evaluation_gpu_ids}, "
+        f"eval_max_per_gpu={max_evaluations_per_gpu}, "
+        f"eval_batch_size={evaluation_batch_size}, logs={session_dir}",
+        flush=True,
+    )
+
+    available_train_slots = list(range(train_worker_count))
+    active_train = {}
+    active_evaluation = {}
+    completed = []
+    completed_report_paths = []
+
+    try:
+        print(
+            f"Seed {int(seed)} phase 1/2: training started; evaluation is "
+            "blocked until every training task for this seed finishes.",
+            flush=True,
+        )
+        while pending_train or active_train:
+            for process_id, state in list(active_train.items()):
+                return_code = state["process"].poll()
+                if return_code is None:
+                    continue
+                _close_process_log(state)
+                active_train.pop(process_id)
+                available_train_slots.append(state["slot_index"])
+                available_train_slots.sort()
+                context = state["runtime_context"]
+                task = context["task"]
+                if return_code != 0:
+                    _update_queue_task_state(
+                        context["queue_state_path"],
+                        context["queue_state"],
+                        task,
+                        "training_failed",
+                        pid=state["process"].pid,
+                        log_path=str(state["log_path"]),
+                        return_code=int(return_code),
+                    )
+                    raise RuntimeError(
+                        f"Training task {context['runtime_label']} failed "
+                        f"with exit code {return_code}. See "
+                        f"{state['log_path']}."
+                    )
+                checkpoint_root = _read_training_job_result(
+                    state["result_path"]
+                )
+                _update_queue_task_state(
+                    context["queue_state_path"],
+                    context["queue_state"],
+                    task,
+                    "trained",
+                    checkpoint_root=str(checkpoint_root),
+                    train_log_path=str(state["log_path"]),
+                )
+                pending_evaluation.append({
+                    "task": task,
+                    "checkpoint_root": checkpoint_root,
+                    "runtime_context": context,
+                })
+                print(
+                    f"Seed {int(seed)} training completed: "
+                    f"{context['runtime_label']}; checkpoint="
+                    f"{checkpoint_root}",
+                    flush=True,
+                )
+
+            while pending_train and available_train_slots:
+                slot_index = available_train_slots.pop(0)
+                context = pending_train.pop(0)
+                task = context["task"]
+                gpu_slot = train_gpu_slots[slot_index]
+                _print_experiment_task_start(
+                    task,
+                    context["total_steps"],
+                    gpu_slot=gpu_slot,
+                )
+                train_state = _launch_parallel_training_task(
+                    base_config=context["table_config"],
+                    task=task,
+                    gpu_slot=gpu_slot,
+                    session_dir=session_dir,
+                    task_slug=context["runtime_slug"],
+                )
+                train_state["slot_index"] = slot_index
+                train_state["runtime_context"] = context
+                active_train[train_state["process"].pid] = train_state
+                _update_queue_task_state(
+                    context["queue_state_path"],
+                    context["queue_state"],
+                    task,
+                    "training",
+                    pid=train_state["process"].pid,
+                    gpu_ids=str(gpu_slot),
+                    log_path=str(train_state["log_path"]),
+                )
+                print(
+                    f"Seed {int(seed)} training started: "
+                    f"{context['runtime_label']} on cuda:{gpu_slot}; "
+                    f"pid={train_state['process'].pid}, "
+                    f"log={train_state['log_path']}",
+                    flush=True,
+                )
+            if active_train:
+                time.sleep(poll_seconds)
+
+        print(
+            f"Seed {int(seed)} phase 1/2 completed. Phase 2/2: starting "
+            f"{len(pending_evaluation)} evaluations.",
+            flush=True,
+        )
+        active_evaluation_gpu_counts = {
+            int(gpu_id): 0
+            for gpu_id in evaluation_gpu_ids
+        }
+        last_memory_wait_message = 0.0
+        while pending_evaluation or active_evaluation:
+            for process_id, state in list(active_evaluation.items()):
+                return_code = state["process"].poll()
+                if return_code is None:
+                    continue
+                _close_process_log(state)
+                active_evaluation.pop(process_id)
+                gpu_id = state["physical_gpu_id"]
+                active_evaluation_gpu_counts[gpu_id] -= 1
+                context = state["runtime_context"]
+                task = context["task"]
+                if return_code != 0:
+                    _update_queue_task_state(
+                        context["queue_state_path"],
+                        context["queue_state"],
+                        task,
+                        "evaluation_failed",
+                        pid=state["process"].pid,
+                        checkpoint_root=str(state["checkpoint_root"]),
+                        log_path=str(state["log_path"]),
+                        return_code=int(return_code),
+                    )
+                    raise RuntimeError(
+                        f"Evaluation task {context['runtime_label']} failed "
+                        f"with exit code {return_code}. See "
+                        f"{state['log_path']}."
+                    )
+                report_path, report = _record_experiment_result(
+                    sheet_path=context["sheet_path"],
+                    results_base_dir=results_base_dir,
+                    task=task,
+                    evaluation_started_at=state["started_at"],
+                    update_sheet_results=update_sheet_results,
+                )
+                _update_queue_task_state(
+                    context["queue_state_path"],
+                    context["queue_state"],
+                    task,
+                    "completed",
+                    checkpoint_root=str(state["checkpoint_root"]),
+                    evaluation_log_path=str(state["log_path"]),
+                    report_path=str(report_path),
+                    bev_ap=float(report["bev_ap"]),
+                    threed_ap=float(report["threed_ap"]),
+                )
+                completed_report_paths.append(report_path)
+                completed.append((
+                    context["table_index"],
+                    task.ordinal,
+                    task.experiment.name,
+                    task.branch,
+                ))
+                print(
+                    f"Seed {int(seed)} evaluation completed: "
+                    f"{context['runtime_label']} on cuda:{gpu_id}.",
+                    flush=True,
+                )
+
+            evaluation_waiting_for_memory = False
+            while (
+                pending_evaluation
+                and len(active_evaluation) < evaluation_worker_count
+            ):
+                selected_gpu = select_parallel_evaluation_gpu(
+                    candidate_gpu_ids=evaluation_gpu_ids,
+                    active_gpu_counts=active_evaluation_gpu_counts,
+                    min_free_memory_mb=min_free_memory_mb,
+                    reservation_memory_mb=reservation_memory_mb,
+                    max_active_per_gpu=max_evaluations_per_gpu,
+                )
+                if selected_gpu is None:
+                    evaluation_waiting_for_memory = True
+                    now = time.monotonic()
+                    if now - last_memory_wait_message >= 30.0:
+                        print(
+                            f"Seed {int(seed)} evaluation is waiting for "
+                            f"GPU capacity ({min_free_memory_mb} MiB free, "
+                            f"max {max_evaluations_per_gpu} per GPU).",
+                            flush=True,
+                        )
+                        last_memory_wait_message = now
+                    break
+                pending_state = pending_evaluation.pop(0)
+                context = pending_state["runtime_context"]
+                evaluation_state = _launch_parallel_evaluation_task(
+                    pending_state=pending_state,
+                    physical_gpu_id=selected_gpu["index"],
+                    session_dir=session_dir,
+                    task_slug=context["runtime_slug"],
+                    evaluation_batch_size=evaluation_batch_size,
+                )
+                evaluation_state["runtime_context"] = context
+                active_evaluation[
+                    evaluation_state["process"].pid
+                ] = evaluation_state
+                gpu_id = evaluation_state["physical_gpu_id"]
+                active_evaluation_gpu_counts[gpu_id] += 1
+                _update_queue_task_state(
+                    context["queue_state_path"],
+                    context["queue_state"],
+                    context["task"],
+                    "evaluating",
+                    pid=evaluation_state["process"].pid,
+                    checkpoint_root=str(
+                        evaluation_state["checkpoint_root"]
+                    ),
+                    physical_gpu_id=int(gpu_id),
+                    log_path=str(evaluation_state["log_path"]),
+                )
+                print(
+                    f"Seed {int(seed)} evaluation started: "
+                    f"{context['runtime_label']} on physical cuda:{gpu_id}; "
+                    f"active_on_gpu={active_evaluation_gpu_counts[gpu_id]}/"
+                    f"{max_evaluations_per_gpu}, "
+                    f"batch_size={evaluation_batch_size}, "
+                    f"log={evaluation_state['log_path']}",
+                    flush=True,
+                )
+
+            if (
+                pending_evaluation
+                and not active_evaluation
+                and evaluation_waiting_for_memory
+            ):
+                time.sleep(poll_seconds)
+                continue
+            if active_evaluation:
+                time.sleep(poll_seconds)
+
+    except BaseException:
+        _terminate_running_processes(active_train, active_evaluation)
+        raise
+    finally:
+        for state in active_train.values():
+            _close_process_log(state)
+        for state in active_evaluation.values():
+            _close_process_log(state)
+
+    _refresh_completed_weather_summaries(
+        results_base_dir=results_base_dir,
+        report_paths=completed_report_paths,
+    )
+    print(
+        f"Seed {int(seed)} two-phase queue completed: "
+        f"{len(completed)} evaluations.",
+        flush=True,
+    )
+    return [
+        (name, branch)
+        for _table, _ordinal, name, branch in sorted(completed)
+    ]
+
+
+def run_domain_shift_experiment_queue(base_config, train_function):
+    """Run one continuous queue across one or more ordered weather tables."""
+    sheet_paths = resolve_experiment_sheet_paths(base_config)
+    ensure_no_other_top_level_train_process()
+    with ExitStack() as lock_stack:
+        for sheet_path in sheet_paths:
+            lock_stack.enter_context(experiment_queue_lock(sheet_path))
+
         branches = normalize_queue_branches(
             base_config.get("experiment_queue_branches", VALID_BRANCHES)
         )
@@ -1822,54 +2365,276 @@ def run_domain_shift_experiment_queue(base_config, train_function):
             "experiment_results_base_dir",
             "evaluation_plots",
         )
-        total_steps = len(experiments) * len(branches)
-        tasks = build_experiment_queue_tasks(
-            experiments=experiments,
-            branches=branches,
-            skip_completed=skip_completed,
-        )
         train_workers = int(
             base_config.get("experiment_queue_train_workers", 1)
         )
         evaluation_workers = int(
             base_config.get("experiment_queue_eval_workers", 1)
         )
+        queue_order = str(
+            base_config.get(
+                "experiment_queue_order",
+                "seed_then_weather",
+            )
+        ).strip().lower()
+        if queue_order not in {"seed_then_weather", "weather_then_seed"}:
+            raise ValueError(
+                "experiment_queue_order must be 'seed_then_weather' or "
+                f"'weather_then_seed', got {queue_order!r}."
+            )
+        execution_mode = str(
+            base_config.get(
+                "experiment_queue_execution_mode",
+                "pipelined",
+            )
+        ).strip().lower()
+        if execution_mode not in {"pipelined", "seed_two_phase"}:
+            raise ValueError(
+                "experiment_queue_execution_mode must be 'pipelined' or "
+                f"'seed_two_phase', got {execution_mode!r}."
+            )
+        if (
+            execution_mode == "seed_two_phase"
+            and queue_order != "seed_then_weather"
+        ):
+            raise ValueError(
+                "seed_two_phase execution requires "
+                "experiment_queue_order='seed_then_weather'."
+            )
+
+        prepared_tables = []
+        total_rows = 0
+        total_pending = 0
+        for sheet_path in sheet_paths:
+            experiments = load_domain_shift_experiments(
+                sheet_path,
+                default_seed=base_config.get("seed", 42),
+            )
+            validate_experiment_queue_design(experiments)
+            total_steps = len(experiments) * len(branches)
+            tasks = build_experiment_queue_tasks(
+                experiments=experiments,
+                branches=branches,
+                skip_completed=skip_completed,
+            )
+            prepared_tables.append((
+                sheet_path,
+                experiments,
+                total_steps,
+                tasks,
+            ))
+            total_rows += len(experiments)
+            total_pending += len(tasks)
 
         print(
-            "Experiment queue: "
-            f"{resolve_experiment_sheet_path(sheet_path)} "
-            f"({len(experiments)} rows, branches={branches}, "
-            f"pending={len(tasks)}, skip_completed={skip_completed})",
+            "Multi-weather experiment queue: "
+            f"tables={len(prepared_tables)}, rows={total_rows}, "
+            f"branches={branches}, pending={total_pending}, "
+            f"skip_completed={skip_completed}, order={queue_order}, "
+            f"execution={execution_mode}",
             flush=True,
         )
 
-        if train_workers > 1 or evaluation_workers > 1:
-            launched = _run_parallel_experiment_queue(
-                base_config=base_config,
-                tasks=tasks,
-                total_steps=total_steps,
-                sheet_path=sheet_path,
-                results_base_dir=results_base_dir,
-                update_sheet_results=update_sheet_results,
+        seed_queue_batches = []
+        if queue_order == "seed_then_weather":
+            available_seeds = {
+                int(experiment.seed)
+                for _path, experiments, _steps, _tasks in prepared_tables
+                for experiment in experiments
+            }
+            configured_seed_order = base_config.get(
+                "experiment_queue_seed_order",
+                (42, 43, 44),
             )
+            if isinstance(configured_seed_order, str):
+                configured_seed_order = tuple(
+                    part.strip()
+                    for part in configured_seed_order.split(",")
+                    if part.strip()
+                )
+            configured_seed_order = tuple(
+                int(seed)
+                for seed in configured_seed_order
+            )
+            if len(set(configured_seed_order)) != len(
+                configured_seed_order
+            ):
+                raise ValueError(
+                    "experiment_queue_seed_order contains duplicate seeds: "
+                    f"{configured_seed_order}."
+                )
+            seeds = [
+                seed
+                for seed in configured_seed_order
+                if seed in available_seeds
+            ]
+            seeds.extend(sorted(
+                available_seeds.difference(configured_seed_order)
+            ))
+            queue_batches = []
+            for seed_index, seed in enumerate(seeds, start=1):
+                current_seed_batches = []
+                for table_index, prepared_table in enumerate(
+                    prepared_tables,
+                    start=1,
+                ):
+                    sheet_path, experiments, total_steps, tasks = (
+                        prepared_table
+                    )
+                    seed_experiments = tuple(
+                        experiment
+                        for experiment in experiments
+                        if int(experiment.seed) == seed
+                    )
+                    if not seed_experiments:
+                        continue
+                    seed_tasks = tuple(
+                        task
+                        for task in tasks
+                        if int(task.experiment.seed) == seed
+                    )
+                    current_seed_batches.append((
+                        table_index,
+                        sheet_path,
+                        total_steps,
+                        seed_tasks,
+                    ))
+                    queue_batches.append((
+                        seed_index,
+                        len(seeds),
+                        seed,
+                        table_index,
+                        sheet_path,
+                        seed_experiments,
+                        total_steps,
+                        seed_tasks,
+                    ))
+                seed_queue_batches.append((
+                    seed_index,
+                    len(seeds),
+                    seed,
+                    tuple(current_seed_batches),
+                ))
         else:
-            launched = _run_sequential_experiment_queue(
-                base_config=base_config,
-                train_function=train_function,
-                tasks=tasks,
-                total_steps=total_steps,
-                sheet_path=sheet_path,
-                results_base_dir=results_base_dir,
-                update_sheet_results=update_sheet_results,
+            queue_batches = []
+            for table_index, prepared_table in enumerate(
+                prepared_tables,
+                start=1,
+            ):
+                sheet_path, experiments, total_steps, tasks = prepared_table
+                queue_batches.append((
+                    None,
+                    None,
+                    None,
+                    table_index,
+                    sheet_path,
+                    tuple(experiments),
+                    total_steps,
+                    tuple(tasks),
+                ))
+
+        launched = []
+        if execution_mode == "seed_two_phase":
+            if train_workers <= 1 and evaluation_workers <= 1:
+                raise ValueError(
+                    "seed_two_phase execution requires parallel workers."
+                )
+            for seed_index, seed_count, seed, table_batches in (
+                seed_queue_batches
+            ):
+                print(
+                    f"Seed batch [{seed_index}/{seed_count}]={seed}: "
+                    f"weather_tables={len(table_batches)}, "
+                    f"pending={sum(len(batch[3]) for batch in table_batches)}",
+                    flush=True,
+                )
+                seed_launched = _run_seed_two_phase_experiment_queue(
+                    base_config=base_config,
+                    seed=seed,
+                    table_batches=table_batches,
+                    results_base_dir=results_base_dir,
+                    update_sheet_results=update_sheet_results,
+                )
+                launched.extend(seed_launched)
+                print(
+                    f"Seed batch [{seed_index}/{seed_count}]={seed} "
+                    f"completed ({len(seed_launched)} runs).",
+                    flush=True,
+                )
+
+            if bool(
+                base_config.get("experiment_queue_require_full_table", False)
+            ):
+                for sheet_path, _experiments, _total_steps, _tasks in (
+                    prepared_tables
+                ):
+                    validate_experiment_sheet_is_full(sheet_path)
+            print(
+                f"Multi-weather experiment queue completed: {len(launched)} "
+                f"training/evaluation runs across "
+                f"{len(prepared_tables)} tables.",
+                flush=True,
+            )
+            return launched
+
+        for (
+            seed_index,
+            seed_count,
+            seed,
+            table_index,
+            sheet_path,
+            experiments,
+            total_steps,
+            tasks,
+        ) in queue_batches:
+            seed_label = ""
+            if seed is not None:
+                seed_label = f", seed [{seed_index}/{seed_count}]={seed}"
+            print(
+                f"Weather table [{table_index}/{len(prepared_tables)}]: "
+                f"{sheet_path} ({len(experiments)} rows, "
+                f"pending={len(tasks)}{seed_label})",
+                flush=True,
+            )
+            table_config = copy.deepcopy(dict(base_config))
+            table_config["experiment_sheet_path"] = str(sheet_path)
+            if train_workers > 1 or evaluation_workers > 1:
+                table_launched = _run_parallel_experiment_queue(
+                    base_config=table_config,
+                    tasks=tasks,
+                    total_steps=total_steps,
+                    sheet_path=sheet_path,
+                    results_base_dir=results_base_dir,
+                    update_sheet_results=update_sheet_results,
+                )
+            else:
+                table_launched = _run_sequential_experiment_queue(
+                    base_config=table_config,
+                    train_function=train_function,
+                    tasks=tasks,
+                    total_steps=total_steps,
+                    sheet_path=sheet_path,
+                    results_base_dir=results_base_dir,
+                    update_sheet_results=update_sheet_results,
+                )
+            launched.extend(table_launched)
+            print(
+                f"Weather table [{table_index}/{len(prepared_tables)}] "
+                f"completed{seed_label}: {sheet_path.name} "
+                f"({len(table_launched)} runs).",
+                flush=True,
             )
 
         if bool(
             base_config.get("experiment_queue_require_full_table", False)
         ):
-            validate_experiment_sheet_is_full(sheet_path)
+            for sheet_path, _experiments, _total_steps, _tasks in (
+                prepared_tables
+            ):
+                validate_experiment_sheet_is_full(sheet_path)
         print(
-            f"Experiment queue completed: {len(launched)} "
-            "training/evaluation runs.",
+            f"Multi-weather experiment queue completed: {len(launched)} "
+            f"training/evaluation runs across {len(prepared_tables)} tables.",
             flush=True,
         )
         return launched

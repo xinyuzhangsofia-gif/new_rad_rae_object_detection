@@ -59,17 +59,37 @@ def checkpoint_epoch(checkpoint_path):
     return int(match.group(1))
 
 
-def find_epoch_checkpoints(checkpoint_root, epoch_step, end_epoch=None):
+def find_epoch_checkpoints(
+        checkpoint_root,
+        epoch_step,
+        start_epoch=None,
+        end_epoch=None,
+    ):
     if epoch_step <= 0:
         raise ValueError(f"--epoch-step must be greater than 0, got {epoch_step}")
+    if start_epoch is not None and start_epoch <= 0:
+        raise ValueError(
+            f"--start-epoch must be greater than 0, got {start_epoch}"
+        )
     if end_epoch is not None and end_epoch <= 0:
         raise ValueError(f"--end-epoch must be greater than 0, got {end_epoch}")
+    if (
+        start_epoch is not None
+        and end_epoch is not None
+        and start_epoch > end_epoch
+    ):
+        raise ValueError(
+            "--start-epoch must be less than or equal to --end-epoch, got "
+            f"{start_epoch}>{end_epoch}"
+        )
 
     if os.path.isfile(checkpoint_root):
         epoch = checkpoint_epoch(checkpoint_root)
         if epoch is None:
             checkpoint = load_torch_checkpoint(checkpoint_root, map_location="cpu")
             epoch = checkpoint.get("epoch", 0) if isinstance(checkpoint, dict) else 0
+        if start_epoch is not None and epoch < start_epoch:
+            return []
         if end_epoch is not None and epoch > end_epoch:
             return []
         return [(epoch, checkpoint_root)]
@@ -88,6 +108,8 @@ def find_epoch_checkpoints(checkpoint_root, epoch_step, end_epoch=None):
             filename.startswith("global_best_epoch_")
             or "_global_best_epoch_" in filename
         )
+        if start_epoch is not None and epoch < start_epoch:
+            continue
         if end_epoch is not None and epoch > end_epoch:
             continue
         if not is_global_best and epoch % epoch_step != 0:

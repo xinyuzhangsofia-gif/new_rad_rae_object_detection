@@ -1,0 +1,61 @@
+model_type: sleet_model7_64_128_ig_train_9,12,50,52,53_seq12_first_lr5e-5
+checkpoint_root: /home/local/xinyu/MVRSS/mvrss/checkpoints/sleet/0805_train_seq9_12_first_50_52_53_test_seq51
+checkpoint_group: 0805_train_seq9_12_first_50_52_53_test_seq51
+weather_group: sleet
+seed: 42
+train_sequences: (9, 12, 50, 52, 53)
+train_sequence_half_selection: {12: 'first'}
+train_sequence_half_ratio: 0.5
+val_sequences: (51,)
+domain_shift_train_branch: target
+shared_train_sequences: (9, 12)
+source_train_sequences: (11, 10)
+target_train_sequences: (50, 52, 53)
+target_test_sequences: (51,)
+eval_scope: full
+eval_coordinate_mode: auto
+effective_eval_coordinate_mode: cartesian
+box_coordinate_mode: cartesian
+include_bus_as_target: False
+checkpoint_include_bus_as_target: False
+gt_object_ignore_override_path: None
+train_control_split_enabled: False
+ap_score_thresh: 0.01
+score_thresh: 0.3
+train_frames: 4228
+test_frames: 608
+train_ratio_frames: 0.8742762613730356
+train_bbox_total: 7534
+train_bbox_sedan: 6075
+train_bbox_bus: 1459
+test_bbox_total: 353
+test_bbox_sedan: 260
+test_bbox_bus: 93
+train_ratio_bboxes: 0.9552428046151895
+
+best_epoch_bev@0.3: epoch 11 (bev@0.3=73.5660)
+best_epoch_3d@0.3: epoch 11 (3d@0.3=58.9113)
+average_AP_epoch_5_to_24 (epochs_used=20): bev@0.3=60.6656 | bev@0.5=48.1818 | 3d@0.3=43.1573 | 3d@0.5=6.0179
+
+epoch   bev@0.3   bev@0.5    3d@0.3    3d@0.5        p        r       f1  ign_sup
+---------------------------------------------------------------------------------
+    5   54.8349   42.3379   43.1652    4.8868   0.0000   0.0000   0.0000        0
+    6   66.8327   56.1863   46.7463    7.4873   0.9286   0.0500   0.0949        0
+    7   55.2249   40.3997   47.0707    4.9188   0.8333   0.0577   0.1079        0
+    8   71.2080   56.7778   53.8253    7.1673   0.8654   0.1731   0.2885        0
+    9   67.3666   56.1534   51.6694    6.0635   0.9375   0.1731   0.2922        0
+   10   60.1219   51.8015   49.1944    6.2408   0.9667   0.2231   0.3625        0
+   11   73.5660   58.7239   58.9113    8.8847   0.9630   0.1000   0.1812        0
+   12   71.4954   55.0089   48.3622    5.2706   0.7725   0.5615   0.6503        0
+   13   70.2089   56.7455   23.8640    0.5693   0.5947   0.6885   0.6381        0
+   14   62.1772   49.7819   44.5751    9.4849   0.9643   0.2077   0.3418        0
+   15   57.8995   47.8048   44.6749   15.5061   0.7226   0.4308   0.5398        0
+   16   70.0541   54.1986   41.0087    2.9552   1.0000   0.1692   0.2895        0
+   17   62.0504   46.6159   45.4831    7.8216   1.0000   0.1269   0.2253        0
+   18   35.6624   30.8322   27.0769    2.8244   1.0000   0.0231   0.0451        0
+   19   43.9589   33.5013   33.3581    4.2749   0.9429   0.1269   0.2237        0
+   20   71.2803   55.1901   45.4817    3.1784   0.9091   0.2692   0.4154        0
+   21   71.4900   61.3752   54.3733    9.7251   0.6692   0.6769   0.6730        0
+   22   55.8999   37.8616   40.5174    7.8675   1.0000   0.1154   0.2069        0
+   23   39.3735   31.0788   25.3189    0.7911   1.0000   0.0846   0.1560        0
+   24   52.6058   41.2614   38.4682    4.4392   0.9722   0.1346   0.2365        0

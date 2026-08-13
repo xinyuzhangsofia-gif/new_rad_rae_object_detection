@@ -1,0 +1,1592 @@
+
+[2026-08-13T13:26:00+02:00] launch physical cuda:1
+command: /home/local/miniconda3/envs/mvrss/bin/python /home/local/xinyu/MVRSS/mvrss/evaluation.py --checkpoint-root /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25 --start-epoch 5 --end-epoch 24 --batch-size 32 --num-workers 0 --cuda cuda:0 --gpu-ids 0 --eval-val-sequences 18 --eval-frame-manifest-path /home/local/xinyu/MVRSS/mvrss/experiments4/control_specs/rain_test_25/test.txt --eval-gt-object-ignore-override-path /home/local/xinyu/MVRSS/mvrss/experiments4/control_specs/rain_test_25/object_ignore_override.json --eval-report-path /home/local/xinyu/MVRSS/mvrss/experiments4/evaluation_reports/rain/test_set_25/group12_seed43_source_normal_result.txt --official-eval-version revised --official-eval-iou-backend cuda --official-eval-iou-mode all --official-detection-metrics-enabled true --custom-iou-range-eval-enabled false --nuscenes-style-eval-enabled false --loss-eval-enabled false --group-checkpoint-plot-best-only false --distance-range-eval-enabled false --distance-quartile-eval-enabled true --distance-quartile-bins [{"tag":"q1","lower_m":0.0,"upper_m":20.046826446630185},{"tag":"q2","lower_m":20.046826446630185,"upper_m":31.595330581289385},{"tag":"q3","lower_m":31.595330581289385,"upper_m":44.82720467969678},{"tag":"q4","lower_m":44.82720467969678,"upper_m":"inf"}] --max-detections 64 --heatmap-nms-kernel 3 --heatmap-score-mode peak_times_local_mean --yolox-nms-iou 0.65 --ap-score-thresh 0.01 --score-thresh 0.3 --eval-ignore-suppress-enabled false --table-txt-enabled true --table-output-base-dir /home/local/xinyu/MVRSS/mvrss/experiments4/evaluation_reports --evaluation-tensorboard-log-dir /home/local/xinyu/MVRSS/mvrss/experiments4/tensorboard --domain-comparison-enabled false --plot-output none
+Ignore object_label=-1: False
+Auto-detected model type: model7
+GT object ignore override: sequence=18 path=/home/local/xinyu/MVRSS/mvrss/experiments4/control_specs/rain_test_25/object_ignore_override.json frames=0 objects=0 applied=False
+Checkpoint overrides for 0808_epoch_005.pth: decoder_hidden_channels=64, feature_channels=128, inferred_num_classes=1
+Evaluation TensorBoard log dir: /home/local/xinyu/MVRSS/mvrss/experiments4/tensorboard/evaluation/20260813_132614_858991__rain_model7_64_128_ig_train_9,20,5_controlled_lr5e-5__val_seq_18
+Evaluation classes: {0: 'Sedan'}
+Checkpoint weather group: rain
+Bus target enabled: False
+Train control split: split/controled_seq20_ref23__seq5_ref24_2
+GT object ignore override: split/controled_seq20_ref23__seq5_ref24_2/object_ignore_override.json
+Ignore-mask classes: ('Pedestrian', 'Pedestrian Group', 'Bicycle', 'Bicycle Group', 'Motorcycle', 'Bus or Truck')
+Ignore-mask region: GT box * 1.0 + margin 1.0
+Using evaluation device: cuda:0
+Evaluation scope: full
+Box coordinate mode: cartesian
+Evaluation coordinate mode: requested=auto, effective=cartesian, primary=cartesian
+Evaluation epoch range: 5-24
+Official K-Radar AP: enabled (direct)
+Official evaluator: revised
+Official IoU mode: all
+Distance-range official AP@0.3: disabled
+GT-distance-quartile official AP@0.3: enabled
+Polar BEV AP: disabled (converted_auxiliary, IoU=[0.3, 0.5])
+AP score threshold: 0.01
+Detection score threshold: 0.3
+Evaluating 20 checkpoint(s) from /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25
+Table txt path: /home/local/xinyu/MVRSS/mvrss/experiments4/evaluation_reports/rain/test_set_25/group12_seed43_source_normal_result.txt
+Checkpoints:   0%|                                                                               | 0/20 [00:00<?, ?it/s]Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_005.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:07<02:10,  7.25s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:13<01:55,  6.77s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:21<01:54,  7.15s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:30<01:58,  7.93s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:40<02:00,  8.60s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:49<01:54,  8.81s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:56<01:39,  8.33s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:04<01:28,  8.06s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:10<01:16,  7.60s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:17<01:05,  7.29s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:23<00:56,  7.00s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:31<00:50,  7.20s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:38<00:42,  7.07s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:47<00:38,  7.79s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:56<00:32,  8.12s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:03<00:23,  7.73s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:13<00:16,  8.39s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:21<00:08,  8.43s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:27<00:00,  7.48s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 78 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 52 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 48 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 46 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 21 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 23 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:   5%|███▌                                                                  | 1/20 [02:56<55:56, 176.67s/it]epoch=5 official_bev_mAP_0.3=0.3455 ap_score_thr=0.0100 bev@0.3=0.3455 bev@0.5=0.2390 3d@0.3=0.3200 3d@0.5=0.1201 bev@0.3_quartile_q1=0.2449 3d@0.3_quartile_q1=0.2311 bev@0.3_quartile_q2=0.1889 3d@0.3_quartile_q2=0.1876 bev@0.3_quartile_q3=0.6196 3d@0.3_quartile_q3=0.5779 bev@0.3_quartile_q4=0.2590 3d@0.3_quartile_q4=0.2236 score_thr=0.3000 p=0.5486 r=0.2779 f1=0.3689 tp=446 fp=367 fn=1159 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_006.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:06<01:53,  6.28s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:15<02:20,  8.24s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:24<02:13,  8.33s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:32<02:03,  8.22s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:40<01:56,  8.33s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:46<01:35,  7.31s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:53<01:26,  7.17s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [00:59<01:15,  6.83s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:06<01:09,  6.93s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:12<00:59,  6.67s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:17<00:49,  6.23s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:24<00:45,  6.48s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:31<00:39,  6.51s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:39<00:35,  7.04s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:46<00:28,  7.01s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [01:51<00:19,  6.44s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [01:58<00:12,  6.46s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:06<00:06,  6.98s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:11<00:00,  6.29s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 19 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 32 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 51 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 42 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 36 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 40 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  10%|███████                                                               | 2/20 [05:27<48:26, 161.46s/it]epoch=6 official_bev_mAP_0.3=0.3179 ap_score_thr=0.0100 bev@0.3=0.3179 bev@0.5=0.1918 3d@0.3=0.2716 3d@0.5=0.0463 bev@0.3_quartile_q1=0.2007 3d@0.3_quartile_q1=0.1557 bev@0.3_quartile_q2=0.2159 3d@0.3_quartile_q2=0.1873 bev@0.3_quartile_q3=0.5782 3d@0.3_quartile_q3=0.5230 bev@0.3_quartile_q4=0.1932 3d@0.3_quartile_q4=0.1697 score_thr=0.3000 p=0.4288 r=0.4523 f1=0.4403 tp=726 fp=967 fn=879 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_007.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:06<01:51,  6.20s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:13<01:56,  6.84s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:19<01:41,  6.34s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:26<01:41,  6.76s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:34<01:41,  7.23s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:39<01:23,  6.43s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:45<01:14,  6.19s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [00:51<01:09,  6.32s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [00:58<01:04,  6.48s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:07<01:05,  7.29s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:15<00:58,  7.35s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:22<00:51,  7.39s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:29<00:43,  7.17s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:37<00:37,  7.57s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:44<00:29,  7.31s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [01:52<00:21,  7.33s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [01:59<00:14,  7.22s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:05<00:06,  6.95s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:07<00:00,  5.64s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 17 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 34 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 69 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 46 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 44 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 21 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 23 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  15%|██████████▌                                                           | 3/20 [07:55<43:59, 155.29s/it]epoch=7 official_bev_mAP_0.3=0.3546 ap_score_thr=0.0100 bev@0.3=0.3546 bev@0.5=0.1827 3d@0.3=0.3191 3d@0.5=0.0788 bev@0.3_quartile_q1=0.2696 3d@0.3_quartile_q1=0.2626 bev@0.3_quartile_q2=0.2028 3d@0.3_quartile_q2=0.1900 bev@0.3_quartile_q3=0.6260 3d@0.3_quartile_q3=0.5763 bev@0.3_quartile_q4=0.2602 3d@0.3_quartile_q4=0.2049 score_thr=0.3000 p=0.5652 r=0.2648 f1=0.3606 tp=425 fp=327 fn=1180 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_008.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:07<02:23,  7.96s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:15<02:15,  7.98s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:23<02:06,  7.92s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:32<02:01,  8.11s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:40<01:52,  8.06s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:47<01:42,  7.86s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:54<01:28,  7.40s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:01<01:20,  7.30s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:09<01:16,  7.62s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:17<01:09,  7.74s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:25<01:01,  7.67s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:34<00:56,  8.07s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:43<00:51,  8.52s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:51<00:42,  8.42s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:59<00:33,  8.26s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:07<00:24,  8.04s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:13<00:15,  7.66s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:23<00:08,  8.09s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:27<00:00,  6.97s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 32 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 54 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 50 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 42 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 48 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 17 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 23 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  20%|██████████████                                                        | 4/20 [10:41<42:31, 159.45s/it]epoch=8 official_bev_mAP_0.3=0.3823 ap_score_thr=0.0100 bev@0.3=0.3823 bev@0.5=0.2268 3d@0.3=0.3448 3d@0.5=0.0747 bev@0.3_quartile_q1=0.2082 3d@0.3_quartile_q1=0.1932 bev@0.3_quartile_q2=0.2404 3d@0.3_quartile_q2=0.2259 bev@0.3_quartile_q3=0.6434 3d@0.3_quartile_q3=0.5889 bev@0.3_quartile_q4=0.3015 3d@0.3_quartile_q4=0.2505 score_thr=0.3000 p=0.4016 r=0.5695 f1=0.4710 tp=914 fp=1362 fn=691 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_009.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:07<02:11,  7.33s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:16<02:18,  8.15s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:23<02:02,  7.66s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:31<02:01,  8.13s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:39<01:51,  7.97s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:47<01:41,  7.82s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:55<01:37,  8.12s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:03<01:28,  8.05s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:10<01:15,  7.60s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:18<01:09,  7.70s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:24<00:56,  7.11s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:31<00:49,  7.08s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:39<00:43,  7.33s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:48<00:39,  7.86s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:55<00:31,  7.81s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:02<00:22,  7.45s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:08<00:14,  7.16s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:17<00:07,  7.45s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:21<00:00,  6.48s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 21 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 25 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 6 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 7 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 5 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 81 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 56 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 52 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 23 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  25%|█████████████████▌                                                    | 5/20 [13:19<39:46, 159.08s/it]epoch=9 official_bev_mAP_0.3=0.3042 ap_score_thr=0.0100 bev@0.3=0.3042 bev@0.5=0.1581 3d@0.3=0.2677 3d@0.5=0.0604 bev@0.3_quartile_q1=0.2180 3d@0.3_quartile_q1=0.2108 bev@0.3_quartile_q2=0.1924 3d@0.3_quartile_q2=0.1737 bev@0.3_quartile_q3=0.5841 3d@0.3_quartile_q3=0.5344 bev@0.3_quartile_q4=0.2521 3d@0.3_quartile_q4=0.1945 score_thr=0.3000 p=0.5019 r=0.0822 f1=0.1413 tp=132 fp=131 fn=1473 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_010.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:06<01:55,  6.39s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:13<01:55,  6.77s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:21<01:55,  7.19s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:29<01:54,  7.64s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:37<01:51,  7.96s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:44<01:36,  7.44s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:51<01:26,  7.17s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [00:57<01:16,  6.94s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:03<01:07,  6.73s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:12<01:04,  7.22s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:19<00:58,  7.35s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:26<00:51,  7.31s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:34<00:43,  7.30s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:42<00:37,  7.59s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:50<00:30,  7.58s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [01:58<00:23,  7.73s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:07<00:16,  8.10s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:14<00:07,  7.90s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:18<00:00,  6.80s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 112 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 112 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 17 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 19 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 69 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 48 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 46 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 21 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 23 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  30%|█████████████████████                                                 | 6/20 [15:58<37:05, 158.97s/it]epoch=10 official_bev_mAP_0.3=0.3287 ap_score_thr=0.0100 bev@0.3=0.3287 bev@0.5=0.1993 3d@0.3=0.3032 3d@0.5=0.0918 bev@0.3_quartile_q1=0.2125 3d@0.3_quartile_q1=0.2121 bev@0.3_quartile_q2=0.2072 3d@0.3_quartile_q2=0.2009 bev@0.3_quartile_q3=0.6054 3d@0.3_quartile_q3=0.5709 bev@0.3_quartile_q4=0.3194 3d@0.3_quartile_q4=0.2721 score_thr=0.3000 p=0.5451 r=0.1695 f1=0.2586 tp=272 fp=227 fn=1333 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_011.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:05<01:43,  5.76s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:12<01:48,  6.38s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:20<01:50,  6.91s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:28<01:50,  7.37s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:35<01:43,  7.41s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:44<01:42,  7.91s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:51<01:32,  7.68s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [00:56<01:15,  6.86s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:07<01:18,  7.88s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:13<01:07,  7.55s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:21<01:00,  7.52s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:29<00:54,  7.82s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:38<00:49,  8.20s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:47<00:41,  8.32s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:55<00:32,  8.23s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:03<00:24,  8.23s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:11<00:16,  8.12s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:20<00:08,  8.27s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:25<00:00,  7.44s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 112 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 112 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 19 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 17 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 34 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 63 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 52 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 50 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 48 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 23 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  35%|████████████████████████▌                                             | 7/20 [18:41<34:45, 160.40s/it]epoch=11 official_bev_mAP_0.3=0.3151 ap_score_thr=0.0100 bev@0.3=0.3151 bev@0.5=0.1589 3d@0.3=0.2677 3d@0.5=0.0345 bev@0.3_quartile_q1=0.1748 3d@0.3_quartile_q1=0.1461 bev@0.3_quartile_q2=0.2001 3d@0.3_quartile_q2=0.1741 bev@0.3_quartile_q3=0.6084 3d@0.3_quartile_q3=0.5535 bev@0.3_quartile_q4=0.2351 3d@0.3_quartile_q4=0.1844 score_thr=0.3000 p=0.4827 r=0.4075 f1=0.4419 tp=654 fp=701 fn=951 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_012.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:06<02:04,  6.92s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:14<02:04,  7.31s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:22<02:03,  7.71s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:31<02:03,  8.21s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:40<01:56,  8.33s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:49<01:51,  8.55s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:57<01:41,  8.45s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:03<01:25,  7.80s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:11<01:17,  7.79s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:19<01:09,  7.68s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:27<01:03,  7.97s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:35<00:56,  8.00s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:43<00:47,  7.95s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:52<00:41,  8.39s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [02:02<00:34,  8.62s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:11<00:26,  8.90s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:20<00:17,  8.86s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:28<00:08,  8.75s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:34<00:00,  7.94s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 5 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 7 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 6 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 17 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 34 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 38 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 19 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 63 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 54 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 50 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 46 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 25 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  40%|████████████████████████████                                          | 8/20 [21:36<32:58, 164.86s/it]epoch=12 official_bev_mAP_0.3=0.3503 ap_score_thr=0.0100 bev@0.3=0.3503 bev@0.5=0.1973 3d@0.3=0.2900 3d@0.5=0.0236 bev@0.3_quartile_q1=0.2046 3d@0.3_quartile_q1=0.1955 bev@0.3_quartile_q2=0.2143 3d@0.3_quartile_q2=0.2015 bev@0.3_quartile_q3=0.5924 3d@0.3_quartile_q3=0.4918 bev@0.3_quartile_q4=0.2715 3d@0.3_quartile_q4=0.2049 score_thr=0.3000 p=0.2846 r=0.6455 f1=0.3950 tp=1036 fp=2604 fn=569 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_013.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:07<02:17,  7.67s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:14<01:59,  7.05s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:22<02:02,  7.68s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:30<01:58,  7.87s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:39<01:51,  7.98s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:46<01:42,  7.89s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:54<01:33,  7.78s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:01<01:24,  7.67s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:06<01:08,  6.87s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:14<01:05,  7.22s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:21<00:56,  7.06s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:29<00:51,  7.29s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:36<00:43,  7.30s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:44<00:37,  7.45s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:53<00:31,  7.89s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:02<00:24,  8.14s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:11<00:16,  8.41s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:19<00:08,  8.52s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:24<00:00,  7.39s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 7 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 87 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 62 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 60 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 58 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 25 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 27 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  45%|███████████████████████████████▌                                      | 9/20 [24:21<30:14, 164.94s/it]epoch=13 official_bev_mAP_0.3=0.3423 ap_score_thr=0.0100 bev@0.3=0.3423 bev@0.5=0.1855 3d@0.3=0.3098 3d@0.5=0.0825 bev@0.3_quartile_q1=0.1947 3d@0.3_quartile_q1=0.1774 bev@0.3_quartile_q2=0.2065 3d@0.3_quartile_q2=0.1936 bev@0.3_quartile_q3=0.6195 3d@0.3_quartile_q3=0.5831 bev@0.3_quartile_q4=0.3456 3d@0.3_quartile_q4=0.2871 score_thr=0.3000 p=0.5547 r=0.1358 f1=0.2182 tp=218 fp=175 fn=1387 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_014.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:06<01:57,  6.51s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:14<02:04,  7.31s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:23<02:07,  7.95s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:31<02:01,  8.07s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:39<01:55,  8.22s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:47<01:43,  8.00s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:56<01:40,  8.41s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:05<01:35,  8.65s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:13<01:24,  8.41s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:21<01:14,  8.25s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:28<01:02,  7.84s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:33<00:48,  6.92s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:39<00:39,  6.66s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:46<00:33,  6.79s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:55<00:29,  7.45s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:04<00:23,  7.95s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:12<00:15,  7.97s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:20<00:07,  7.83s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:22<00:00,  6.18s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 6 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 7 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 34 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 78 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 60 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 56 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 50 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 27 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  50%|██████████████████████████████████▌                                  | 10/20 [27:01<27:15, 163.54s/it]epoch=14 official_bev_mAP_0.3=0.3629 ap_score_thr=0.0100 bev@0.3=0.3629 bev@0.5=0.2077 3d@0.3=0.3111 3d@0.5=0.0428 bev@0.3_quartile_q1=0.2098 3d@0.3_quartile_q1=0.1743 bev@0.3_quartile_q2=0.2242 3d@0.3_quartile_q2=0.2139 bev@0.3_quartile_q3=0.6139 3d@0.3_quartile_q3=0.5420 bev@0.3_quartile_q4=0.2934 3d@0.3_quartile_q4=0.2351 score_thr=0.3000 p=0.2581 r=0.6704 f1=0.3727 tp=1076 fp=3093 fn=529 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_015.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:08<02:30,  8.37s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:14<02:00,  7.06s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:21<01:54,  7.18s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:27<01:40,  6.68s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:34<01:36,  6.88s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:42<01:31,  7.01s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:50<01:27,  7.27s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [00:59<01:27,  7.96s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:07<01:19,  7.94s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:14<01:08,  7.64s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:21<01:01,  7.64s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:28<00:51,  7.37s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:35<00:43,  7.29s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:43<00:37,  7.50s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:51<00:29,  7.47s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [01:59<00:23,  7.71s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:07<00:15,  7.82s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:15<00:07,  7.84s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:18<00:00,  6.52s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 6 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 5 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 7 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 32 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 36 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 17 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 84 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 62 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 60 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 54 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 23 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 27 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  55%|█████████████████████████████████████▉                               | 11/20 [29:43<24:27, 163.02s/it]epoch=15 official_bev_mAP_0.3=0.3142 ap_score_thr=0.0100 bev@0.3=0.3142 bev@0.5=0.1880 3d@0.3=0.2653 3d@0.5=0.0327 bev@0.3_quartile_q1=0.2282 3d@0.3_quartile_q1=0.2055 bev@0.3_quartile_q2=0.1902 3d@0.3_quartile_q2=0.1832 bev@0.3_quartile_q3=0.5444 3d@0.3_quartile_q3=0.4662 bev@0.3_quartile_q4=0.2241 3d@0.3_quartile_q4=0.1691 score_thr=0.3000 p=0.3144 r=0.5956 f1=0.4115 tp=956 fp=2085 fn=649 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_016.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:07<02:12,  7.36s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:14<01:57,  6.94s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:21<01:52,  7.03s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:28<01:49,  7.27s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:37<01:49,  7.79s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:45<01:42,  7.90s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:53<01:36,  8.05s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:04<01:35,  8.72s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:12<01:27,  8.71s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:21<01:16,  8.55s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:26<01:02,  7.75s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:34<00:52,  7.54s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:40<00:43,  7.33s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:46<00:34,  6.89s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:55<00:30,  7.52s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:08<00:26,  8.98s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:16<00:17,  8.67s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:22<00:08,  8.05s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:28<00:00,  7.37s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 5 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 7 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 36 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 90 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 66 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 58 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 33 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 34 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  60%|█████████████████████████████████████████▍                           | 12/20 [32:33<22:01, 165.18s/it]epoch=16 official_bev_mAP_0.3=0.2818 ap_score_thr=0.0100 bev@0.3=0.2818 bev@0.5=0.1529 3d@0.3=0.2389 3d@0.5=0.0433 bev@0.3_quartile_q1=0.2087 3d@0.3_quartile_q1=0.1901 bev@0.3_quartile_q2=0.1972 3d@0.3_quartile_q2=0.1908 bev@0.3_quartile_q3=0.5295 3d@0.3_quartile_q3=0.4582 bev@0.3_quartile_q4=0.1744 3d@0.3_quartile_q4=0.1290 score_thr=0.3000 p=0.2353 r=0.6243 f1=0.3418 tp=1002 fp=3256 fn=603 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_017.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:07<02:10,  7.24s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:15<02:10,  7.66s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:23<02:07,  7.95s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:31<01:56,  7.79s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:37<01:42,  7.31s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:44<01:35,  7.32s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:52<01:29,  7.49s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:02<01:30,  8.22s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:11<01:23,  8.38s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:19<01:15,  8.36s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:28<01:07,  8.49s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:34<00:55,  7.91s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:42<00:46,  7.71s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:49<00:38,  7.68s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:58<00:32,  8.03s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:07<00:24,  8.32s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:16<00:16,  8.44s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:24<00:08,  8.26s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:27<00:00,  6.81s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 6 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 7 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 68 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 56 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 33 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 36 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  65%|████████████████████████████████████████████▊                        | 13/20 [35:22<19:23, 166.25s/it]epoch=17 official_bev_mAP_0.3=0.3290 ap_score_thr=0.0100 bev@0.3=0.3290 bev@0.5=0.1710 3d@0.3=0.2897 3d@0.5=0.0574 bev@0.3_quartile_q1=0.1994 3d@0.3_quartile_q1=0.1851 bev@0.3_quartile_q2=0.1759 3d@0.3_quartile_q2=0.1644 bev@0.3_quartile_q3=0.5782 3d@0.3_quartile_q3=0.5267 bev@0.3_quartile_q4=0.2960 3d@0.3_quartile_q4=0.2382 score_thr=0.3000 p=0.5714 r=0.2791 f1=0.3751 tp=448 fp=336 fn=1157 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_018.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:06<02:01,  6.76s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:13<01:58,  6.99s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:21<01:54,  7.18s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:28<01:49,  7.30s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:36<01:42,  7.30s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:44<01:40,  7.75s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:54<01:42,  8.52s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:03<01:34,  8.56s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:11<01:23,  8.35s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:20<01:17,  8.58s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:29<01:09,  8.71s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:37<00:58,  8.42s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:42<00:45,  7.53s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:47<00:33,  6.77s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:55<00:28,  7.07s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:05<00:23,  7.85s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:10<00:14,  7.11s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:21<00:08,  8.26s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:25<00:00,  6.87s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 3 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 5 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 6 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 7 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 123 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 84 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 80 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 74 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 39 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 42 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 40 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 41 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  70%|████████████████████████████████████████████████▎                    | 14/20 [38:07<16:36, 166.02s/it]epoch=18 official_bev_mAP_0.3=0.2880 ap_score_thr=0.0100 bev@0.3=0.2880 bev@0.5=0.1219 3d@0.3=0.2122 3d@0.5=0.0191 bev@0.3_quartile_q1=0.2040 3d@0.3_quartile_q1=0.1618 bev@0.3_quartile_q2=0.1467 3d@0.3_quartile_q2=0.1115 bev@0.3_quartile_q3=0.5088 3d@0.3_quartile_q3=0.3852 bev@0.3_quartile_q4=0.2424 3d@0.3_quartile_q4=0.1647 score_thr=0.3000 p=0.3250 r=0.5695 f1=0.4139 tp=914 fp=1898 fn=691 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_019.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:08<02:35,  8.64s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:17<02:26,  8.59s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:25<02:14,  8.40s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:33<02:04,  8.29s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:42<02:01,  8.66s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:51<01:54,  8.84s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [01:00<01:44,  8.72s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:09<01:36,  8.81s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:20<01:34,  9.47s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:29<01:24,  9.38s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:37<01:10,  8.81s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:43<00:57,  8.18s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:53<00:52,  8.72s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [02:02<00:43,  8.72s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [02:11<00:35,  8.84s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:19<00:25,  8.63s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:28<00:17,  8.56s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:36<00:08,  8.56s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:40<00:00,  7.21s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 7 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 105 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 66 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 64 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 62 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 29 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 33 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  75%|███████████████████████████████████████████████████▊                 | 15/20 [41:08<14:12, 170.48s/it]epoch=19 official_bev_mAP_0.3=0.2783 ap_score_thr=0.0100 bev@0.3=0.2783 bev@0.5=0.1395 3d@0.3=0.2297 3d@0.5=0.0508 bev@0.3_quartile_q1=0.2190 3d@0.3_quartile_q1=0.1885 bev@0.3_quartile_q2=0.1711 3d@0.3_quartile_q2=0.1598 bev@0.3_quartile_q3=0.5212 3d@0.3_quartile_q3=0.4512 bev@0.3_quartile_q4=0.2300 3d@0.3_quartile_q4=0.1544 score_thr=0.3000 p=0.5050 r=0.2530 f1=0.3371 tp=406 fp=398 fn=1199 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_020.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:07<02:14,  7.47s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:15<02:08,  7.57s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:22<02:01,  7.57s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:31<02:03,  8.24s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:41<01:59,  8.57s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:48<01:48,  8.31s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:56<01:37,  8.11s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:05<01:32,  8.40s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:15<01:29,  9.00s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:25<01:21,  9.02s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:31<01:06,  8.30s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:39<00:56,  8.12s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:48<00:49,  8.28s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:55<00:40,  8.13s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [02:06<00:35,  8.93s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:18<00:29,  9.75s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:27<00:19,  9.63s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:36<00:09,  9.53s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:41<00:00,  8.05s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 69 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 50 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 44 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 48 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 25 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  80%|███████████████████████████████████████████████████████▏             | 16/20 [44:12<11:37, 174.37s/it]epoch=20 official_bev_mAP_0.3=0.2434 ap_score_thr=0.0100 bev@0.3=0.2434 bev@0.5=0.1160 3d@0.3=0.1879 3d@0.5=0.0233 bev@0.3_quartile_q1=0.2158 3d@0.3_quartile_q1=0.1848 bev@0.3_quartile_q2=0.1715 3d@0.3_quartile_q2=0.1482 bev@0.3_quartile_q3=0.4875 3d@0.3_quartile_q3=0.3941 bev@0.3_quartile_q4=0.1525 3d@0.3_quartile_q4=0.0918 score_thr=0.3000 p=0.4618 r=0.2710 f1=0.3416 tp=435 fp=507 fn=1170 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_021.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:08<02:39,  8.88s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:17<02:29,  8.79s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:26<02:20,  8.76s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:34<02:09,  8.64s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:43<02:03,  8.80s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:53<01:59,  9.18s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [01:03<01:52,  9.35s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:13<01:43,  9.43s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:23<01:36,  9.69s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:32<01:26,  9.63s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:41<01:14,  9.26s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:49<01:02,  8.99s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:58<00:53,  8.99s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [02:08<00:45,  9.17s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [02:17<00:36,  9.24s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:26<00:27,  9.20s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:35<00:17,  8.96s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:44<00:09,  9.11s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:49<00:00,  7.73s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 3 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 5 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 7 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 6 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 126 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 78 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 76 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 43 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 44 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 42 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  85%|██████████████████████████████████████████████████████████▋          | 17/20 [47:15<08:51, 177.02s/it]epoch=21 official_bev_mAP_0.3=0.2944 ap_score_thr=0.0100 bev@0.3=0.2944 bev@0.5=0.1634 3d@0.3=0.2498 3d@0.5=0.0588 bev@0.3_quartile_q1=0.1764 3d@0.3_quartile_q1=0.1673 bev@0.3_quartile_q2=0.1802 3d@0.3_quartile_q2=0.1712 bev@0.3_quartile_q3=0.5261 3d@0.3_quartile_q3=0.4389 bev@0.3_quartile_q4=0.2468 3d@0.3_quartile_q4=0.2002 score_thr=0.3000 p=0.4938 r=0.3745 f1=0.4259 tp=601 fp=616 fn=1004 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_022.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:10<03:10, 10.60s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:22<03:09, 11.15s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:33<03:02, 11.40s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:42<02:35, 10.34s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:51<02:19,  9.99s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [01:02<02:11, 10.15s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [01:11<01:56,  9.74s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:20<01:43,  9.42s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:29<01:32,  9.29s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:39<01:25,  9.53s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:48<01:16,  9.55s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:57<01:05,  9.35s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [02:06<00:55,  9.21s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [02:15<00:45,  9.18s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [02:22<00:33,  8.39s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:29<00:24,  8.17s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:38<00:16,  8.38s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:46<00:08,  8.36s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:51<00:00,  7.08s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 17 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 15 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 21 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 60 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 46 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 44 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 40 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 19 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  90%|██████████████████████████████████████████████████████████████       | 18/20 [50:25<06:01, 180.95s/it]epoch=22 official_bev_mAP_0.3=0.3037 ap_score_thr=0.0100 bev@0.3=0.3037 bev@0.5=0.1670 3d@0.3=0.2788 3d@0.5=0.0751 bev@0.3_quartile_q1=0.1718 3d@0.3_quartile_q1=0.1678 bev@0.3_quartile_q2=0.1690 3d@0.3_quartile_q2=0.1684 bev@0.3_quartile_q3=0.5357 3d@0.3_quartile_q3=0.5010 bev@0.3_quartile_q4=0.2839 3d@0.3_quartile_q4=0.2388 score_thr=0.3000 p=0.4836 r=0.3763 f1=0.4233 tp=604 fp=645 fn=1001 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_023.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:08<02:31,  8.43s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:16<02:16,  8.01s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:24<02:07,  7.99s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:34<02:15,  9.00s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:45<02:15,  9.69s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:53<02:00,  9.26s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [01:00<01:41,  8.48s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [01:09<01:32,  8.38s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:15<01:17,  7.70s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:22<01:08,  7.58s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:29<00:59,  7.49s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:38<00:54,  7.76s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:44<00:44,  7.44s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:52<00:38,  7.61s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [02:02<00:33,  8.31s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:12<00:25,  8.66s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:22<00:18,  9.01s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:31<00:09,  9.09s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:36<00:00,  7.93s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 114 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 14 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 19 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 34 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 63 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 48 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 40 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 17 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints:  95%|█████████████████████████████████████████████████████████████████▌   | 19/20 [53:24<03:00, 180.47s/it]epoch=23 official_bev_mAP_0.3=0.3285 ap_score_thr=0.0100 bev@0.3=0.3285 bev@0.5=0.1703 3d@0.3=0.2659 3d@0.5=0.0360 bev@0.3_quartile_q1=0.1635 3d@0.3_quartile_q1=0.1352 bev@0.3_quartile_q2=0.2305 3d@0.3_quartile_q2=0.2221 bev@0.3_quartile_q3=0.5824 3d@0.3_quartile_q3=0.4963 bev@0.3_quartile_q4=0.2530 3d@0.3_quartile_q4=0.1711 score_thr=0.3000 p=0.3985 r=0.5371 f1=0.4575 tp=862 fp=1301 fn=743 ign_sup=0 frames=594
+Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/rain/0808_train_seq9_20_5_test_seq25/0808_epoch_024.pth
+  loaded keys: 339
+
+Evaluation:   0%|                                                                                | 0/19 [00:00<?, ?it/s][A
+Evaluation:   5%|███▊                                                                    | 1/19 [00:07<02:06,  7.05s/it][A
+Evaluation:  11%|███████▌                                                                | 2/19 [00:14<02:00,  7.09s/it][A
+Evaluation:  16%|███████████▎                                                            | 3/19 [00:21<01:53,  7.12s/it][A
+Evaluation:  21%|███████████████▏                                                        | 4/19 [00:29<01:51,  7.40s/it][A
+Evaluation:  26%|██████████████████▉                                                     | 5/19 [00:35<01:39,  7.09s/it][A
+Evaluation:  32%|██████████████████████▋                                                 | 6/19 [00:41<01:27,  6.72s/it][A
+Evaluation:  37%|██████████████████████████▌                                             | 7/19 [00:49<01:24,  7.01s/it][A
+Evaluation:  42%|██████████████████████████████▎                                         | 8/19 [00:56<01:18,  7.18s/it][A
+Evaluation:  47%|██████████████████████████████████                                      | 9/19 [01:05<01:15,  7.51s/it][A
+Evaluation:  53%|█████████████████████████████████████▎                                 | 10/19 [01:14<01:14,  8.24s/it][A
+Evaluation:  58%|█████████████████████████████████████████                              | 11/19 [01:21<01:02,  7.81s/it][A
+Evaluation:  63%|████████████████████████████████████████████▊                          | 12/19 [01:29<00:53,  7.64s/it][A
+Evaluation:  68%|████████████████████████████████████████████████▌                      | 13/19 [01:37<00:47,  7.86s/it][A
+Evaluation:  74%|████████████████████████████████████████████████████▎                  | 14/19 [01:45<00:39,  7.93s/it][A
+Evaluation:  79%|████████████████████████████████████████████████████████               | 15/19 [01:52<00:31,  7.77s/it][A
+Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 16/19 [02:00<00:23,  7.86s/it][A
+Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 17/19 [02:08<00:15,  7.85s/it][A
+Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 18/19 [02:15<00:07,  7.51s/it][A
+Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 19/19 [02:17<00:00,  5.88s/it][A
+                                                                                                                        [AFinished model inference. Collected 594 eval frames. Running selected metrics now...
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 4 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 9 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 8 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 11 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 13 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 12 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 7 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 16 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 10 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 96 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 66 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 64 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 58 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 29 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 31 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 33 will likely result in GPU under-utilization due to low occupancy.
+  warn(NumbaPerformanceWarning(msg))
+Metric computation finished.
+Checkpoints: 100%|█████████████████████████████████████████████████████████████████████| 20/20 [56:07<00:00, 175.30s/it]Checkpoints: 100%|█████████████████████████████████████████████████████████████████████| 20/20 [56:07<00:00, 168.40s/it]
+epoch=24 official_bev_mAP_0.3=0.2943 ap_score_thr=0.0100 bev@0.3=0.2943 bev@0.5=0.1157 3d@0.3=0.2200 3d@0.5=0.0215 bev@0.3_quartile_q1=0.1803 3d@0.3_quartile_q1=0.1563 bev@0.3_quartile_q2=0.1561 3d@0.3_quartile_q2=0.1330 bev@0.3_quartile_q3=0.5419 3d@0.3_quartile_q3=0.4521 bev@0.3_quartile_q4=0.2823 3d@0.3_quartile_q4=0.1677 score_thr=0.3000 p=0.5154 r=0.3763 f1=0.4350 tp=604 fp=568 fn=1001 ign_sup=0 frames=594
+best_epoch: epoch=8 official_bev_mAP_0.3=0.3823
+Saved evaluation table txt: /home/local/xinyu/MVRSS/mvrss/experiments4/evaluation_reports/rain/test_set_25/group12_seed43_source_normal_result.txt
+[2026-08-13T14:22:51+02:00] returncode=0

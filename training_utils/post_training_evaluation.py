@@ -179,6 +179,7 @@ def prepare_post_training_evaluation_launch(
         physical_gpu_id,
         python_executable=None,
         project_dir=None,
+        batch_size=None,
     ):
     """Build the command/environment for one isolated evaluation process."""
     checkpoint_path = Path(checkpoint_root).expanduser().resolve()
@@ -203,11 +204,18 @@ def prepare_post_training_evaluation_launch(
         str(evaluation_script),
         "--checkpoint-root",
         str(checkpoint_path),
+    ]
+    if batch_size is not None:
+        batch_size = int(batch_size)
+        if batch_size <= 0:
+            raise ValueError("Evaluation batch_size must be positive.")
+        command.extend(["--batch-size", str(batch_size)])
+    command.extend([
         "--cuda",
         "cuda:0",
         "--gpu-ids",
         "0",
-    ]
+    ])
     child_environment = os.environ.copy()
     child_environment["CUDA_VISIBLE_DEVICES"] = str(int(physical_gpu_id))
     return command, root_dir, child_environment

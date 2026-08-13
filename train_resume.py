@@ -61,8 +61,9 @@ from training_utils.torch_load import load_torch_checkpoint
 from zxy_config import DataConfig
 
 
-def build_resume_args():
-    args = SimpleNamespace(**RESUME_CONFIG)
+def build_resume_args(resume_config=None):
+    config = RESUME_CONFIG if resume_config is None else resume_config
+    args = SimpleNamespace(**config)
     args = apply_domain_shift_training_configuration(args)
     args = apply_test_sequence_weather_configuration(args)
     validate_resume_args(args)
@@ -218,11 +219,11 @@ def initialize_best_state(best_state, initial_best_checkpoint, checkpoint_dir):
     return copied_path
 
 
-def main():
-    if len(sys.argv) > 1:
+def main(resume_config=None):
+    if resume_config is None and len(sys.argv) > 1:
         raise ValueError("train_resume.py reads settings from train_cfg.py. Edit RESUME_CONFIG, then run: python train_resume.py")
 
-    args = build_resume_args()
+    args = build_resume_args(resume_config=resume_config)
     args = apply_training_coordinate_mode(args)
     if args.checkpoint_epoch_step <= 0:
         raise ValueError("checkpoint_epoch_step must be greater than 0")
@@ -697,6 +698,10 @@ def main():
             4096,
         ),
     )
+    # Queue workers use the return value to record the checkpoint directory
+    # and enqueue post-training evaluation.  Without this explicit return,
+    # a completed resume run is incorrectly reported as a failed task.
+    return checkpoint_dir
 
 
 if __name__ == "__main__":

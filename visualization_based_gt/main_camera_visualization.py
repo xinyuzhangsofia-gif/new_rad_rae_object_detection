@@ -1,10 +1,11 @@
 import path_setup
 
-from zxy_config import DataConfig
 from zxy_label_utils import *
 from zxy_data_path import *
 from sensor_transformation import *
 from visualization import *
+from visualization_cfg import DataConfig
+from visualization_utils import get_label_dir
 
 
 if __name__ == "__main__":

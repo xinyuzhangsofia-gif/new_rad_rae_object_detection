@@ -1,16 +1,14 @@
 import path_setup
 
-from zxy_config import DataConfig
 from zxy_label_utils import *
 from zxy_data_path import *
 from sensor_transformation import *
 from visualization import *
-from dataset import KRadarDataset
+from visualization_cfg import DataConfig
+from visualization_utils import get_label_dir
 if __name__ == "__main__":
 
     cfg = DataConfig()
-    radar_dir = get_radar_dir(cfg)
-    radar_dataset = KRadarDataset(radar_dir)
 
     if cfg.lidar_mode == 0:
         show_single_lidar_pcd(

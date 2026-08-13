@@ -10,6 +10,7 @@ from unittest import mock
 
 from training_utils.experiment_queue import (
     _run_parallel_experiment_queue,
+    _run_seed_two_phase_experiment_queue,
     build_experiment_training_config,
     experiment_queue_lock,
     load_domain_shift_experiments,
@@ -163,6 +164,75 @@ class ExperimentQueueTests(unittest.TestCase):
         self.assertTrue(source_config["train_control_split_enabled"])
         self.assertFalse(target_config["train_control_split_enabled"])
 
+    def test_source_can_control_first_and_last_halves_independently(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            sheet_path = Path(temporary_dir) / "sleet_experiments.csv"
+            with sheet_path.open(
+                "w",
+                encoding="utf-8-sig",
+                newline="",
+            ) as output_file:
+                writer = csv.writer(output_file)
+                writer.writerow([
+                    "group",
+                    "seed",
+                    "shared_seq",
+                    "source_seq",
+                    "target_seq",
+                    "test_seq",
+                ])
+                writer.writerow([
+                    "group1",
+                    "42",
+                    "9,12_first",
+                    "3,10_first,10_last",
+                    "51,52,53",
+                    "50",
+                ])
+            experiment = load_domain_shift_experiments(sheet_path)[0]
+
+        self.assertEqual(experiment.source_sequences, (3, 10))
+        self.assertEqual(
+            experiment.source_parts,
+            ((3, "full"), (10, "first"), (10, "last")),
+        )
+
+        source_config = build_experiment_training_config(
+            {
+                "experiment_queue_enabled": True,
+                "train_control_split_enabled": True,
+            },
+            experiment,
+            "source",
+        )
+        target_config = build_experiment_training_config(
+            {
+                "experiment_queue_enabled": True,
+                "train_control_split_enabled": True,
+            },
+            experiment,
+            "target",
+        )
+
+        self.assertEqual(
+            source_config["controlled_sequence_parts"],
+            ((3, "full"), (10, "first"), (10, "last")),
+        )
+        self.assertEqual(
+            source_config["reference_sequence_parts"],
+            ((51, "full"), (52, "full"), (53, "full")),
+        )
+        self.assertEqual(
+            source_config["train_sequence_half_selection"],
+            {12: "first"},
+        )
+        self.assertEqual(
+            target_config["train_sequence_half_selection"],
+            {12: "first"},
+        )
+        self.assertTrue(source_config["train_control_split_enabled"])
+        self.assertFalse(target_config["train_control_split_enabled"])
+
     def test_rejects_identical_source_and_target_training_sets(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
             sheet_path = Path(temporary_dir) / "same_train_set.csv"
@@ -250,6 +320,26 @@ class ExperimentQueueTests(unittest.TestCase):
             gpu_status=statuses,
         )
         self.assertEqual(shared_gpu["index"], 0)
+
+        capped_gpu = select_parallel_evaluation_gpu(
+            candidate_gpu_ids=(0, 1),
+            active_gpu_counts={0: 6, 1: 5},
+            min_free_memory_mb=1000,
+            reservation_memory_mb=1000,
+            gpu_status=statuses,
+            max_active_per_gpu=6,
+        )
+        self.assertEqual(capped_gpu["index"], 1)
+
+        no_capacity = select_parallel_evaluation_gpu(
+            candidate_gpu_ids=(0, 1),
+            active_gpu_counts={0: 6, 1: 6},
+            min_free_memory_mb=1000,
+            reservation_memory_mb=1000,
+            gpu_status=statuses,
+            max_active_per_gpu=6,
+        )
+        self.assertIsNone(no_capacity)
 
     def test_shared_gpu_strategy_allows_two_training_workers_same_gpus(self):
         slots = ("0,1,2", "0,1,2")
@@ -451,6 +541,182 @@ class ExperimentQueueTests(unittest.TestCase):
             checkpoint_root.resolve(),
         )
 
+    def test_seed_two_phase_scheduler_finishes_training_before_evaluation(self):
+        class CompletedProcess:
+            next_pid = 2000
+
+            def __init__(self):
+                self.pid = CompletedProcess.next_pid
+                CompletedProcess.next_pid += 1
+
+            def poll(self):
+                return 0
+
+            def terminate(self):
+                return None
+
+            def kill(self):
+                return None
+
+            def wait(self, timeout=None):
+                return 0
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            root = Path(temporary_dir)
+            table_batches = []
+            for table_index, weather in enumerate(
+                ("heavy_snow", "sleet"),
+                start=1,
+            ):
+                weather_dir = root / weather
+                weather_dir.mkdir()
+                original_path = self.write_sheet(weather_dir)
+                sheet_path = original_path.with_name(
+                    f"{weather}_experiments.csv"
+                )
+                original_path.rename(sheet_path)
+                experiment = next(
+                    item
+                    for item in load_domain_shift_experiments(sheet_path)
+                    if item.name == "第二组"
+                )
+                from training_utils.experiment_queue import (
+                    ExperimentQueueTask,
+                )
+
+                tasks = (
+                    ExperimentQueueTask(1, experiment, "source"),
+                    ExperimentQueueTask(2, experiment, "target"),
+                )
+                table_batches.append((
+                    table_index,
+                    sheet_path,
+                    2,
+                    tasks,
+                ))
+
+            events = []
+            evaluation_sheets = []
+
+            def fake_train_launch(
+                    base_config,
+                    task,
+                    gpu_slot,
+                    session_dir,
+                    task_slug=None,
+                ):
+                events.append(("train", task_slug, gpu_slot))
+                return {
+                    "process": CompletedProcess(),
+                    "task": task,
+                    "gpu_slot": gpu_slot,
+                    "result_path": root / "result.json",
+                    "log_path": root / "train.log",
+                    "log_file": None,
+                    "started_at": 0.0,
+                }
+
+            def fake_eval_launch(
+                    pending_state,
+                    physical_gpu_id,
+                    session_dir,
+                    task_slug=None,
+                    evaluation_batch_size=None,
+                ):
+                task = pending_state["task"]
+                events.append((
+                    "eval",
+                    task_slug,
+                    physical_gpu_id,
+                    evaluation_batch_size,
+                ))
+                return {
+                    "process": CompletedProcess(),
+                    "task": task,
+                    "checkpoint_root": root,
+                    "physical_gpu_id": physical_gpu_id,
+                    "log_path": root / "eval.log",
+                    "log_file": None,
+                    "started_at": 0.0,
+                }
+
+            def fake_record(sheet_path, **_kwargs):
+                evaluation_sheets.append(Path(sheet_path).stem)
+                return (
+                    root / Path(sheet_path).stem / "report.txt",
+                    {"bev_ap": 10.0, "threed_ap": 8.0},
+                )
+
+            gpu_status = [
+                {
+                    "index": index,
+                    "free_memory_mb": 15800,
+                    "total_memory_mb": 16300,
+                    "utilization_percent": 0,
+                }
+                for index in range(3)
+            ]
+            with mock.patch(
+                "training_utils.experiment_queue."
+                "_launch_parallel_training_task",
+                side_effect=fake_train_launch,
+            ), mock.patch(
+                "training_utils.experiment_queue."
+                "_launch_parallel_evaluation_task",
+                side_effect=fake_eval_launch,
+            ), mock.patch(
+                "training_utils.experiment_queue."
+                "_read_training_job_result",
+                return_value=root,
+            ), mock.patch(
+                "training_utils.experiment_queue."
+                "_record_experiment_result",
+                side_effect=fake_record,
+            ), mock.patch(
+                "training_utils.experiment_queue.query_gpu_status",
+                return_value=gpu_status,
+            ), mock.patch(
+                "training_utils.experiment_queue."
+                "_refresh_completed_weather_summaries",
+            ):
+                launched = _run_seed_two_phase_experiment_queue(
+                    base_config={
+                        "experiment_queue_train_workers": 3,
+                        "experiment_queue_train_gpu_slots": (
+                            "0",
+                            "1",
+                            "2",
+                        ),
+                        "experiment_queue_gpu_strategy": "isolated",
+                        "experiment_queue_eval_workers": 18,
+                        "experiment_queue_eval_gpu_pool": "0,1,2",
+                        "experiment_queue_eval_max_per_gpu": 6,
+                        "experiment_queue_eval_batch_size": 8,
+                        "experiment_queue_eval_min_free_memory_mb": 1500,
+                        "experiment_queue_eval_reservation_memory_mb": 2500,
+                        "experiment_queue_poll_seconds": 0.1,
+                        "gpu_ids": "0,1,2",
+                        "log_base_dir": root,
+                    },
+                    seed=42,
+                    table_batches=tuple(table_batches),
+                    results_base_dir=root,
+                    update_sheet_results=False,
+                )
+
+        phases = [event[0] for event in events]
+        self.assertEqual(phases, ["train"] * 4 + ["eval"] * 4)
+        self.assertEqual(
+            [event[2] for event in events[:4]],
+            ["0", "1", "2", "0"],
+        )
+        self.assertTrue(all(event[3] == 8 for event in events[4:]))
+        self.assertEqual(set(evaluation_sheets), {
+            "heavy_snow_experiments",
+            "sleet_experiments",
+        })
+        self.assertEqual(len(launched), 4)
+
     def test_training_worker_returns_its_checkpoint_without_evaluation(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
             temporary_path = Path(temporary_dir)
@@ -516,6 +782,195 @@ class ExperimentQueueTests(unittest.TestCase):
             ((9,), "target"),
         ])
         self.assertEqual(len(launched), 4)
+
+    def test_runs_multiple_weather_tables_without_manual_restart(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            first_dir = Path(temporary_dir) / "heavy_snow"
+            second_dir = Path(temporary_dir) / "sleet"
+            first_dir.mkdir()
+            second_dir.mkdir()
+            first_sheet = self.write_sheet(first_dir)
+            second_sheet = self.write_sheet(second_dir)
+            observed = []
+
+            with mock.patch(
+                "training_utils.experiment_queue."
+                "ensure_no_other_top_level_train_process",
+                return_value=True,
+            ):
+                launched = run_domain_shift_experiment_queue(
+                    {
+                        "experiment_sheet_paths": (
+                            str(first_sheet),
+                            str(second_sheet),
+                        ),
+                        "experiment_queue_branches": ("source", "target"),
+                        "experiment_queue_skip_completed_branches": False,
+                        "experiment_queue_update_sheet_results": False,
+                        "seed": 42,
+                    },
+                    train_function=lambda config: observed.append((
+                        Path(config["experiment_sheet_path"]).parent.name,
+                        config["domain_shift_train_branch"],
+                    )),
+                )
+
+        self.assertEqual(
+            observed,
+            [
+                ("heavy_snow", "source"),
+                ("heavy_snow", "target"),
+                ("heavy_snow", "source"),
+                ("heavy_snow", "target"),
+                ("sleet", "source"),
+                ("sleet", "target"),
+                ("sleet", "source"),
+                ("sleet", "target"),
+            ],
+        )
+        self.assertEqual(len(launched), 8)
+
+    def test_multi_weather_queue_runs_all_weather_for_each_seed(self):
+        def write_seeded_sheet(directory, weather_name):
+            path = Path(directory) / f"{weather_name}_experiments.csv"
+            with path.open(
+                "w",
+                encoding="utf-8-sig",
+                newline="",
+            ) as output_file:
+                writer = csv.writer(output_file)
+                writer.writerow([
+                    "group",
+                    "seed",
+                    "shared_seq",
+                    "source_seq",
+                    "target_seq",
+                    "test_seq",
+                ])
+                writer.writerow(["group1", "44", "9", "11", "13", "22"])
+                writer.writerow(["group1", "42", "9", "11", "13", "22"])
+                writer.writerow(["group1", "43", "9", "11", "13", "22"])
+            return path
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            first_sheet = write_seeded_sheet(
+                temporary_dir,
+                "heavy_snow",
+            )
+            second_sheet = write_seeded_sheet(
+                temporary_dir,
+                "sleet",
+            )
+            observed = []
+
+            with mock.patch(
+                "training_utils.experiment_queue."
+                "ensure_no_other_top_level_train_process",
+                return_value=True,
+            ):
+                launched = run_domain_shift_experiment_queue(
+                    {
+                        "experiment_sheet_paths": (
+                            str(first_sheet),
+                            str(second_sheet),
+                        ),
+                        "experiment_queue_order": "seed_then_weather",
+                        "experiment_queue_seed_order": (42, 43, 44),
+                        "experiment_queue_branches": ("source",),
+                        "experiment_queue_skip_completed_branches": False,
+                        "experiment_queue_update_sheet_results": False,
+                        "seed": 42,
+                    },
+                    train_function=lambda config: observed.append((
+                        config["seed"],
+                        Path(config["experiment_sheet_path"]).stem,
+                    )),
+                )
+
+        self.assertEqual(observed, [
+            (42, "heavy_snow_experiments"),
+            (42, "sleet_experiments"),
+            (43, "heavy_snow_experiments"),
+            (43, "sleet_experiments"),
+            (44, "heavy_snow_experiments"),
+            (44, "sleet_experiments"),
+        ])
+        self.assertEqual(len(launched), 6)
+
+    def test_outer_queue_dispatches_one_two_phase_batch_per_seed(self):
+        def write_seeded_sheet(directory, weather_name):
+            path = Path(directory) / f"{weather_name}_experiments.csv"
+            with path.open(
+                "w",
+                encoding="utf-8-sig",
+                newline="",
+            ) as output_file:
+                writer = csv.writer(output_file)
+                writer.writerow([
+                    "group",
+                    "seed",
+                    "shared_seq",
+                    "source_seq",
+                    "target_seq",
+                    "test_seq",
+                ])
+                writer.writerow(["group1", "43", "9", "11", "13", "22"])
+                writer.writerow(["group1", "42", "9", "11", "13", "22"])
+            return path
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            sheets = (
+                write_seeded_sheet(temporary_dir, "heavy_snow"),
+                write_seeded_sheet(temporary_dir, "sleet"),
+            )
+            observed = []
+
+            def fake_seed_queue(seed, table_batches, **_kwargs):
+                observed.append((
+                    seed,
+                    tuple(Path(batch[1]).stem for batch in table_batches),
+                    sum(len(batch[3]) for batch in table_batches),
+                ))
+                return []
+
+            with mock.patch(
+                "training_utils.experiment_queue."
+                "ensure_no_other_top_level_train_process",
+                return_value=True,
+            ), mock.patch(
+                "training_utils.experiment_queue."
+                "_run_seed_two_phase_experiment_queue",
+                side_effect=fake_seed_queue,
+            ):
+                run_domain_shift_experiment_queue(
+                    {
+                        "experiment_sheet_paths": tuple(map(str, sheets)),
+                        "experiment_queue_order": "seed_then_weather",
+                        "experiment_queue_seed_order": (42, 43),
+                        "experiment_queue_execution_mode": "seed_two_phase",
+                        "experiment_queue_branches": ("source", "target"),
+                        "experiment_queue_skip_completed_branches": False,
+                        "experiment_queue_update_sheet_results": False,
+                        "experiment_queue_require_full_table": False,
+                        "experiment_queue_train_workers": 3,
+                        "experiment_queue_eval_workers": 18,
+                        "seed": 42,
+                    },
+                    train_function=lambda _config: None,
+                )
+
+        self.assertEqual(observed, [
+            (
+                42,
+                ("heavy_snow_experiments", "sleet_experiments"),
+                4,
+            ),
+            (
+                43,
+                ("heavy_snow_experiments", "sleet_experiments"),
+                4,
+            ),
+        ])
 
     def test_skip_completed_only_skips_fully_populated_branches(self):
         with tempfile.TemporaryDirectory() as temporary_dir:

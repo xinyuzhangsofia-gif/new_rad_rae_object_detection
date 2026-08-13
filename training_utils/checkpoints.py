@@ -540,10 +540,16 @@ def build_checkpoint_payload(
             "reference_sequences": getattr(args, "reference_sequences", None),
             "controlled_split_base_dir": getattr(args, "controlled_split_base_dir", None),
             "control_window_position": getattr(args, "control_window_position", None),
+            "control_class_names": getattr(args, "control_class_names", None),
             "control_range_m_bins": getattr(args, "control_range_m_bins", None),
             # Keep the legacy field readable for older checkpoints/configs.
             "control_ridx_bins": getattr(args, "control_ridx_bins", None),
             "control_num_trials": getattr(args, "control_num_trials", None),
+            "control_total_bbox_tolerance_ratio": getattr(
+                args,
+                "control_total_bbox_tolerance_ratio",
+                None,
+            ),
             "seed": args.seed,
             "limit_samples": args.limit_samples,
         },

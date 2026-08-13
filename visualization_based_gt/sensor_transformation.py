@@ -50,6 +50,29 @@ def transform_lidar_to_radar(lidar_corners:torch.Tensor,R,T) :
     return radar_corners
 
 
+def transform_radar_boxes_to_lidar(radar_boxes: torch.Tensor, R, T):
+    """Convert Radar metric boxes to the LiDAR box convention used for drawing."""
+    radar_boxes = radar_boxes.to(dtype=torch.float32)
+    if radar_boxes.ndim != 2 or radar_boxes.shape[1] != 7:
+        raise ValueError(
+            f"Expected Radar boxes with shape [N, 7], got {radar_boxes.shape}"
+        )
+    rotation = torch.as_tensor(R, dtype=radar_boxes.dtype, device=radar_boxes.device)
+    translation = torch.as_tensor(
+        T,
+        dtype=radar_boxes.dtype,
+        device=radar_boxes.device,
+    )
+    if not torch.allclose(rotation, torch.eye(3, device=rotation.device), atol=1e-6):
+        raise ValueError(
+            "The current box representation expects identity LiDAR-to-Radar "
+            "rotation; a general 3-D rotation cannot preserve one yaw value."
+        )
+    lidar_boxes = radar_boxes.clone()
+    lidar_boxes[:, :3] = (radar_boxes[:, :3] - translation) @ rotation
+    return lidar_boxes
+
+
 def cartesian_to_rae(radar_corners):
     x = radar_corners[..., 0] # x, y, z are the last dimension of lidar_corners
     y = radar_corners[..., 1]

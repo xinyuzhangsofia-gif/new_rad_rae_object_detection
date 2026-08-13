@@ -12,7 +12,9 @@ EVAL_CONFIG = {
     ),
 
     "epoch_step": 1,
-    "end_epoch":None,
+    # Evaluate only the epochs used by the domain-shift AP average.
+    "start_epoch": 5,
+    "end_epoch": 24,
 
     "model_type": "auto",
     "split_mode": "sequence",
@@ -29,13 +31,19 @@ EVAL_CONFIG = {
     # For checkpoint directories: Polar selects best PBEV@0.3; Cartesian
     # selects best official BEV@0.3 and 3D@0.3.
     "group_checkpoint_plot_best_only": True,
-    "custom_iou_range_eval_enabled": True,  # custom AP averaged over a user-defined IoU list
+    "custom_iou_range_eval_enabled": False,  # skip per-epoch custom IoU AP
     "custom_iou_thresholds": "0.30:0.05:0.50",
-    "nuscenes_style_eval_enabled": True,  # nuScenes-style AP over center-distance thresholds
+    # Opt in with the CLI for distance-stratified official AP@0.3.
+    "distance_range_eval_enabled": False,
+    "distance_range_bins": "0-30,30-60,60-90,90-120",
+    # Opt in with --distance-quartile-eval-enabled true. Quartile boundaries
+    # are derived from eligible evaluation GT centers for every checkpoint.
+    "distance_quartile_eval_enabled": False,
+    "nuscenes_style_eval_enabled": False,  # skip per-epoch nuScenes-style metrics
     "heatmap_score_mode": "peak_times_local_mean",  # peak_times_local_mean or peak_only
     "ap_score_thresh": 0.01,  # boxes below this are dropped before AP/mAP evaluation
     "score_thresh": 0.3,  # only for TP/FP/FN/Precision/Recall/F1 summary, not for AP/mAP ranking
-    "loss_eval_enabled": True,       # also compute val/test loss on the chosen split
+    "loss_eval_enabled": False,      # skip the extra val/test-loss data pass
     "quality_loss_weight": 0.25,  # only model6 has the separate quality head; inactive for model7
     "ignore_mask_margin": 1.0,
     "ignore_mask_expand_ratio": 1.0,

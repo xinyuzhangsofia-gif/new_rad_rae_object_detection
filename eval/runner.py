@@ -9,7 +9,12 @@ from coordinate_modes import (
     BOX_COORDINATE_POLAR,
     validate_box_coordinate_mode,
 )
-from dataloader import build_train_val_dataloaders, prepare_model_inputs
+from dataloader import (
+    build_evaluation_dataloader,
+    build_train_val_dataloaders,
+    normalize_sequence_list,
+    prepare_model_inputs,
+)
 from domain_shift_tables import (
     build_model_configuration,
     update_domain_shift_tables,
@@ -174,6 +179,10 @@ def evaluate_checkpoint_result(
         eval_ignore_expand_ratio=args.eval_ignore_expand_ratio,
         eval_ignore_suppress_margin=args.eval_ignore_suppress_margin,
         box_coordinate_mode=args.box_coordinate_mode,
+        distance_range_eval_enabled=args.distance_range_eval_enabled,
+        distance_range_bins=args.distance_range_bins,
+        distance_quartile_eval_enabled=args.distance_quartile_eval_enabled,
+        distance_quartile_bins=getattr(args, "distance_quartile_bins", None),
     )
     metrics.update(eval_metrics)
     attach_evaluation_main_metric(
@@ -282,12 +291,60 @@ def build_eval_context(args):
     checkpoint_paths = find_epoch_checkpoints(
         args.checkpoint_root,
         args.epoch_step,
+        start_epoch=args.start_epoch,
         end_epoch=args.end_epoch,
     )
     if len(checkpoint_paths) == 0:
         raise ValueError(f"No epoch checkpoints found in {args.checkpoint_root}")
 
     apply_checkpoint_config_defaults(args, checkpoint_paths)
+    # These evaluation-control inputs are deliberately applied *after*
+    # checkpoint inheritance. They are authoritative for this standalone test
+    # and cannot silently fall back to the checkpoint's target test split.
+    if getattr(args, "eval_val_sequences", None) is not None:
+        args.eval_val_sequences = normalize_sequence_list(
+            args.eval_val_sequences,
+            name="eval_val_sequences",
+        )
+        args.val_sequences = args.eval_val_sequences
+        if not args.val_sequences:
+            raise ValueError("eval_val_sequences must not be empty.")
+    for path_name in (
+        "eval_frame_manifest_path",
+        "eval_gt_object_ignore_override_path",
+    ):
+        path_value = getattr(args, path_name, None)
+        if path_value is not None:
+            setattr(
+                args,
+                path_name,
+                os.path.abspath(os.path.expanduser(str(path_value))),
+            )
+    if (
+        getattr(args, "eval_frame_manifest_path", None) is not None
+        and getattr(args, "eval_val_sequences", None) is None
+    ):
+        raise ValueError(
+            "eval_frame_manifest_path requires explicit eval_val_sequences."
+        )
+    if (
+        getattr(args, "eval_gt_object_ignore_override_path", None) is not None
+        and getattr(args, "eval_val_sequences", None) is None
+    ):
+        raise ValueError(
+            "eval_gt_object_ignore_override_path requires explicit "
+            "eval_val_sequences."
+        )
+    if (
+        getattr(args, "eval_gt_object_ignore_override_path", None) is not None
+        and bool(args.eval_ignore_suppress_enabled)
+    ):
+        raise ValueError(
+            "Evaluation-only object ignores require "
+            "eval_ignore_suppress_enabled=false. The official evaluator "
+            "neutralizes matching detections through occluded=3 GT instead of "
+            "removing predictions."
+        )
     if args.box_coordinate_mode in (None, "auto"):
         raise ValueError(
             "Cannot determine checkpoint coordinate mode. "
@@ -375,29 +432,67 @@ def build_eval_context(args):
         model_variant_name,
     )
 
-    train_dataset, validation_dataset, _, validation_loader = build_train_val_dataloaders(
-        cfg=cfg,
-        batch_size=args.batch_size,
-        train_ratio=args.train_ratio,
-        seed=args.seed,
-        num_workers=args.num_workers,
-        limit_samples=args.limit_samples,
-        class_to_idx=args.class_to_idx,
-        ignore_class_names=args.ignore_class_names,
-        gt_object_ignore_override_path=args.gt_object_ignore_override_path,
-        ignore_unmapped_classes=True,
-        split_mode=args.split_mode,
-        split_dir=args.split_dir,
-        scope_mode=args.eval_scope,
-        train_sequences=args.train_sequences,
-        val_sequences=args.val_sequences,
-        train_control_split_enabled=getattr(args, "train_control_split_enabled", False),
-        train_control_split_dir=getattr(args, "train_control_split_dir", None),
-        box_coordinate_mode=args.box_coordinate_mode,
-        cartesian_gt_root=args.cartesian_gt_root,
-        polar_gt_root=args.polar_gt_root,
-        ignore_object_label_minus_one=args.ignore_object_label_minus_one,
-    )
+    if getattr(args, "eval_val_sequences", None) is not None:
+        validation_dataset, validation_loader = build_evaluation_dataloader(
+            cfg=cfg,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            val_sequences=args.val_sequences,
+            limit_samples=args.limit_samples,
+            frame_manifest_path=getattr(args, "eval_frame_manifest_path", None),
+            class_to_idx=args.class_to_idx,
+            ignore_class_names=args.ignore_class_names,
+            gt_object_ignore_override_path=(
+                getattr(args, "eval_gt_object_ignore_override_path", None)
+            ),
+            ignore_unmapped_classes=True,
+            scope_mode=args.eval_scope,
+            box_coordinate_mode=args.box_coordinate_mode,
+            cartesian_gt_root=args.cartesian_gt_root,
+            polar_gt_root=args.polar_gt_root,
+            ignore_object_label_minus_one=args.ignore_object_label_minus_one,
+        )
+        train_dataset = None
+    else:
+        (
+            train_dataset,
+            validation_dataset,
+            _,
+            validation_loader,
+        ) = build_train_val_dataloaders(
+            cfg=cfg,
+            batch_size=args.batch_size,
+            train_ratio=args.train_ratio,
+            seed=args.seed,
+            num_workers=args.num_workers,
+            limit_samples=args.limit_samples,
+            class_to_idx=args.class_to_idx,
+            ignore_class_names=args.ignore_class_names,
+            gt_object_ignore_override_path=args.gt_object_ignore_override_path,
+            eval_gt_object_ignore_override_path=(
+                getattr(args, "eval_gt_object_ignore_override_path", None)
+            ),
+            ignore_unmapped_classes=True,
+            split_mode=args.split_mode,
+            split_dir=args.split_dir,
+            scope_mode=args.eval_scope,
+            train_sequences=args.train_sequences,
+            val_sequences=args.val_sequences,
+            train_control_split_enabled=getattr(
+                args,
+                "train_control_split_enabled",
+                False,
+            ),
+            train_control_split_dir=getattr(
+                args,
+                "train_control_split_dir",
+                None,
+            ),
+            box_coordinate_mode=args.box_coordinate_mode,
+            cartesian_gt_root=args.cartesian_gt_root,
+            polar_gt_root=args.polar_gt_root,
+            ignore_object_label_minus_one=args.ignore_object_label_minus_one,
+        )
     if len(validation_dataset) == 0:
         raise ValueError("Validation split is empty.")
     split_statistics_metadata = build_split_statistics_metadata(
@@ -459,6 +554,13 @@ def update_domain_comparison_outputs(
         "train_sequences": source_metadata.get("train_sequences"),
         "checkpoint_val_sequences": source_metadata.get("val_sequences"),
         "val_sequences": args.val_sequences,
+        "eval_val_sequences": getattr(args, "eval_val_sequences", None),
+        "eval_frame_manifest_path": getattr(
+            args, "eval_frame_manifest_path", None
+        ),
+        "eval_gt_object_ignore_override_path": getattr(
+            args, "eval_gt_object_ignore_override_path", None
+        ),
         "include_bus_as_target": bool(args.include_bus_as_target),
         "checkpoint_include_bus_as_target": bool(
             source_metadata.get("include_bus_as_target", args.include_bus_as_target)

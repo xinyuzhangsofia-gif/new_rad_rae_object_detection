@@ -1,0 +1,28 @@
+Controlled sequence comparison
+
+The before and after values refer to the selected continuous source window.
+Ignored bboxes are not removed from gt.txt; they are applied through the training ignore override.
+Controlled classes: Sedan
+Control priority: controlled-class bbox count first, largest distance-bin difference within 0-80 m second, 80-120 m third, empty-frame count fourth.
+
+Coordinate mode: cartesian
+Center range bins (m): [0,20), [20,40), [40,60), [60,80), [80,120)
+
+Sequence pair: controlled seq11 -> reference seq13
+Selected source window: file_idx 5 - 1194
+Selected random seed: 161
+
+Metric | Before control | After control | Reference
+--- | ---: | ---: | ---:
+Frames | 1190 | 1190 | 1190
+Empty frames | 63 | 936 | 1032
+Empty rate | 5.29% | 78.66% | 86.72%
+Controlled-class bbox | 3820 | 305 | 305
+Sedan bbox [0,20) | 732 | 60 | 60
+Sedan bbox [20,40) | 964 | 144 | 144
+Sedan bbox [40,60) | 1060 | 80 | 80
+Sedan bbox [60,80) | 941 | 20 | 20
+Sedan bbox [80,120) | 123 | 1 | 1
+Total bbox in bins | 3820 | 305 | 305
+Effective target bbox in bins | 3820 | 305 | 305
+Original target bbox in GT | 3820 | 3820 | 305
