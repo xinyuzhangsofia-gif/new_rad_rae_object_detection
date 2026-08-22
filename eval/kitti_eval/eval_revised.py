@@ -368,7 +368,7 @@ def fused_compute_statistics(overlaps,
 def calculate_iou_partly(gt_annos,
                          dt_annos,
                          metric,
-                         num_parts=10, #this  one 50 --> 10
+                         num_parts=100,
                          z_axis=1,
                          z_center=1.0):
     """fast iou algorithm. this function can be used independently to
@@ -491,7 +491,7 @@ def eval_class(gt_annos,
                   compute_aos=False,
                   z_axis=1,
                   z_center=1.0,
-                  num_parts=10):
+                  num_parts=100):
     """Kitti eval. support 2d/bev/3d/aos eval. support 0.5:0.05:0.95 coco AP.
     Args:
         gt_annos: dict, must from get_label_annos() in kitti_common.py

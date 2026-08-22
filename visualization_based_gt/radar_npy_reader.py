@@ -26,13 +26,21 @@ def get_current_radar_axes():
 
 
 def make_ra_map(cube):
-    """Project a [R, A, D/E] tensor using the train visualization convention."""
+    """Recover the legacy RA power image from a stored log10 RAD/RAE cube."""
     cube = np.asarray(cube)
     if cube.ndim != 3:
         raise ValueError(f"Expected a [R, A, D/E] tensor, got shape {cube.shape}")
-    ra_map = np.mean(cube, axis=2)
-    ra_map = np.abs(ra_map)
-    return np.log1p(ra_map).astype(np.float32, copy=False)
+
+    # The paired RAD/RAE npy values are already log10(power).  The past
+    # visualization summed linear power over the remaining D/E axis and then
+    # applied log10.  Compute the equivalent base-10 log-sum-exp directly so
+    # the display matches the original radar_tesseract MAT rendering without
+    # overflowing when converting the entire cube back to linear power.
+    peak = np.max(cube, axis=2, keepdims=True)
+    ra_map = peak[..., 0] + np.log10(
+        np.sum(np.power(10.0, cube - peak), axis=2)
+    )
+    return ra_map.astype(np.float32, copy=False)
 
 
 class CurrentRadarNpyDataset:

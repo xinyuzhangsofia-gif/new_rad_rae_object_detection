@@ -1,3 +1,3 @@
 Rain and sleet checkpoint re-evaluation with official K-Radar AP@IoU 0.3 split by GT-box distance rank quartiles.
 
-Distance is sqrt(x^2+y^2+z^2) at each GT box's radar-frame center. Quartile boundaries and N_bbox are derived only from ground-truth boxes; predictions are filtered using those fixed bounds. Every AP is the mean over epochs 5-24 inclusive. TD = target-trained AP - source-trained AP.
+Distance is sqrt(x^2+y^2+z^2) at each GT box's radar-frame center. Quartile boundaries and N_bbox are derived only from ground-truth boxes; predictions are filtered using those fixed bounds. Every AP is the mean over epochs 5-24 inclusive. Overall TD is target-trained AP minus source-trained AP in AP points. In each q1-q4 TD slot, relative AP drop (%) = 100 * (AP_tgt - AP_src) / AP_tgt; these correspond to q0-q3 in zero-based quartile notation. Positive values denote a source-trained relative loss. A zero AP_tgt produces a blank value that is omitted from the average.

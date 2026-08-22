@@ -387,7 +387,7 @@ def parse_args():
     parser.add_argument(
         "--official-eval-iou-backend",
         default=cfg_defaults["official_eval_iou_backend"],
-        choices=["auto", "cuda", "gpu", "cpu"],
+        choices=["auto", "cuda", "gpu", "cpu", "axis_aligned"],
     )
     parser.add_argument(
         "--official-eval-iou-mode",

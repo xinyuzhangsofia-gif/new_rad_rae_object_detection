@@ -24,8 +24,8 @@ TRAIN_CONFIG = {
     ),
 
     # Model and optimization
-    "epochs": 30,
-    "batch_size": 32,
+    "epochs": 50,
+    "batch_size": 64,
     "lr": 5e-5,   #5e-5
     "max_detections": 64,
     "heatmap_radius": 3,
@@ -34,7 +34,7 @@ TRAIN_CONFIG = {
     "init_from_checkpoint": "",           # optional init checkpoint; 2-class cls heads can be adapted when include_bus_as_target=False
 
     # Target classes and ignored GT regions
-    "include_bus_as_target": False,         # True -> 2-class Sedan+Bus; False -> Sedan-only and Bus becomes ignore
+    "include_bus_as_target": True,          # True -> 2-class Sedan+Bus; False -> Sedan-only and Bus becomes ignore
     "ignore_object_label_minus_one": False, # Keep object_label=-1 in Polar/Cartesian GT
     "ignore_out_of_scope_gt": True,         # Ignore GT boxes outside the configured radar RAE/scope during training
     "gt_object_ignore_override_path": None,  # optional; if None, auto-use split_dir/object_ignore_override.json when present
@@ -51,17 +51,16 @@ TRAIN_CONFIG = {
 
     # Training-time evaluation and checkpoint selection
     "eval_train": False,
-    "training_eval_enabled": False,        # False -> skip detection evaluation and do not select a best checkpoint
+    "training_eval_enabled": True,         # Needed to select and save the global-best checkpoint
     "best_metric_key": "auto",             # only used when training_eval_enabled=True
     # Set automatically from box_coordinate_mode; do not edit this separately.
     "official_eval_enabled": None,
     "official_eval_version": "revised",    # revised or legacy
     # The flags below only take effect when training_eval_enabled is True.
-    # For training-time validation, use cpu to avoid GPU OOM caused by
-    # numba/CUDA rotated-IoU competing with the model training memory.
-    # Standalone evaluation.py can still use cuda from eval_cfg.py.
-    "official_eval_iou_backend": "cpu",    # auto, cuda, or cpu
-    "official_eval_iou_mode": "all",       # easy=0.3, mod=0.5, hard=0.7, all=0.5+0.3
+    # Use the GPU rotated-IoU backend for the Cartesian BEV/3D AP selection.
+    "official_eval_iou_backend": "gpu",    # GPU rotated IoU backend
+    "official_eval_iou_mode": "easy",      # BEV/3D AP at IoU=0.3
+    "official_detection_metrics_enabled": False, # only BEV/3D AP is needed
     "polar_iou_thresholds": (0.3, 0.5),
     "ap_score_thresh": 0.01,               # only used when training_eval_enabled=True; boxes below this are dropped before AP/mAP
     "score_thresh": 0.3,                   # only used when training_eval_enabled=True; for TP/FP/FN/Precision/Recall/F1
@@ -69,13 +68,15 @@ TRAIN_CONFIG = {
 
     # Base train/validation split
     "train_ratio": 0.7,
-    "split_mode": "sequence",              # "sequence", "random", or "file"
+    "split_mode": "file",                  # strictly use split/train.txt and split/test.txt
     "split_dir": "split",  # used when split_mode == "file"
+    "train_sequences": None,               # file split membership comes from train.txt
+    "val_sequences": None,                 # file split membership comes from test.txt
 
     # Ordered multi-weather domain-shift queue. One top-level train.py reads
     # every table in this list and advances to the next table automatically.
     # Within each table, source/target branch workers can overlap.
-    "experiment_queue_enabled": True,
+    "experiment_queue_enabled": False,
     "experiment_sheet_paths": (
         "experiments/heavy_snow_experiments.txt",
         "experiments/light_snow_experiments.txt",
@@ -136,7 +137,7 @@ TRAIN_CONFIG = {
     #   source -> shared + source train, evaluated on target_test
     #   target -> shared + target train, evaluated on the same target_test
     # train_sequences/val_sequences are derived automatically from this block.
-    "domain_shift_train_branch": "source",  # "source" or "target"
+    "domain_shift_train_branch": None,      # disabled for the ordinary file split
     "shared_train_sequences": (9, 12),
     "source_train_sequences": (4, 3, 20, 14),
     "target_train_sequences": (46, 47, 55, 58),
@@ -154,7 +155,7 @@ TRAIN_CONFIG = {
     # target_train_sequences, so they cannot drift away from the experiment.
     # In an experiment queue, True controls only the s并根据每一行的对应关系生成不同控制目录；Target分支仍自动保持不控制。Group2、Group3和当前Group4则需要重新训练。ource branch; the target
     # branch is automatically kept unfiltered.
-    "train_control_split_enabled": True,
+    "train_control_split_enabled": False,
     "controlled_split_base_dir": "split",  # generated control directories are created below this directory
     "control_window_position": "last",  # "first" or "last" continuous source window
     # Physical radar-center range bins used by the optional controlled split.
@@ -181,15 +182,15 @@ TRAIN_CONFIG = {
     "seed": 42,
     "num_workers": 0,
     "limit_samples": None,
-    "checkpoint_epoch_step": 1,
+    "checkpoint_epoch_step": 1,           # save one checkpoint after every completed epoch
     "checkpoint_base_dir": "checkpoints",
-    "checkpoint_layout": "weather_train_test",
+    "checkpoint_layout": "legacy",
     "checkpoint_filename_style": "compact",
     "log_base_dir": "runs",
     "gpu_ids": "0,1,2",
     # After a successful final epoch, evaluate this run's checkpoint directory.
     # The allowed GPU with the most free memory is selected automatically.
-    "post_training_eval_enabled": True,
+    "post_training_eval_enabled": False,
     "post_training_eval_min_free_memory_mb": 4096,
     "model_type": "model7",               # remains model7 in both coordinate modes
     # model7 decoder width: choose 64 or 128.  "auto" keeps the historical
@@ -203,31 +204,33 @@ TRAIN_CONFIG = {
 RESUME_CONFIG = {
     **TRAIN_CONFIG,
     "resume_checkpoint": (
-        "checkpoints/heavy_snow/"
-        "0729_train_seq9_12_14-15_18_20_test_seq46-47/"
-        "0729_epoch_012.pth"
+        "checkpoints/object_detection/"
+        "20260815_134341_021343__model_7__seq1-58/"
+        "0816_epoch_050.pth"
     ),
-    "initial_best_checkpoint": None,       # optional previous global best checkpoint
+    # Keep the existing epoch-6 AP-best file. Resumed training skips the
+    # memory-heavy official AP pass; periodic checkpoints can be evaluated
+    # separately after training to select the final AP-best checkpoint.
+    "initial_best_checkpoint": None,
     "start_epoch": None,                   # None means checkpoint epoch + 1
-    "end_epoch": 30,                       # final epoch number for resumed training
+    "end_epoch": 100,                      # resume epoch 51 through epoch 100
     "load_optimizer": True,                # resume optimizer state if checkpoint has it
+    "training_eval_enabled": False,
+    "post_training_eval_enabled": False,
     # Continue this interrupted run in its existing checkpoint/TensorBoard
     # directories. Existing epoch files are never overwritten.
     "resume_save_in_checkpoint_dir": True,
     "resume_tensorboard_log_dir": (
         "runs/object_detection/"
-        "20260729_152024_152755__model7_sedan_only__"
-        "seq9_12_14-15_18_20_46-47"
+        "20260815_134341_021894__model_7__seq1-58"
     ),
-    # Restore the exact data selection used by the interrupted run.
-    "shared_train_sequences": (9, 12),
-    "source_train_sequences": (14, 15, 18, 20),
-    "target_train_sequences": (57, 56, 54, 55),
-    "target_test_sequences": (46, 47),
+    # Restore the ordinary file split used by the interrupted model7 run.
+    "split_mode": "file",
+    "split_dir": "split",
+    "train_sequences": None,
+    "val_sequences": None,
+    "domain_shift_train_branch": None,
     "train_sequence_half_selection": {},
-    "train_control_split_enabled": True,
-    "train_control_split_dir": (
-        "split/controled_seq14_ref57__seq15_ref56__"
-        "seq18_ref54__seq20_ref55"
-    ),
+    "train_control_split_enabled": False,
+    "train_control_split_dir": None,
 }

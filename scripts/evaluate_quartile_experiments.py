@@ -450,6 +450,13 @@ def format_metric(value):
     return "" if value is None else f"{float(value):.4f}"
 
 
+def relative_ap_drop(source_ap, target_ap):
+    """Return the source-to-target AP gap as a percentage of target AP."""
+    if source_ap is None or target_ap is None or float(target_ap) == 0.0:
+        return None
+    return (float(target_ap) - float(source_ap)) / float(target_ap) * 100.0
+
+
 def format_bound(value):
     return "inf" if math.isinf(float(value)) else f"{float(value):.4f}"
 
@@ -478,7 +485,10 @@ def build_table_matrix(weather, experiment_rows, state):
     headers = metric_headers()
     lookup = task_lookup(state)
     output_rows = []
-    td_values = {block: [] for block in ("all",) + QUARTILES}
+    td_values = {
+        block: {"BEV": [], "3D": []}
+        for block in ("all",) + QUARTILES
+    }
     for metadata in experiment_rows:
         row = [str(metadata[header]) for header in METADATA_HEADERS]
         identity = row_identity(metadata)
@@ -501,8 +511,10 @@ def build_table_matrix(weather, experiment_rows, state):
         td_bev = None if source_bev is None or target_bev is None else target_bev - source_bev
         td_3d = None if source_3d is None or target_3d is None else target_3d - source_3d
         row.extend(format_metric(value) for value in (source_bev, source_3d, target_bev, target_3d, td_bev, td_3d))
-        if td_bev is not None and td_3d is not None:
-            td_values["all"].append((td_bev, td_3d))
+        if td_bev is not None:
+            td_values["all"]["BEV"].append(td_bev)
+        if td_3d is not None:
+            td_values["all"]["3D"].append(td_3d)
 
         for tag in QUARTILES:
             source_block = None if source is None else source.get(tag)
@@ -518,23 +530,35 @@ def build_table_matrix(weather, experiment_rows, state):
             source_3d = None if source_block is None else source_block.get("3D")
             target_bev = None if target_block is None else target_block.get("BEV")
             target_3d = None if target_block is None else target_block.get("3D")
-            td_bev = None if source_bev is None or target_bev is None else target_bev - source_bev
-            td_3d = None if source_3d is None or target_3d is None else target_3d - source_3d
+            td_bev = relative_ap_drop(source_bev, target_bev)
+            td_3d = relative_ap_drop(source_3d, target_3d)
             row.extend((range_text, bbox_count))
             row.extend(format_metric(value) for value in (source_bev, source_3d, target_bev, target_3d, td_bev, td_3d))
-            if td_bev is not None and td_3d is not None:
-                td_values[tag].append((td_bev, td_3d))
+            if td_bev is not None:
+                td_values[tag]["BEV"].append(td_bev)
+            if td_3d is not None:
+                td_values[tag]["3D"].append(td_3d)
         output_rows.append(row)
 
-    average_row = [f"average({len(td_values['all'])})"] + ["-"] * 5
-    values = td_values["all"]
+    average_row = [f"average({len(td_values['all']['BEV'])})"] + ["-"] * 5
+    bev_values = td_values["all"]["BEV"]
+    d3_values = td_values["all"]["3D"]
     average_row.extend(
-        ("", "", "", "", format_metric(sum(x for x, _ in values) / len(values)) if values else "", format_metric(sum(y for _, y in values) / len(values)) if values else "")
+        (
+            "", "", "", "",
+            format_metric(sum(bev_values) / len(bev_values)) if bev_values else "",
+            format_metric(sum(d3_values) / len(d3_values)) if d3_values else "",
+        )
     )
     for tag in QUARTILES:
-        values = td_values[tag]
+        bev_values = td_values[tag]["BEV"]
+        d3_values = td_values[tag]["3D"]
         average_row.extend(
-            ("", "", "", "", "", "", format_metric(sum(x for x, _ in values) / len(values)) if values else "", format_metric(sum(y for _, y in values) / len(values)) if values else "")
+            (
+                "", "", "", "", "", "",
+                format_metric(sum(bev_values) / len(bev_values)) if bev_values else "",
+                format_metric(sum(d3_values) / len(d3_values)) if d3_values else "",
+            )
         )
     output_rows.append(average_row)
     return [headers] + output_rows
@@ -558,7 +582,12 @@ def write_readme(output_dir):
         "Distance is sqrt(x^2+y^2+z^2) at each GT box's radar-frame center. "
         "Quartile boundaries and N_bbox are derived only from ground-truth boxes; "
         "predictions are filtered using those fixed bounds. Every AP is the mean "
-        "over epochs 5-24 inclusive. TD = target-trained AP - source-trained AP.\n",
+        "over epochs 5-24 inclusive. Overall TD is target-trained AP minus "
+        "source-trained AP in AP points. In each q1-q4 TD slot, relative AP drop "
+        "(%) = 100 * (AP_tgt - AP_src) / AP_tgt; these correspond to q0-q3 in "
+        "zero-based quartile notation. Positive values denote a source-trained "
+        "relative loss. A zero AP_tgt produces a blank value that is omitted "
+        "from the average.\n",
     )
 
 

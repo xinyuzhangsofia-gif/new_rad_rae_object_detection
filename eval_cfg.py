@@ -25,9 +25,9 @@ EVAL_CONFIG = {
 
     # Official K-Radar KITTI-style metric settings.
     "official_eval_version": "revised",
-    "official_eval_iou_mode": "all",   # all -> keep 0.3 + 0.5 outputs
+    "official_eval_iou_mode": "easy",  # BEV/3D AP at IoU=0.3
     "official_eval_iou_backend": "gpu",  # auto, cuda, cpu
-    "official_detection_metrics_enabled": True,  # TP/FP/FN/Precision/Recall/F1
+    "official_detection_metrics_enabled": False,  # only BEV/3D AP is needed
     # For checkpoint directories: Polar selects best PBEV@0.3; Cartesian
     # selects best official BEV@0.3 and 3D@0.3.
     "group_checkpoint_plot_best_only": True,

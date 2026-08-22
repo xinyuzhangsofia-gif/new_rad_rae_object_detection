@@ -723,8 +723,7 @@ def visualize_bbx_on_ra_polar(ax,
                         box_linewidths=None):
     ax.clear()
     
-    # Current RAD/RAE npy reader already applies the same abs + log1p
-    # projection used by the train.py visualization path.
+    # The RAD/RAE reader reconstructs the legacy log10 RA power projection.
     ra_map = np.asarray(ra_map)
 
     ax.imshow(ra_map,

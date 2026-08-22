@@ -84,6 +84,7 @@ def main():
     if args.official_eval_enabled:
         print(f"Official evaluator: {args.official_eval_version}")
         print(f"Official IoU mode: {args.official_eval_iou_mode}")
+        print(f"Official IoU backend: {args.official_eval_iou_backend}")
     print(
         "Distance-range official AP@0.3: "
         f"{'enabled' if args.distance_range_eval_enabled else 'disabled'}"

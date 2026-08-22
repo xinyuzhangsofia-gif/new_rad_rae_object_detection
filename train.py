@@ -463,6 +463,11 @@ def main(train_config=None, _experiment_queue_child=False):
                 official_eval_version=getattr(args, "official_eval_version", "revised"),
                 official_eval_iou_backend=getattr(args, "official_eval_iou_backend", "auto"),
                 official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
+                official_detection_metrics_enabled=getattr(
+                    args,
+                    "official_detection_metrics_enabled",
+                    True,
+                ),
                 coco_style_eval_enabled=getattr(args, "coco_style_eval_enabled", False),
                 nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
                 ap_score_thresh=getattr(args, "ap_score_thresh", 0.01),

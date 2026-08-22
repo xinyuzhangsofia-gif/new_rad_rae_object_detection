@@ -243,7 +243,7 @@ class SourceDomainLauncherTests(unittest.TestCase):
         self.assertIn("--official-detection-metrics-enabled true", text)
         self.assertIn("--eval-ignore-suppress-enabled false", text)
 
-    def test_table_defines_sd_as_normal_minus_weather_and_two_averages(self):
+    def test_table_reports_only_overall_sd_and_two_averages(self):
         normal = metric_blocks(20.0, 10.0)
         weather = metric_blocks(12.0, 7.0, weather=True)
         state = {
@@ -277,12 +277,19 @@ class SourceDomainLauncherTests(unittest.TestCase):
         average_exact = dict(zip(matrix[0], matrix[3]))
         self.assertEqual(result["SD_BEV"], "8.0000")
         self.assertEqual(result["SD_3D"], "3.0000")
-        self.assertEqual(result["SD_BEV_q4"], "8.0000")
+        self.assertNotIn("SD_BEV_q4", result)
+        self.assertNotIn("SD_3D_q4", result)
         self.assertEqual(result["N_bbox_normal_q1"], "2")
         self.assertEqual(result["N_bbox_weather_q1"], "3")
+        self.assertEqual(result["BEV_normal_q4"], "23.0000")
+        self.assertEqual(result["BEV_weather_q4"], "15.0000")
         self.assertEqual(average_all["group"], "average_all_valid(1)")
         self.assertEqual(average_exact["group"], "average_exact(1)")
-        self.assertEqual(average_exact["SD_3D_q2"], "3.0000")
+        self.assertEqual(average_exact["BEV_normal"], "20.0000")
+        self.assertEqual(average_exact["3D_weather"], "7.0000")
+        self.assertEqual(average_exact["BEV_normal_q4"], "23.0000")
+        self.assertEqual(average_exact["3D_weather_q2"], "8.0000")
+        self.assertEqual(average_exact["SD_3D"], "3.0000")
 
     def test_completed_report_requires_expected_neutral_count(self):
         with tempfile.TemporaryDirectory() as temporary_dir:

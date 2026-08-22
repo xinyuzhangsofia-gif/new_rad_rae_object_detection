@@ -1,4 +1,11 @@
 import os
+from functools import lru_cache
+
+
+@lru_cache(maxsize=64)
+def _sorted_directory_files(directory):
+    """Cache immutable sensor-directory listings, especially for SMB paths."""
+    return tuple(sorted(os.listdir(directory)))
 
 
 def get_label_dir(cfg):
@@ -27,7 +34,7 @@ def get_lidar_idx(info_label, lidar_type):
     
     
 def get_lidar_path(lidar_dir,lidar_type,lidar_idx):
-    for fname in sorted(os.listdir(lidar_dir)):
+    for fname in _sorted_directory_files(lidar_dir):
         if fname.startswith(f"{lidar_type}_{lidar_idx}"):
             return os.path.join(lidar_dir,fname)
     raise FileNotFoundError(f"{lidar_type}-lidar file not found for idx{lidar_idx} in {lidar_dir}")
@@ -39,7 +46,7 @@ def get_camera_dir(cfg):
 
 
 def get_camera_path(camera_dir,cam_front_idx):
-    for fname in sorted(os.listdir(camera_dir)):
+    for fname in _sorted_directory_files(camera_dir):
         if fname.startswith(f"cam-front_{cam_front_idx}"):
             return os.path.join(camera_dir,fname)
 

@@ -284,24 +284,6 @@ def normalize_map(data: np.ndarray) -> np.ndarray:
     return np.clip((data - low) / (high - low), 0.0, 1.0)
 
 
-def synthetic_radar_map(seed: int, *, variant: str) -> np.ndarray:
-    rng = np.random.default_rng(seed)
-    height, width = 256, 107
-    yy, xx = np.mgrid[0:height, 0:width]
-    base = 0.07 * rng.standard_normal((height, width))
-    base += 0.14 * np.sin(yy / 17.0) + 0.08 * np.cos(xx / 7.0)
-    centers = (
-        ((62, 29, 1.1), (135, 71, 0.85), (201, 53, 1.25), (231, 84, 0.70))
-        if variant == "rad"
-        else ((55, 31, 0.95), (139, 69, 1.15), (198, 54, 1.00), (224, 82, 0.82))
-    )
-    for cy, cx, strength in centers:
-        base += strength * np.exp(
-            -(((yy - cy) ** 2) / (2 * 7.0**2) + ((xx - cx) ** 2) / (2 * 4.0**2))
-        )
-    return normalize_map(base)
-
-
 def first_project_radar_pair(root: Path) -> tuple[Path, Path] | None:
     preferred_rad = root / "22" / "rad" / "00599.npy"
     preferred_rae = root / "22" / "rae" / "00599.npy"
@@ -315,13 +297,14 @@ def first_project_radar_pair(root: Path) -> tuple[Path, Path] | None:
     return None
 
 
-def load_input_maps(radar_root: Path) -> tuple[np.ndarray, np.ndarray, str]:
+def load_input_tensors(
+    radar_root: Path,
+) -> tuple[np.ndarray, np.ndarray, str]:
     pair = first_project_radar_pair(radar_root) if radar_root.is_dir() else None
     if pair is None:
-        return (
-            synthetic_radar_map(11, variant="rad"),
-            synthetic_radar_map(17, variant="rae"),
-            "synthetic thumbnails",
+        raise FileNotFoundError(
+            "A paired real RAD/RAE frame is required for figure export, "
+            f"but none was found under {radar_root}."
         )
 
     rad_path, rae_path = pair
@@ -329,9 +312,65 @@ def load_input_maps(radar_root: Path) -> tuple[np.ndarray, np.ndarray, str]:
     rae = np.load(rae_path, mmap_mode="r")
     if rad.ndim != 3 or rae.ndim != 3:
         raise ValueError(f"Expected 3-D RAD/RAE arrays, got {rad.shape} and {rae.shape}")
+    if rad.shape[:2] != rae.shape[:2]:
+        raise ValueError(
+            "RAD and RAE range–azimuth dimensions must match, got "
+            f"{rad.shape[:2]} and {rae.shape[:2]}"
+        )
+    return rad, rae, f"project frame {rad_path.parent.parent.name}/{rad_path.stem}"
+
+
+def load_input_maps(radar_root: Path) -> tuple[np.ndarray, np.ndarray, str]:
+    rad, rae, source_note = load_input_tensors(radar_root)
     rad_map = normalize_map(np.nanmax(rad, axis=2))
     rae_map = normalize_map(np.nanmax(rae, axis=2))
-    return rad_map, rae_map, f"project frame {rad_path.stem}"
+    return rad_map, rae_map, source_note
+
+
+def representative_ra_slices(
+    cube: np.ndarray,
+    *,
+    count: int = 5,
+) -> tuple[np.ndarray, ...]:
+    """Select and jointly normalize real R–A slices along the cube depth."""
+    depth = cube.shape[2]
+    if count < 2 or count > depth:
+        raise ValueError(f"Slice count must be in [2, {depth}], got {count}")
+
+    # Sample the full hidden axis, then place its strongest real slice at the
+    # front of the visual stack so the visible plane remains informative.
+    sampled = np.linspace(0, depth - 1, count - 1).round().astype(int).tolist()
+    strength = np.nanpercentile(cube, 99.5, axis=(0, 1))
+    strongest = int(np.nanargmax(strength))
+    indices = [index for index in sampled if index != strongest]
+    for index in range(depth):
+        if len(indices) >= count - 1:
+            break
+        if index != strongest and index not in indices:
+            indices.append(index)
+    indices = indices[: count - 1] + [strongest]
+
+    selected = np.stack(
+        [np.asarray(cube[:, :, index], dtype=np.float32) for index in indices],
+        axis=0,
+    )
+    low, high = np.nanpercentile(selected, (2.0, 99.5))
+    if not np.isfinite(low) or not np.isfinite(high) or high <= low:
+        raise ValueError("Selected real radar slices have no finite display range")
+    normalized = np.clip((selected - low) / (high - low), 0.0, 1.0)
+    return tuple(normalized[index] for index in range(count))
+
+
+def load_input_slice_stacks(
+    radar_root: Path,
+) -> tuple[tuple[np.ndarray, ...], tuple[np.ndarray, ...], str]:
+    """Load real RA-plane stacks whose depth represents D for RAD and E for RAE."""
+    rad, rae, source_note = load_input_tensors(radar_root)
+    return (
+        representative_ra_slices(rad),
+        representative_ra_slices(rae),
+        f"{source_note} · real RA slices",
+    )
 
 
 def draw_input_card(
@@ -987,11 +1026,13 @@ def folded_input_card(
     title: str,
     subtitle: str,
     shape: str,
-    image: np.ndarray,
+    slices: tuple[np.ndarray, ...],
+    depth_axis: str,
+    total_slices: int,
     cmap: str,
     edge: str,
 ) -> None:
-    """Larger input card used by the compact, folded overview."""
+    """Show a tensor as a stack of real R–A planes along D or E."""
     width, height = 11.0, 11.5
     rounded_box(ax, x, y, width, height, face=WHITE, edge=edge, linewidth=1.25, radius=0.45)
     ax.text(
@@ -1011,37 +1052,109 @@ def folded_input_card(
         subtitle,
         ha="left",
         va="center",
-        fontsize=8.2,
+        fontsize=7.5,
         color=MID,
         zorder=8,
     )
-    ax.imshow(
-        image,
-        extent=(x + 0.65, x + width - 0.65, y + 2.10, y + height - 2.35),
-        origin="lower",
-        aspect="auto",
-        cmap=cmap,
-        interpolation="bilinear",
-        zorder=3,
-    )
-    ax.add_patch(
-        patches.Rectangle(
-            (x + 0.65, y + 2.10),
-            width - 1.30,
-            height - 4.45,
-            fill=False,
-            edgecolor=edge,
-            linewidth=0.75,
-            zorder=6,
+
+    if len(slices) < 2:
+        raise ValueError("At least two R–A slices are required to show tensor depth")
+
+    front_x, front_y = x + 0.72, y + 2.20
+    plane_width, plane_height = 7.90, 5.65
+    step_x, step_y = 0.34, 0.27
+    for index, image in enumerate(slices):
+        steps_back = len(slices) - index - 1
+        layer_x = front_x + steps_back * step_x
+        layer_y = front_y + steps_back * step_y
+        zorder = 3.0 + index * 0.45
+        ax.imshow(
+            image,
+            extent=(
+                layer_x,
+                layer_x + plane_width,
+                layer_y,
+                layer_y + plane_height,
+            ),
+            origin="lower",
+            aspect="auto",
+            cmap=cmap,
+            vmin=0.0,
+            vmax=1.0,
+            interpolation="bilinear",
+            alpha=0.86 if steps_back else 1.0,
+            zorder=zorder,
         )
+        ax.add_patch(
+            patches.Rectangle(
+                (layer_x, layer_y),
+                plane_width,
+                plane_height,
+                fill=False,
+                edgecolor=edge,
+                linewidth=0.56 if steps_back else 0.82,
+                alpha=0.72 if steps_back else 1.0,
+                zorder=zorder + 0.2,
+            )
+        )
+
+    ax.text(
+        front_x + 0.78,
+        front_y + 0.55,
+        "RA slice",
+        ha="center",
+        va="center",
+        fontsize=5.0,
+        fontweight="bold",
+        color=edge,
+        bbox=dict(
+            boxstyle="round,pad=0.13",
+            facecolor=WHITE,
+            edgecolor=edge,
+            linewidth=0.42,
+            alpha=0.90,
+        ),
+        zorder=8,
+    )
+
+    back_steps = len(slices) - 1
+    depth_start = (front_x + plane_width + 0.08, front_y + plane_height + 0.05)
+    depth_end = (
+        depth_start[0] + back_steps * step_x,
+        depth_start[1] + back_steps * step_y,
+    )
+    ax.annotate(
+        "",
+        xy=depth_end,
+        xytext=depth_start,
+        arrowprops=dict(arrowstyle="-|>", color=edge, linewidth=0.75),
+        zorder=9,
+    )
+    ax.text(
+        (depth_start[0] + depth_end[0]) / 2 + 0.15,
+        (depth_start[1] + depth_end[1]) / 2 + 0.22,
+        f"{depth_axis} = {total_slices}",
+        ha="center",
+        va="center",
+        fontsize=5.0,
+        fontweight="bold",
+        color=edge,
+        rotation=35.0,
+        bbox=dict(
+            boxstyle="round,pad=0.10",
+            facecolor=WHITE,
+            edgecolor="none",
+            alpha=0.86,
+        ),
+        zorder=9,
     )
     ax.text(
         x + width / 2,
-        y + 1.0,
+        y + 0.95,
         shape,
         ha="center",
         va="center",
-        fontsize=10.4,
+        fontsize=8.5,
         fontweight="bold",
         color=INK,
         zorder=8,
@@ -1366,8 +1479,18 @@ def folded_output_card(
     )
 
 
-def draw_folded_overview(ax, rad_map: np.ndarray, rae_map: np.ndarray) -> None:
+def draw_folded_overview(
+    ax,
+    rad_slices: tuple[np.ndarray, ...],
+    rae_slices: tuple[np.ndarray, ...],
+) -> None:
     """Draw the compact two-row overview requested for the standalone export."""
+    # Keep both physical input views visually equal: RAE's established teal
+    # accent and viridis scale are shared by the complete RAD and RAE streams.
+    stream_accent = TEAL
+    stream_pale = PALE_TEAL
+    stream_cmap = "viridis"
+
     rounded_box(
         ax,
         1.0,
@@ -1386,27 +1509,59 @@ def draw_folded_overview(ax, rad_map: np.ndarray, rae_map: np.ndarray) -> None:
         3.0,
         57.5,
         title="RAD",
-        subtitle="range–azimuth–Doppler",
-        shape="[B, 64, 256, 107]",
-        image=rad_map,
-        cmap="magma",
-        edge=BLUE,
+        subtitle="",
+        shape="[B, D=64, R=256, A=107]",
+        slices=rad_slices,
+        depth_axis="D",
+        total_slices=64,
+        cmap=stream_cmap,
+        edge=stream_accent,
     )
     folded_input_card(
         ax,
         3.0,
         43.5,
         title="RAE",
-        subtitle="range–azimuth–elevation",
-        shape="[B, 37, 256, 107]",
-        image=rae_map,
-        cmap="viridis",
-        edge=TEAL,
+        subtitle="",
+        shape="[B, E=37, R=256, A=107]",
+        slices=rae_slices,
+        depth_axis="E",
+        total_slices=37,
+        cmap=stream_cmap,
+        edge=stream_accent,
     )
-    folded_encoder_card(ax, 17.0, 57.5, modality="RAD", accent=BLUE, pale=PALE_BLUE)
-    folded_encoder_card(ax, 17.0, 43.5, modality="RAE", accent=TEAL, pale=PALE_TEAL)
-    arrow(ax, (14.1, 63.25), (16.9, 63.25), color=BLUE, mutation=11, linewidth=1.5)
-    arrow(ax, (14.1, 49.25), (16.9, 49.25), color=TEAL, mutation=11, linewidth=1.5)
+    folded_encoder_card(
+        ax,
+        17.0,
+        57.5,
+        modality="RAD",
+        accent=stream_accent,
+        pale=stream_pale,
+    )
+    folded_encoder_card(
+        ax,
+        17.0,
+        43.5,
+        modality="RAE",
+        accent=stream_accent,
+        pale=stream_pale,
+    )
+    arrow(
+        ax,
+        (14.1, 63.25),
+        (16.9, 63.25),
+        color=stream_accent,
+        mutation=11,
+        linewidth=1.5,
+    )
+    arrow(
+        ax,
+        (14.1, 49.25),
+        (16.9, 49.25),
+        color=stream_accent,
+        mutation=11,
+        linewidth=1.5,
+    )
 
     add_node(ax, 61.0, 55.9, "C", face=WHITE, edge=PURPLE, radius=0.85)
     ax.text(
@@ -1423,7 +1578,7 @@ def draw_folded_overview(ax, rad_map: np.ndarray, rae_map: np.ndarray) -> None:
         ax,
         (55.6, 63.25),
         (60.28, 56.42),
-        color=BLUE,
+        color=stream_accent,
         connection="arc3,rad=-0.11",
         mutation=11,
         linewidth=1.5,
@@ -1432,7 +1587,7 @@ def draw_folded_overview(ax, rad_map: np.ndarray, rae_map: np.ndarray) -> None:
         ax,
         (55.6, 49.25),
         (60.28, 55.38),
-        color=TEAL,
+        color=stream_accent,
         connection="arc3,rad=0.11",
         mutation=11,
         linewidth=1.5,
@@ -2060,7 +2215,10 @@ def draw_header(ax) -> None:
         x += width + 0.55
 
 
-def build_overview_figure(rad_map: np.ndarray, rae_map: np.ndarray):
+def build_overview_figure(
+    rad_slices: tuple[np.ndarray, ...],
+    rae_slices: tuple[np.ndarray, ...],
+):
     setup_style()
     # Compact folded export: the upper streams end at concat, the graph drops
     # into fusion, then prediction proceeds right-to-left on the lower row.
@@ -2069,7 +2227,7 @@ def build_overview_figure(rad_map: np.ndarray, rae_map: np.ndarray):
     ax.set_xlim(0.5, 73.5)
     ax.set_ylim(15.5, 71.5)
     ax.axis("off")
-    draw_folded_overview(ax, rad_map, rae_map)
+    draw_folded_overview(ax, rad_slices, rae_slices)
     return fig
 
 
@@ -2125,6 +2283,7 @@ def main() -> None:
     if not args.skip_config_check:
         validate_current_config()
     rad_map, rae_map, source_note = load_input_maps(args.radar_root)
+    rad_slices, rae_slices, _ = load_input_slice_stacks(args.radar_root)
     fig = build_figure(rad_map, rae_map, source_note)
     written = save_figure(
         fig,
@@ -2134,7 +2293,7 @@ def main() -> None:
         stem=STEM,
     )
     plt.close(fig)
-    overview_fig = build_overview_figure(rad_map, rae_map)
+    overview_fig = build_overview_figure(rad_slices, rae_slices)
     written.extend(
         save_figure(
             overview_fig,

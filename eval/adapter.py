@@ -105,11 +105,16 @@ def _load_module_from_path(module_name, module_path):
 
 
 def install_rotate_iou_backend_shim(eval_dir, iou_backend):
-    if iou_backend != "cpu":
+    if iou_backend not in {"cpu", "axis_aligned"}:
         return
+    backend_filename = (
+        "axis_aligned_iou.py"
+        if iou_backend == "axis_aligned"
+        else "rotate_iou_cpu.py"
+    )
     rotate_iou_module = _load_module_from_path(
-        "kitti_rotate_iou_cpu",
-        eval_dir / "rotate_iou_cpu.py",
+        f"kitti_rotate_iou_{iou_backend}",
+        eval_dir / backend_filename,
     )
     shim = types.ModuleType("nms_gpu")
     shim.rotate_iou_gpu_eval = rotate_iou_module.rotate_iou_gpu_eval
@@ -117,11 +122,16 @@ def install_rotate_iou_backend_shim(eval_dir, iou_backend):
 
 
 def patch_rotate_iou_backend(module, eval_dir, iou_backend):
-    if iou_backend != "cpu":
+    if iou_backend not in {"cpu", "axis_aligned"}:
         return
+    backend_filename = (
+        "axis_aligned_iou.py"
+        if iou_backend == "axis_aligned"
+        else "rotate_iou_cpu.py"
+    )
     rotate_iou_module = _load_module_from_path(
-        "kitti_rotate_iou_cpu_patch",
-        eval_dir / "rotate_iou_cpu.py",
+        f"kitti_rotate_iou_{iou_backend}_patch",
+        eval_dir / backend_filename,
     )
     module.rotate_iou_gpu_eval = rotate_iou_module.rotate_iou_gpu_eval
 
@@ -139,7 +149,11 @@ def load_official_eval_function(eval_version, iou_backend="auto"):
         install_rotate_iou_backend_shim(eval_dir, requested_backend)
         module = _load_module_from_path(f"kitti_{eval_version}_eval", module_path)
         patch_rotate_iou_backend(module, eval_dir, requested_backend)
-        used_backend = "cpu" if requested_backend == "cpu" else "cuda"
+        used_backend = (
+            requested_backend
+            if requested_backend in {"cpu", "axis_aligned"}
+            else "cuda"
+        )
     except Exception:
         if iou_backend != "auto":
             raise
@@ -170,7 +184,11 @@ def load_official_overlap_functions(iou_backend="auto"):
             module_path,
         )
         patch_rotate_iou_backend(module, eval_dir, requested_backend)
-        used_backend = "cpu" if requested_backend == "cpu" else "cuda"
+        used_backend = (
+            requested_backend
+            if requested_backend in {"cpu", "axis_aligned"}
+            else "cuda"
+        )
     except Exception:
         if iou_backend != "auto":
             raise
@@ -193,12 +211,17 @@ def load_rotate_iou_eval_function(iou_backend="auto"):
         requested_backend = "cpu"
 
     try:
-        if requested_backend == "cpu":
-            module = _load_module_from_path(
-                "kitti_rotate_iou_cpu_eval_backend",
-                eval_dir / "rotate_iou_cpu.py",
+        if requested_backend in {"cpu", "axis_aligned"}:
+            backend_filename = (
+                "axis_aligned_iou.py"
+                if requested_backend == "axis_aligned"
+                else "rotate_iou_cpu.py"
             )
-            return module.rotate_iou_gpu_eval, "cpu"
+            module = _load_module_from_path(
+                f"kitti_rotate_iou_{requested_backend}_eval_backend",
+                eval_dir / backend_filename,
+            )
+            return module.rotate_iou_gpu_eval, requested_backend
 
         module = _load_module_from_path(
             "kitti_rotate_iou_gpu_eval_backend",

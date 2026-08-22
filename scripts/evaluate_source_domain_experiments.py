@@ -1576,8 +1576,6 @@ def metric_headers():
                 f"3D_normal_{tag}",
                 f"BEV_weather_{tag}",
                 f"3D_weather_{tag}",
-                f"SD_BEV_{tag}",
-                f"SD_3D_{tag}",
             )
         )
     return headers
@@ -1607,12 +1605,19 @@ def _average_row(headers, label, values_by_block):
         if not values:
             continue
         suffix = "" if block == "all" else f"_{block}"
-        row[f"SD_BEV{suffix}"] = _format_metric(
-            sum(value[0] for value in values) / len(values)
-        )
-        row[f"SD_3D{suffix}"] = _format_metric(
-            sum(value[1] for value in values) / len(values)
-        )
+        for index, metric_name in enumerate(
+            ("BEV_normal", "3D_normal", "BEV_weather", "3D_weather")
+        ):
+            row[f"{metric_name}{suffix}"] = _format_metric(
+                sum(value[index] for value in values) / len(values)
+            )
+        if block == "all":
+            row["SD_BEV"] = _format_metric(
+                sum(value[0] - value[2] for value in values) / len(values)
+            )
+            row["SD_3D"] = _format_metric(
+                sum(value[1] - value[3] for value in values) / len(values)
+            )
     return [row[header] for header in headers]
 
 
@@ -1658,9 +1663,10 @@ def build_table_matrix(weather, experiment_rows, state):
         ):
             values[key] = _format_metric(value)
         if sd_bev is not None and sd_3d is not None and control.get("valid"):
-            all_values["all"].append((sd_bev, sd_3d))
+            overall_aps = (normal_bev, normal_3d, weather_bev, weather_3d)
+            all_values["all"].append(overall_aps)
             if control.get("exact"):
-                exact_values["all"].append((sd_bev, sd_3d))
+                exact_values["all"].append(overall_aps)
 
         bins = task.get("fixed_quartile_bins") or {}
         expected_normal_q = control.get("source_quartile_counts", {})
@@ -1684,18 +1690,19 @@ def build_table_matrix(weather, experiment_rows, state):
             normal_3d = None if normal_block is None else normal_block.get("3D")
             weather_bev = None if weather_block is None else weather_block.get("BEV")
             weather_3d = None if weather_block is None else weather_block.get("3D")
-            sd_bev = None if normal_bev is None or weather_bev is None else normal_bev - weather_bev
-            sd_3d = None if normal_3d is None or weather_3d is None else normal_3d - weather_3d
             for key, value in (
                 (f"BEV_normal_{tag}", normal_bev), (f"3D_normal_{tag}", normal_3d),
                 (f"BEV_weather_{tag}", weather_bev), (f"3D_weather_{tag}", weather_3d),
-                (f"SD_BEV_{tag}", sd_bev), (f"SD_3D_{tag}", sd_3d),
             ):
                 values[key] = _format_metric(value)
-            if sd_bev is not None and sd_3d is not None and control.get("valid"):
-                all_values[tag].append((sd_bev, sd_3d))
+            if (
+                None not in (normal_bev, normal_3d, weather_bev, weather_3d)
+                and control.get("valid")
+            ):
+                quartile_aps = (normal_bev, normal_3d, weather_bev, weather_3d)
+                all_values[tag].append(quartile_aps)
                 if control.get("exact"):
-                    exact_values[tag].append((sd_bev, sd_3d))
+                    exact_values[tag].append(quartile_aps)
         output.append([values[header] for header in headers])
 
     output.append(
@@ -1749,7 +1756,7 @@ def write_tables(all_rows, state, output_dir):
 
 
 def write_all_weather_summary(state, output_dir):
-    blocks = ("all",) + QUARTILES
+    blocks = ("all",)
     headers = ["weather", "completed", "valid", "exact"]
     for block in blocks:
         suffix = "" if block == "all" else f"_{block}"
@@ -1825,11 +1832,15 @@ def write_readme(output_dir):
             "3D_normal use the controlled normal test; BEV_weather/3D_weather "
             "reuse/recompute that checkpoint's adverse-weather target-test "
             "result with identical settings. SD = AP_normal - AP_weather, so positive SD denotes "
-            "adverse-weather degradation. q1-q4 use the target-weather GT "
+            "adverse-weather degradation. SD is reported only for the overall "
+            "AP. q1-q4 retain their range, count, and domain AP values but do "
+            "not include separate SD columns; they use the target-weather GT "
             "distance boundaries for both domains.\n\n"
             "average_all_valid includes every completed valid control, including "
             "reported source-GT deficits. average_exact includes only controls "
-            "whose normal and weather eligible Sedan totals match exactly.\n"
+            "whose normal and weather eligible Sedan totals match exactly. Both "
+            "rows retain mean BEV/3D AP for the overall result and q1-q4; only "
+            "the overall result includes mean SD.\n"
         ),
     )
 

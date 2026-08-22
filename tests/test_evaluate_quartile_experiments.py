@@ -97,7 +97,7 @@ class QuartileExperimentLauncherTests(unittest.TestCase):
         )
         self.assertTrue(math.isinf(parsed["q4"]["upper_m"]))
 
-    def test_table_has_bounds_counts_and_target_minus_source(self):
+    def test_table_has_overall_delta_and_quartile_relative_drop(self):
         metadata = {
             "group": "group1",
             "seed": "42",
@@ -126,10 +126,43 @@ class QuartileExperimentLauncherTests(unittest.TestCase):
         self.assertEqual(row["TD_BEV"], "4.0000")
         self.assertEqual(row["range_m_q1"], "[1.0000,10.0000)")
         self.assertEqual(row["N_bbox_q1"], "25")
-        self.assertEqual(row["TD_3D_q4"], "3.0000")
-        self.assertEqual(average["TD_BEV_q2"], "4.0000")
+        self.assertEqual(row["TD_3D_q4"], "27.2727")
+        self.assertEqual(average["TD_BEV_q2"], "26.6667")
         self.assertEqual(average["range_m_q2"], "")
         self.assertEqual(average["N_bbox_q2"], "")
+
+    def test_zero_target_quartile_ap_is_blank_and_averaged_independently(self):
+        metadata = {
+            "group": "group1",
+            "seed": "42",
+            "shared_seq": "9",
+            "source_seq": "15,5",
+            "target_seq": "24,25",
+            "test_seq": "23",
+        }
+        source = metrics()
+        target = metrics()
+        target["q2"]["BEV"] = 0.0
+        target["q2"]["3D"] = 10.0
+        state = {
+            "tasks": {
+                "source": {
+                    "weather": "rain", "group": "group1", "seed": 42,
+                    "branch": "source", "status": "completed", "metrics": source,
+                },
+                "target": {
+                    "weather": "rain", "group": "group1", "seed": 42,
+                    "branch": "target", "status": "completed", "metrics": target,
+                },
+            }
+        }
+        matrix = launcher.build_table_matrix("rain", [metadata], state)
+        row = dict(zip(matrix[0], matrix[1]))
+        average = dict(zip(matrix[0], matrix[2]))
+        self.assertEqual(row["TD_BEV_q2"], "")
+        self.assertEqual(average["TD_BEV_q2"], "")
+        self.assertEqual(row["TD_3D_q2"], "40.0000")
+        self.assertEqual(average["TD_3D_q2"], "40.0000")
 
     def test_table_rejects_source_target_metadata_mismatch(self):
         metadata = {
