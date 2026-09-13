@@ -3,7 +3,7 @@
 import torch
 import torch.nn.functional as F
 
-from cfg_model import (
+from data.coordinates import (
     AZIMUTH_AXIS,
     ELEVATION_AXIS,
     RANGE_AXIS,
@@ -12,7 +12,7 @@ from cfg_model import (
     denormalize_rae_boxes_for_scope,
     normalized_rae_box_centers_in_cartesian_roi,
 )
-from coordinate_modes import (
+from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     BOX_COORDINATE_POLAR,
     validate_box_coordinate_mode,
@@ -20,7 +20,7 @@ from coordinate_modes import (
 from eval.kitti_eval.rotate_iou_cpu import (
     rotate_iou_gpu_eval as rotate_iou_cpu_eval,
 )
-from training_utils.radenet_utils import (
+from data.geometry import (
     centerpoint_outputs_to_metric_regression,
     regression_cell_to_metric_box,
     regression_cell_to_normalized_rae_box,

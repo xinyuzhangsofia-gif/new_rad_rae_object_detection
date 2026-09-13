@@ -4,12 +4,12 @@ import os
 
 import tqdm
 
-from coordinate_modes import (
+from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     BOX_COORDINATE_POLAR,
     validate_box_coordinate_mode,
 )
-from dataloader import (
+from data.dataloader import (
     build_evaluation_dataloader,
     build_train_val_dataloaders,
     normalize_sequence_list,
@@ -19,9 +19,9 @@ from domain_shift_tables import (
     build_model_configuration,
     update_domain_shift_tables,
 )
-from train_mode_utils import apply_task_configuration, resolve_loss_mode
+from training_utils.configuration import apply_task_configuration, resolve_loss_mode
 from training_utils.training_loop import validate_loss
-from zxy_config import DataConfig
+from configs.data import DataConfig
 
 from eval.checkpoints import (
     apply_checkpoint_config_defaults,
@@ -449,7 +449,6 @@ def build_eval_context(args):
             scope_mode=args.eval_scope,
             box_coordinate_mode=args.box_coordinate_mode,
             cartesian_gt_root=args.cartesian_gt_root,
-            polar_gt_root=args.polar_gt_root,
             ignore_object_label_minus_one=args.ignore_object_label_minus_one,
         )
         train_dataset = None
@@ -490,7 +489,6 @@ def build_eval_context(args):
             ),
             box_coordinate_mode=args.box_coordinate_mode,
             cartesian_gt_root=args.cartesian_gt_root,
-            polar_gt_root=args.polar_gt_root,
             ignore_object_label_minus_one=args.ignore_object_label_minus_one,
         )
     if len(validation_dataset) == 0:

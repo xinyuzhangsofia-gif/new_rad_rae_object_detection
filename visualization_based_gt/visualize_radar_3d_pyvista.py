@@ -15,11 +15,19 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
 import numpy as np
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from configs.data import RADAR_NPY_ROOT
 
 
 RAD_SHAPE = (256, 107, 64)
@@ -332,7 +340,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "input",
         type=Path,
         nargs="?",
-        default=Path("/home/local/xinyu/K-Radar-RAD/1/rad/00033.npy"),
+        default=Path(RADAR_NPY_ROOT) / "1/rad/00033.npy",
         help="RAD .npy path (default: requested frame 00033)",
     )
     parser.add_argument(

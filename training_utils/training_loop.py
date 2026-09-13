@@ -1,12 +1,12 @@
 import torch
 from tqdm import tqdm
 
-from coordinate_modes import (
+from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     BOX_COORDINATE_POLAR,
     validate_box_coordinate_mode,
 )
-from dataloader import prepare_model_inputs
+from data.dataloader import prepare_model_inputs
 from training_utils.losses import (
     cartesian_centerpoint_detection_loss,
     centerpoint_detection_loss,

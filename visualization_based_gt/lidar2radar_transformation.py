@@ -9,7 +9,7 @@ import yaml
 # import open3d as o3d
 from matplotlib import pyplot as plt
 from scipy.io import loadmat
-from dataset import KRadarDataset
+from loaders.kradar_dataset import KRadarSensorDataset
 from tqdm import tqdm
 import time
 def read_info_label(label_path):
@@ -613,8 +613,8 @@ if __name__ == "__main__":
     label_files=sorted([f for f in os.listdir(label_dir) if f.endswith('.txt')])
     info_array_path = '/home/local/xinyu/KRadar/info_arr.mat'
     # time from share:2.7s time from xinyu:1.7s
-    radar_dataset=KRadarDataset("/home/local/xinyu/KRadar/1/radar_tesseract")
-    radar_dataset=KRadarDataset("/run/user/1000/gvfs/smb-share:server=192.168.189.30,share=elab-share/Datasets/K-Radar/1/radar_tesseract")
+    radar_dataset=KRadarSensorDataset("/home/local/xinyu/KRadar/1/radar_tesseract")
+    radar_dataset=KRadarSensorDataset("/run/user/1000/gvfs/smb-share:server=192.168.189.30,share=elab-share/Datasets/K-Radar/1/radar_tesseract")
     radar_dir = "/home/local/xinyu/KRadar/1/radar_tesseract"
     radar_dir = "/run/user/1000/gvfs/smb-share:server=192.168.189.30,share=elab-share/Datasets/K-Radar/1/radar_tesseract"
     arr_range,arr_azimuth_deg, arr_elevation_deg =load_axis_from_mat(info_array_path)

@@ -1,6 +1,6 @@
 import unittest
 
-from controlled_sequences import (
+from data.splits import (
     _build_population,
     _run_trial,
     _select_sequence_part,

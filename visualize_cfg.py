@@ -1,4 +1,4 @@
-from cfg_model import SCOPE_FULL, SCOPE_NARROW
+from data.coordinates import SCOPE_FULL, SCOPE_NARROW
 
 
 # Edit this file, then run:
@@ -21,7 +21,7 @@ VISUALIZE_CONFIG = {
     "heatmap_nms_kernel": 3,
     "heatmap_score_mode": "peak_only",  # peak_times_local_mean or peak_only
     "yolox_nms_iou": 0.5,
-    "box_coordinate_mode": "auto",  # infer Polar/Cartesian from checkpoint
+    "box_coordinate_mode": "auto",  # verify the checkpoint uses Cartesian boxes
     "visualization_view": "both",    # "polar", "cartesian", or "both"
     "model_type": "auto",         # "auto" or model1 ... model16
     "gt_object_ignore_override_path": None,  # if None, auto-use split_dir/object_ignore_override.json when present

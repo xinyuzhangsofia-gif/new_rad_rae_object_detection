@@ -32,7 +32,7 @@ from visualization import (  # noqa: E402
 )
 from visualization_cfg import DataConfig  # noqa: E402
 from visualization_utils import get_label_dir  # noqa: E402
-from zxy_data_path import get_label_files  # noqa: E402
+from data.paths import get_label_files  # noqa: E402
 
 
 class VisualizationCheckpointPredictorTest(unittest.TestCase):

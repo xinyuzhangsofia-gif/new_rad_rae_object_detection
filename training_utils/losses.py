@@ -3,8 +3,11 @@ import math
 import torch
 import torch.nn.functional as F
 
-from cfg_model import denormalize_rae_boxes_to_local_scope, get_rae_scope_start_and_shape
-from coordinate_modes import (
+from data.coordinates import (
+    denormalize_rae_boxes_to_local_scope,
+    get_rae_scope_start_and_shape,
+)
+from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     BOX_COORDINATE_POLAR,
     validate_box_coordinate_mode,
@@ -14,7 +17,7 @@ from training_utils.yolox_utils import (
     simota_assign,
     yolox_grid_centers,
 )
-from training_utils.radenet_utils import (
+from data.geometry import (
     centerpoint_outputs_to_metric_regression,
     feature_indices_to_cartesian_xy,
     raw_local_rae_boxes_to_metric_boxes,

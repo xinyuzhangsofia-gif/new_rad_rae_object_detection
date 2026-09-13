@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from matplotlib.patches import Rectangle
 
-from cfg_model import (
+from data.coordinates import (
     AZIMUTH_AXIS,
     ELEVATION_AXIS,
     RANGE_AXIS,
@@ -19,29 +19,30 @@ from cfg_model import (
     get_rae_scope_start_and_shape,
     normalized_rae_box_centers_in_cartesian_roi,
 )
-from coordinate_modes import (
+from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     BOX_COORDINATE_POLAR,
+    require_cartesian_data,
     validate_box_coordinate_mode,
 )
-from dataloader import (
+from data.dataloader import (
     build_detection_dataset_for_sequence,
     build_train_val_dataloaders,
     get_dataset_sequences_for_split,
     prepare_model_inputs,
 )
-from dataset import (
+from data.dataset import (
     CLASS_NAMES,
-    detection_collate,
 )
+from data.dataloader import detection_collate
 from models import *
-from train_mode_utils import (
+from training_utils.configuration import (
     normalize_bool_flag,
     normalize_optional_path,
     resolve_loss_mode,
     resolve_gt_object_ignore_override_path,
 )
-from training_utils.radenet_utils import (
+from data.geometry import (
     metric_boxes_to_raw_local_rae,
     raw_local_rae_boxes_to_metric_boxes,
     regression_cell_to_metric_box,
@@ -49,8 +50,7 @@ from training_utils.radenet_utils import (
 )
 from training_utils.torch_load import load_torch_checkpoint
 from training_utils.yolox_utils import yolox_outputs_to_detections
-from zxy_config import DataConfig
-from zxy_data_path import DEFAULT_POLAR_GT_ROOT
+from configs.data import CARTESIAN_GT_ROOT, DataConfig
 
 try:
     from visualize_cfg import VISUALIZE_CONFIG
@@ -126,7 +126,7 @@ def parse_args():
     parser.add_argument(
         "--box-coordinate-mode",
         default=cfg_defaults["box_coordinate_mode"],
-        choices=["auto", BOX_COORDINATE_POLAR, BOX_COORDINATE_CARTESIAN],
+        choices=["auto", BOX_COORDINATE_CARTESIAN],
         help="Use the checkpoint mode automatically, or override it explicitly.",
     )
     parser.add_argument(
@@ -832,7 +832,7 @@ def filter_predictions(
         box_coordinate_mode == BOX_COORDINATE_CARTESIAN
         and pred_mode == "final"
     ):
-        from evaluation import cartesian_rotated_nms_indices
+        from eval.decoding import cartesian_rotated_nms_indices
 
         nms_keep = cartesian_rotated_nms_indices(
             boxes=pred_boxes_norm,
@@ -1468,7 +1468,7 @@ def main():
         )
         else BOX_COORDINATE_POLAR
     )
-    checkpoint_box_coordinate_mode = validate_box_coordinate_mode(
+    checkpoint_box_coordinate_mode = require_cartesian_data(
         checkpoint_config.get(
             "box_coordinate_mode",
             default_box_coordinate_mode,
@@ -1477,7 +1477,7 @@ def main():
     if args.box_coordinate_mode == "auto":
         box_coordinate_mode = checkpoint_box_coordinate_mode
     else:
-        box_coordinate_mode = validate_box_coordinate_mode(
+        box_coordinate_mode = require_cartesian_data(
             args.box_coordinate_mode
         )
         if box_coordinate_mode != checkpoint_box_coordinate_mode:
@@ -1489,10 +1489,7 @@ def main():
             )
     cartesian_gt_root = normalize_optional_path(
         checkpoint_config.get("cartesian_gt_root")
-    )
-    polar_gt_root = normalize_optional_path(
-        checkpoint_config.get("polar_gt_root", DEFAULT_POLAR_GT_ROOT)
-    )
+    ) or CARTESIAN_GT_ROOT
     ignore_object_label_minus_one = normalize_bool_flag(
         checkpoint_config.get("ignore_object_label_minus_one", False),
         name="ignore_object_label_minus_one",
@@ -1586,7 +1583,6 @@ def main():
             scope_mode=args.vis_scope,
             box_coordinate_mode=box_coordinate_mode,
             cartesian_gt_root=cartesian_gt_root,
-            polar_gt_root=polar_gt_root,
             ignore_object_label_minus_one=ignore_object_label_minus_one,
         )
         dataset_sequences = (args.sequence,)
@@ -1610,7 +1606,6 @@ def main():
             val_sequences=val_sequences,
             box_coordinate_mode=box_coordinate_mode,
             cartesian_gt_root=cartesian_gt_root,
-            polar_gt_root=polar_gt_root,
             ignore_object_label_minus_one=ignore_object_label_minus_one,
         )
         dataset = val_dataset

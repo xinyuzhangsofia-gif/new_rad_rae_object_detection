@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import torch
 
-from train_mode_utils import resolve_centerpoint_gwd_loss_weight
+from training_utils.configuration import resolve_centerpoint_gwd_loss_weight
 from training_utils.losses import centerpoint_detection_loss
 
 

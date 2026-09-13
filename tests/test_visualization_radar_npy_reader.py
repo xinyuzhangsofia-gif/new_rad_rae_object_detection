@@ -91,7 +91,7 @@ class VisualizationRadarNpyReaderTest(unittest.TestCase):
     def test_real_current_npy_frame_renders_to_a_radar_image(self):
         from sensor_transformation import load_lidar2radar_calib
         from visualization import get_radar_frame
-        from zxy_data_path import get_label_files
+        from data.paths import get_label_files
 
         cfg = DataConfig(
             sequence=11,

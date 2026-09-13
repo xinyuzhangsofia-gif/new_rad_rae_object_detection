@@ -20,7 +20,7 @@ from visualization_utils import (
     get_visualization_camera_dir,
     resolve_smb_mount_path,
 )
-from zxy_data_path import get_camera_calib_path, get_label_files
+from data.paths import get_camera_calib_path, get_label_files
 
 
 CHECKPOINT_PATH = (

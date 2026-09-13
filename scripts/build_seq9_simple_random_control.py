@@ -11,9 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from dataset import KRadarRADRAEDataset
-from zxy_data_path import get_gt_txt_path, get_rad_rae_npy_root_dir
-from zxy_label_utils import read_gt_txt
+from data.coordinates import RANGE_AXIS, cartesian_to_rae
+from data.dataset import KRadarRADRAEDataset
+from data.paths import get_cartesian_gt_path, get_rad_rae_npy_root_dir
+from data.labels import read_cartesian_gt_txt
 
 
 SEDAN_CLASS_NAME = "Sedan"
@@ -58,7 +59,8 @@ def object_category_key(obj: dict, bin1_upper: float, bin2_upper: float) -> str 
     if cls not in {SEDAN_CLASS_NAME, BUS_CLASS_NAME}:
         return None
 
-    r_idx = float(obj["raw"]["r_idx"])
+    radius, _, _ = cartesian_to_rae(*obj["box_metric"][:3].tolist())
+    r_idx = (radius - RANGE_AXIS.minimum) / RANGE_AXIS.step
     if 0.0 <= r_idx < float(bin1_upper):
         suffix = "ridx_0_80"
     elif float(bin1_upper) <= r_idx < float(bin2_upper):
@@ -76,7 +78,7 @@ def build_frame_infos(
         bin2_upper: float,
     ) -> list[dict]:
     radar_dataset = KRadarRADRAEDataset(get_rad_rae_npy_root_dir(), sequence)
-    gt_by_file_idx = read_gt_txt(get_gt_txt_path(None, sequence=sequence))
+    gt_by_file_idx = read_cartesian_gt_txt(get_cartesian_gt_path(sequence))
     frame_infos = []
 
     for file_idx, frame_name in enumerate(radar_dataset.frame_names):

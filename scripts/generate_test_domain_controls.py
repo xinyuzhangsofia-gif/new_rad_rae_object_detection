@@ -39,18 +39,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cfg_model import ELEVATION_AXIS, RANGE_AXIS, AZIMUTH_AXIS, SCOPE_FULL
-from coordinate_modes import BOX_COORDINATE_CARTESIAN
-from dataset import KRadarGTDetectionDataset, KRadarRADRAEDataset
+from data.coordinates import ELEVATION_AXIS, RANGE_AXIS, AZIMUTH_AXIS, SCOPE_FULL
+from configs.coordinates import BOX_COORDINATE_CARTESIAN
+from configs.data import CARTESIAN_GT_ROOT
+from data.dataset import KRadarGTDetectionDataset, KRadarRADRAEDataset
+from data.geometry import (
+    cartesian_box_overlaps_rae_fov,
+    object_center_in_scope,
+    prepare_cartesian_objects,
+)
 from eval.distance_quartiles import derive_gt_distance_quartile_bins
-from zxy_data_path import get_rad_rae_npy_root_dir
+from data.paths import get_rad_rae_npy_root_dir
 
 
 SCHEMA_VERSION = 2
 DEFAULT_SEED = 42
-DEFAULT_CARTESIAN_GT_ROOT = Path(
-    "/home/local/xinyu/K-Radar-GT-cartesian-radar-v2"
-)
+DEFAULT_CARTESIAN_GT_ROOT = Path(CARTESIAN_GT_ROOT)
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "experiments4" / "control_specs"
 DEFAULT_SEQUENCE_CSV = PROJECT_ROOT / "sequence_information.csv"
 DEFAULT_QUARTILE_REPORT_ROOT = PROJECT_ROOT / "experiments3" / "evaluation_reports"
@@ -177,14 +181,14 @@ def load_eligible_sedan_frames(sequence, cartesian_gt_root):
             raw_objects = gt_dataset.gt_by_file_idx.get(file_idx, [])
         else:
             raw_objects = gt_dataset.gt_by_frame_name.get(frame_name, [])
-        prepared = gt_dataset._prepare_cartesian_objects(raw_objects, rae_shape)
+        prepared = prepare_cartesian_objects(raw_objects, rae_shape)
         eligible = []
         for obj in prepared:
             if str(obj["cls"]) != "Sedan":
                 continue
-            if not gt_dataset._object_overlaps_rae_fov(obj, rae_shape):
+            if not cartesian_box_overlaps_rae_fov(obj):
                 continue
-            if not gt_dataset._object_center_in_scope(obj):
+            if not object_center_in_scope(obj, gt_dataset.scope_mode):
                 continue
             metric_box = np.asarray(
                 obj["box_metric"].detach().cpu(), dtype=np.float64

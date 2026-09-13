@@ -1,1 +1,1 @@
-"""Small helper modules used by legacy_module."""
+"""Training workflow, losses, checkpoints, and experiment scheduling."""

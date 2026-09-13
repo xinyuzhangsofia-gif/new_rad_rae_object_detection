@@ -14,7 +14,7 @@ from .model_swin_heatmap_model7 import RADRAESwinFPNCenterPointModel
 from .model_swin_radenet_official_model16 import RADRAESwinRADENetOfficialModel
 from .model_swin_yolox_model14 import RADRAESwinYOLOXCenterPointModel
 from .model_yolox_fpn_heatmap_model12 import RADRAEYOLOXFPNCenterPointModel
-from coordinate_modes import BOX_COORDINATE_CARTESIAN, BOX_COORDINATE_POLAR
+from configs.coordinates import BOX_COORDINATE_CARTESIAN, BOX_COORDINATE_POLAR
 
 
 MODEL_TYPES = {

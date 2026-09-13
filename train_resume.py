@@ -5,23 +5,21 @@ from types import SimpleNamespace
 
 import torch
 
-from cfg_model import SCOPE_CHOICES
-from dataloader import (
+from data.coordinates import SCOPE_CHOICES
+from data.dataloader import (
     build_train_val_dataloaders,
     get_dataset_sequences_for_split,
     prepare_model_inputs,
 )
-from evaluation import (
-    evaluate_train_val_iou,
-    resolve_official_eval_class_name_map,
-)
+from eval.evaluation_config import resolve_official_eval_class_name_map
+from eval.metrics_runner import evaluate_train_val_iou
 from models import MODEL_TYPES, build_model
-from train import (
+from training_utils.training_loop import (
     train_one_epoch,
     validate_loss,
 )
-from train_cfg import RESUME_CONFIG
-from train_mode_utils import (
+from configs.training import RESUME_CONFIG
+from training_utils.configuration import (
     apply_domain_shift_training_configuration,
     apply_test_sequence_weather_configuration,
     apply_training_coordinate_mode,
@@ -58,7 +56,8 @@ from training_utils.post_training_evaluation import (
     run_post_training_evaluation,
 )
 from training_utils.torch_load import load_torch_checkpoint
-from zxy_config import DataConfig
+from configs.data import DataConfig
+from configs.coordinates import require_cartesian_data
 
 
 def build_resume_args(resume_config=None):
@@ -68,7 +67,10 @@ def build_resume_args(resume_config=None):
     args = apply_test_sequence_weather_configuration(args)
     validate_resume_args(args)
     if args.resume_checkpoint == "":
-        raise ValueError("Set RESUME_CONFIG['resume_checkpoint'] in train_cfg.py before running train_resume.py")
+        raise ValueError(
+            "Set RESUME_CONFIG['resume_checkpoint'] in "
+            "configs/training.py before running train_resume.py"
+        )
     if args.end_epoch <= 0:
         raise ValueError("RESUME_CONFIG['end_epoch'] must be greater than 0")
     return args
@@ -109,6 +111,8 @@ def load_resume_checkpoint(
     checkpoint_box_coordinate_mode = checkpoint_config.get(
         "box_coordinate_mode"
     )
+    if checkpoint_box_coordinate_mode is not None:
+        require_cartesian_data(checkpoint_box_coordinate_mode)
 
     if (
         expected_model_type is not None
@@ -221,7 +225,10 @@ def initialize_best_state(best_state, initial_best_checkpoint, checkpoint_dir):
 
 def main(resume_config=None):
     if resume_config is None and len(sys.argv) > 1:
-        raise ValueError("train_resume.py reads settings from train_cfg.py. Edit RESUME_CONFIG, then run: python train_resume.py")
+        raise ValueError(
+            "train_resume.py reads settings from configs/training.py. Edit "
+            "RESUME_CONFIG, then run: python train_resume.py"
+        )
 
     args = build_resume_args(resume_config=resume_config)
     args = apply_training_coordinate_mode(args)
@@ -367,7 +374,6 @@ def main(resume_config=None):
         train_control_split_dir=args.train_control_split_dir,
         box_coordinate_mode=args.box_coordinate_mode,
         cartesian_gt_root=args.cartesian_gt_root,
-        polar_gt_root=args.polar_gt_root,
         ignore_object_label_minus_one=args.ignore_object_label_minus_one,
         ignore_out_of_scope_gt=args.ignore_out_of_scope_gt,
     )

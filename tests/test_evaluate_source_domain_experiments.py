@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from scripts import evaluate_source_domain_experiments as launcher
+from tests.test_evaluate_distance_experiments import temporary_checkpoint_records
 
 
 def metric_blocks(bev, d3, normal_count=8, weather=False):
@@ -116,16 +117,33 @@ class SourceDomainLauncherTests(unittest.TestCase):
             weather: launcher.read_experiment_rows(weather)
             for weather in launcher.WEATHERS
         }
-        _, experiments3 = launcher._load_experiments3_state(
-            launcher.DEFAULT_EXPERIMENTS3_DIR
-        )
-        with tempfile.TemporaryDirectory() as temporary_dir:
-            controls, errors = launcher.load_control_specs(
-                launcher.DEFAULT_OUTPUT_DIR / "control_specs" / "index.json"
+        with temporary_checkpoint_records(rows) as root:
+            quartile_rows = {
+                weather: rows[weather] for weather in launcher.distance_launcher.WEATHERS
+            }
+            quartile_tasks = launcher.quartile_launcher.discover_tasks(
+                quartile_rows, root / "quartile"
             )
-            self.assertEqual(errors, [])
+            (root / "quartile_evaluation_state.json").write_text(
+                json.dumps({"tasks": quartile_tasks}), encoding="utf-8"
+            )
+            _, experiments3 = launcher._load_experiments3_state(root)
+            controls = {}
+            for weather, weather_rows in rows.items():
+                for row in weather_rows:
+                    if launcher.row_identity(row) is None:
+                        continue
+                    target = launcher._sequence_tuple(row["test_seq"])
+                    controls[(weather, target)] = {
+                        "valid": True, "target_sequences": target,
+                        "source_sequences": (18,),
+                        "target_quartile_bins": launcher._quartile_bounds(
+                            metric_blocks(10.0, 5.0, weather=True)
+                        ),
+                        "N_bbox_weather": 12,
+                    }
             references = launcher.discover_weather_reference_tasks(
-                rows, Path(temporary_dir), controls
+                rows, root / "output", controls
             )
             combined = {
                 task_id: task
@@ -135,7 +153,7 @@ class SourceDomainLauncherTests(unittest.TestCase):
             combined.update(references)
             tasks = launcher.discover_tasks(
                 rows,
-                Path(temporary_dir),
+                root / "output",
                 {"tasks": combined},
                 controls=controls,
             )

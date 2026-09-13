@@ -15,7 +15,6 @@ import time
 DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TARGET_SCRIPTS = (
     "train.py",
-    "train_v2.py",
     "train_resume.py",
     "evaluation.py",
 )

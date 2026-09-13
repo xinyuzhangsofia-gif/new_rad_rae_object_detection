@@ -5,12 +5,14 @@ import argparse
 import numpy as np
 import torch
 
-from cfg_model import SCOPE_CHOICES
-from coordinate_modes import (
+from configs.data import CARTESIAN_GT_ROOT
+from data.coordinates import SCOPE_CHOICES
+from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     BOX_COORDINATE_POLAR,
     EVAL_COORDINATE_AUTO,
     EVAL_COORDINATE_CHOICES,
+    require_cartesian_data,
     resolve_evaluation_coordinate_mode,
 )
 from eval.custom_iou_range import DEFAULT_CUSTOM_IOU_THRESHOLDS
@@ -20,10 +22,10 @@ from eval.distance_ranges import (
 )
 from eval.distance_quartiles import normalize_distance_quartile_bins
 from models import MODEL_TYPES
-from train_mode_utils import initialize_model_from_checkpoint
+from training_utils.configuration import initialize_model_from_checkpoint
 
 try:
-    from eval_cfg import EVAL_CONFIG
+    from configs.evaluation import EVAL_CONFIG
 except ImportError:
     EVAL_CONFIG = {}
 
@@ -60,7 +62,7 @@ def should_inherit_from_checkpoint(key):
     if value is _EVAL_CFG_MISSING or value is None:
         return True
     # For these two workflow selectors, "auto" explicitly means that the
-    # checkpoint is authoritative.  This lets eval_cfg.py stay fully
+    # checkpoint is authoritative.  This lets configs/evaluation.py stay fully
     # automatic without requiring the user to edit it per checkpoint.
     if key in {"box_coordinate_mode", "loss_mode"}:
         return str(value).strip().lower() == "auto"
@@ -176,8 +178,7 @@ def parse_args():
         "eval_scope": None,
         "eval_coordinate_mode": EVAL_COORDINATE_AUTO,
         "box_coordinate_mode": None,
-        "cartesian_gt_root": None,
-        "polar_gt_root": "/home/local/xinyu/K-Radar-GT-Polar-v2.9",
+        "cartesian_gt_root": CARTESIAN_GT_ROOT,
         "include_bus_as_target": True,
         "gt_object_ignore_override_path": None,
         "train_control_split_enabled": False,
@@ -287,7 +288,7 @@ def parse_args():
     parser.add_argument(
         "--eval-coordinate-mode",
         default=cfg_defaults["eval_coordinate_mode"],
-        choices=list(EVAL_COORDINATE_CHOICES),
+        choices=[mode for mode in EVAL_COORDINATE_CHOICES if mode != BOX_COORDINATE_POLAR],
         help=(
             "auto uses the checkpoint's direct geometry; both also computes "
             "the converted auxiliary geometry."
@@ -296,15 +297,11 @@ def parse_args():
     parser.add_argument(
         "--box-coordinate-mode",
         default=cfg_defaults["box_coordinate_mode"],
-        choices=["auto", BOX_COORDINATE_POLAR, BOX_COORDINATE_CARTESIAN],
+        choices=["auto", BOX_COORDINATE_CARTESIAN],
     )
     parser.add_argument(
         "--cartesian-gt-root",
         default=cfg_defaults["cartesian_gt_root"],
-    )
-    parser.add_argument(
-        "--polar-gt-root",
-        default=cfg_defaults["polar_gt_root"],
     )
     parser.add_argument(
         "--include-bus-as-target",
@@ -675,6 +672,7 @@ def normalize_float_thresholds(value, name):
 
 
 def apply_standalone_evaluation_coordinate_mode(args):
+    args.box_coordinate_mode = require_cartesian_data(args.box_coordinate_mode)
     settings = resolve_evaluation_coordinate_mode(
         eval_coordinate_mode=getattr(
             args,

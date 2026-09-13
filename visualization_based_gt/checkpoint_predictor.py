@@ -5,11 +5,11 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from cfg_model import SCOPE_FULL, crop_rad_rae_to_scope
-from coordinate_modes import BOX_COORDINATE_CARTESIAN, validate_box_coordinate_mode
-from training_utils.radenet_utils import raw_local_rae_boxes_to_metric_boxes
+from data.coordinates import SCOPE_FULL, crop_rad_rae_to_scope
+from configs.coordinates import BOX_COORDINATE_CARTESIAN, require_cartesian_data
+from data.geometry import raw_local_rae_boxes_to_metric_boxes
 from training_utils.torch_load import load_torch_checkpoint
-from train_mode_utils import resolve_loss_mode
+from training_utils.configuration import resolve_loss_mode
 from visualize import (
     build_visualization_model,
     filter_predictions,
@@ -43,7 +43,7 @@ def _checkpoint_coordinate_mode(checkpoint, checkpoint_config):
         )
         else "polar"
     )
-    return validate_box_coordinate_mode(
+    return require_cartesian_data(
         checkpoint_config.get("box_coordinate_mode", default_mode)
     )
 

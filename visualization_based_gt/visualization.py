@@ -11,8 +11,8 @@ import time
 import open3d as o3d
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-from zxy_label_utils import *
-from zxy_data_path import *
+from data.labels import *
+from data.paths import *
 from sensor_transformation import *
 from info_label_reader import read_info_label
 from visualization_cfg import (

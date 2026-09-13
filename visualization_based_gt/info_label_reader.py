@@ -113,7 +113,7 @@ def read_current_gt(
     label_path,
     calib_path=VISUALIZATION_DIR / "lidar2radar_calib.yml",
 ):
-    """Read the GT currently used by train_cfg.py.
+    """Read the radar-aligned GT selected in configs/training.py.
 
     The generated training labels store boxes in Radar coordinates.  The
     visualizer historically expects ``obj['box']`` in LiDAR coordinates for

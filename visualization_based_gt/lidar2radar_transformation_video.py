@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 #os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = "/usr/lib/x86_64-linux-gnu/qt5/plugins"
 import cv2
 from scipy.io import loadmat
-from dataset import KRadarDataset
+from loaders.kradar_dataset import KRadarSensorDataset
 from tqdm import tqdm
 
 def read_info_label(label_path):
@@ -866,10 +866,10 @@ if __name__ == "__main__":
     max_frames = len(label_files)
    # max_frames = 552
     
-    radar_dataset=KRadarDataset(f"/home/local/xinyu/KRadar/{sequence}/radar_tesseract")
+    radar_dataset=KRadarSensorDataset(f"/home/local/xinyu/KRadar/{sequence}/radar_tesseract")
     radar_dir = f"/home/local/xinyu/KRadar/{sequence}/radar_tesseract"
 
-    radar_dataset=KRadarDataset(
+    radar_dataset=KRadarSensorDataset(
         f"/run/user/1000/gvfs/smb-share:server=192.168.189.30,share=elab-share/Datasets/K-Radar/{sequence}/radar_tesseract")
     radar_dir = f"/run/user/1000/gvfs/smb-share:server=192.168.189.30,share=elab-share/Datasets/K-Radar/{sequence}/radar_tesseract"
 

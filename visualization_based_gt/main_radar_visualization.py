@@ -1,7 +1,7 @@
 import path_setup
 
-from zxy_label_utils import *
-from zxy_data_path import *
+from data.labels import *
+from data.paths import *
 from sensor_transformation import *
 from visualization import *
 from visualization_cfg import DataConfig

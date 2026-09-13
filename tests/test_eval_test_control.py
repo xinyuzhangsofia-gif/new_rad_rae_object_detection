@@ -11,11 +11,13 @@ from unittest import mock
 import numpy as np
 import torch
 
-from dataloader import (
+from data.dataloader import (
     build_evaluation_dataloader,
     build_exact_frame_manifest_indices,
 )
-from dataset import KRadarGTDetectionDataset, detection_collate
+from data.dataset import KRadarGTDetectionDataset
+from data.dataloader import detection_collate
+from data.ignore_overrides import validate_object_ignore_overrides
 from eval.distance_quartiles import (
     filter_kradar_eval_state_by_quartile,
     normalize_distance_quartile_bins,
@@ -91,7 +93,7 @@ class ExactManifestTests(unittest.TestCase):
             with open(override_path, "w", encoding="utf-8") as output_file:
                 json.dump({"sequences": {"3": {}}}, output_file)
             with mock.patch(
-                "dataloader.build_detection_dataset_for_sequence",
+                "data.dataloader.build_detection_dataset_for_sequence",
                 return_value=FakeSequenceDataset(),
             ):
                 with self.assertRaisesRegex(
@@ -148,13 +150,6 @@ class OverrideNeutralGroundTruthTests(unittest.TestCase):
         dataset.ignore_object_label_minus_one = False
         dataset.num_invalid_cartesian_object_labels_ignored = 0
         dataset.num_invalid_object_labels_ignored = 0
-        dataset._prepare_cartesian_objects = lambda objects, full_rae_shape: objects
-        dataset._object_overlaps_rae_fov = lambda obj, shape: True
-        dataset._object_center_in_scope = lambda obj: True
-        dataset._build_box_tensors = lambda objects, shape: (
-            torch.stack([obj["box_metric"] for obj in objects])
-            if objects else torch.zeros((0, 7)),
-        ) * 3
         return dataset
 
     def test_override_only_boxes_remain_separate_from_generic_ignores(self):
@@ -205,7 +200,13 @@ class OverrideNeutralGroundTruthTests(unittest.TestCase):
             "object_override_count": 1,
         }
         with self.assertRaisesRegex(ValueError, "matches=0"):
-            dataset._validate_object_ignore_overrides()
+            validate_object_ignore_overrides(
+                dataset.object_ignore_override_map,
+                dataset.object_ignore_override_summary,
+                dataset.class_to_idx,
+                dataset.sequence,
+                dataset._raw_objects_for_file_idx,
+            )
 
     def test_strict_override_validation_rejects_missing_frame(self):
         dataset = self._dataset()
@@ -214,7 +215,13 @@ class OverrideNeutralGroundTruthTests(unittest.TestCase):
             "object_override_count": 0,
         }
         with self.assertRaisesRegex(ValueError, "frames absent"):
-            dataset._validate_object_ignore_overrides()
+            validate_object_ignore_overrides(
+                dataset.object_ignore_override_map,
+                dataset.object_ignore_override_summary,
+                dataset.class_to_idx,
+                dataset.sequence,
+                dataset._raw_objects_for_file_idx,
+            )
 
     def test_quartile_filter_carries_neutral_gt_without_counting_it(self):
         frame = {

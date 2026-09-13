@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from train_mode_utils import (
+from training_utils.configuration import (
     apply_domain_shift_training_configuration,
     apply_test_sequence_weather_configuration,
     infer_test_weather_group,

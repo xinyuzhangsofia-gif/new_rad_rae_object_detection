@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from cfg_model import AZIMUTH_AXIS, ELEVATION_AXIS, RANGE_AXIS, SCOPE_FULL
-from dataset import KRadarRADRAEDataset
+from data.coordinates import AZIMUTH_AXIS, ELEVATION_AXIS, RANGE_AXIS, SCOPE_FULL
+from data.dataset import KRadarRADRAEDataset
 from visualization_cfg import RADAR_VIEW_SOURCES
 
 

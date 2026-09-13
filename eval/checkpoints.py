@@ -6,15 +6,15 @@ from pathlib import Path
 
 import torch
 
-from cfg_model import SCOPE_CHOICES, SCOPE_FULL
-from coordinate_modes import (
+from data.coordinates import SCOPE_CHOICES, SCOPE_FULL
+from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     BOX_COORDINATE_POLAR,
-    validate_box_coordinate_mode,
+    require_cartesian_data,
 )
-from dataloader import normalize_sequence_list
+from data.dataloader import normalize_sequence_list
 from models import build_model
-from train_mode_utils import (
+from training_utils.configuration import (
     infer_include_bus_as_target_from_checkpoint_config,
     format_train_sequence_half_label,
     normalize_optional_path,
@@ -648,6 +648,9 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         )
         else BOX_COORDINATE_POLAR
     )
+    # Validate the checkpoint itself before considering a CLI override. Merely
+    # relabeling a Polar checkpoint as Cartesian does not convert its weights.
+    require_cartesian_data(config.get("box_coordinate_mode", inferred_box_coordinate_mode))
     inferred_include_bus_as_target = infer_include_bus_as_target_from_checkpoint_config(
         config
     )
@@ -737,7 +740,7 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
             args.box_coordinate_mode = checkpoint_box_coordinate_mode
         else:
             args.box_coordinate_mode = inferred_box_coordinate_mode
-    args.box_coordinate_mode = validate_box_coordinate_mode(
+    args.box_coordinate_mode = require_cartesian_data(
         args.box_coordinate_mode
     )
     if (
@@ -754,7 +757,7 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
     ):
         raise ValueError(
             "Cartesian checkpoint evaluation requires cartesian_gt_root "
-            "in eval_cfg.py or checkpoint config."
+            "in configs/evaluation.py or checkpoint config."
         )
     if args.eval_scope is None:
         args.eval_scope = config.get("train_scope", SCOPE_FULL)

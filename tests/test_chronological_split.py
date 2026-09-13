@@ -1,6 +1,6 @@
 import unittest
 
-from dataloader import (
+from data.dataloader import (
     build_sequence_tail_split_indices,
     get_dataset_sequences_for_split,
 )

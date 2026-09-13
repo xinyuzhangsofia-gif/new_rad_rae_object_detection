@@ -5,7 +5,7 @@ from datetime import datetime
 
 import torch
 
-from train_mode_utils import (
+from training_utils.configuration import (
     normalize_train_sequence_half_ratio,
     normalize_train_sequence_half_selection,
 )

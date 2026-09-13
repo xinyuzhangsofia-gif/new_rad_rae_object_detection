@@ -1,1285 +1,0 @@
-
-[2026-08-13T00:19:28+02:00] launch physical cuda:2
-command: /home/local/miniconda3/envs/mvrss/bin/python /home/local/xinyu/MVRSS/mvrss/evaluation.py --checkpoint-root /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13 --start-epoch 5 --end-epoch 24 --batch-size 32 --num-workers 0 --cuda cuda:0 --gpu-ids 0 --eval-val-sequences 13 --eval-report-path /home/local/xinyu/MVRSS/mvrss/experiments4/weather_reference_reports/overcast/test_set_13/group15_seed44_source_weather_result.txt --official-eval-version revised --official-eval-iou-backend cuda --official-eval-iou-mode all --official-detection-metrics-enabled true --custom-iou-range-eval-enabled false --nuscenes-style-eval-enabled false --loss-eval-enabled false --group-checkpoint-plot-best-only false --distance-range-eval-enabled false --distance-quartile-eval-enabled true --max-detections 64 --heatmap-nms-kernel 3 --heatmap-score-mode peak_times_local_mean --yolox-nms-iou 0.65 --ap-score-thresh 0.01 --score-thresh 0.3 --eval-ignore-suppress-enabled false --table-txt-enabled true --table-output-base-dir /home/local/xinyu/MVRSS/mvrss/experiments4/weather_reference_reports --evaluation-tensorboard-log-dir /home/local/xinyu/MVRSS/mvrss/experiments4/tensorboard_weather_reference --domain-comparison-enabled false --plot-output none
-Ignore object_label=-1: False
-Auto-detected model type: model7
-Checkpoint overrides for 0811_epoch_005.pth: decoder_hidden_channels=64, feature_channels=128, inferred_num_classes=1
-Evaluation TensorBoard log dir: /home/local/xinyu/MVRSS/mvrss/experiments4/tensorboard_weather_reference/evaluation/20260813_001944_933013__overcast_model7_64_128_ig_train_12,1_seq12_first_controlled_lr5e-5__val_seq_13
-Evaluation classes: {0: 'Sedan'}
-Checkpoint weather group: overcast
-Bus target enabled: False
-Train control split: split/controled_seq1_ref22_3
-GT object ignore override: split/controled_seq1_ref22_3/object_ignore_override.json
-Ignore-mask classes: ('Pedestrian', 'Pedestrian Group', 'Bicycle', 'Bicycle Group', 'Motorcycle', 'Bus or Truck')
-Ignore-mask region: GT box * 1.0 + margin 1.0
-Using evaluation device: cuda:0
-Evaluation scope: full
-Box coordinate mode: cartesian
-Evaluation coordinate mode: requested=auto, effective=cartesian, primary=cartesian
-Evaluation epoch range: 5-24
-Official K-Radar AP: enabled (direct)
-Official evaluator: revised
-Official IoU mode: all
-Distance-range official AP@0.3: disabled
-GT-distance-quartile official AP@0.3: enabled
-Polar BEV AP: disabled (converted_auxiliary, IoU=[0.3, 0.5])
-AP score threshold: 0.01
-Detection score threshold: 0.3
-Evaluating 20 checkpoint(s) from /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13
-Table txt path: /home/local/xinyu/MVRSS/mvrss/experiments4/weather_reference_reports/overcast/test_set_13/group15_seed44_source_weather_result.txt
-Checkpoints:   0%|                                                                               | 0/20 [00:00<?, ?it/s]Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_005.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:09<06:05,  9.87s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:14<04:10,  6.97s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:23<04:36,  7.91s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:36<05:31,  9.76s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:46<05:20,  9.70s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:55<05:07,  9.60s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [01:03<04:41,  9.07s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [01:10<04:15,  8.52s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [01:19<04:10,  8.65s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [01:28<04:04,  8.73s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:38<04:05,  9.10s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:48<04:01,  9.28s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:57<03:55,  9.41s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [02:05<03:33,  8.88s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [02:14<03:24,  8.90s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [02:23<03:16,  8.91s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [02:29<02:51,  8.15s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [02:39<02:51,  8.55s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [02:48<02:47,  8.84s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [02:56<02:32,  8.44s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [03:05<02:25,  8.57s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [03:13<02:13,  8.34s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [03:22<02:10,  8.70s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [03:31<02:01,  8.69s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [03:36<01:40,  7.74s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [03:45<01:36,  8.03s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [03:54<01:32,  8.41s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [04:02<01:21,  8.15s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [04:09<01:11,  7.91s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [04:16<00:59,  7.46s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [04:23<00:52,  7.49s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [04:31<00:45,  7.57s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [04:39<00:38,  7.68s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [04:48<00:32,  8.09s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [04:53<00:21,  7.20s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [05:03<00:16,  8.17s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [05:11<00:08,  8.10s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [05:13<00:00,  6.12s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 31 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 66 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 46 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 54 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:   5%|███▍                                                                | 1/20 [05:49<1:50:31, 349.02s/it]epoch=5 official_bev_mAP_0.3=0.0302 ap_score_thr=0.0100 bev@0.3=0.0302 bev@0.5=0.0069 3d@0.3=0.0137 3d@0.5=0.0003 bev@0.3_quartile_q1=0.1325 3d@0.3_quartile_q1=0.0749 bev@0.3_quartile_q2=0.0066 3d@0.3_quartile_q2=0.0038 bev@0.3_quartile_q3=0.0203 3d@0.3_quartile_q3=0.0066 bev@0.3_quartile_q4=0.0092 3d@0.3_quartile_q4=0.0046 score_thr=0.3000 p=0.0493 r=0.1115 f1=0.0684 tp=34 fp=655 fn=271 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_006.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:09<05:36,  9.09s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:16<04:50,  8.07s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:25<04:59,  8.55s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:35<05:15,  9.28s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:46<05:22,  9.78s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:56<05:15,  9.84s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [01:07<05:18, 10.27s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [01:17<04:59,  9.98s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [01:27<04:51, 10.05s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [01:35<04:25,  9.47s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:44<04:12,  9.36s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:54<04:06,  9.46s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [02:03<03:55,  9.43s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [02:12<03:42,  9.25s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [02:18<03:08,  8.21s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [02:29<03:21,  9.16s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [02:38<03:09,  9.04s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [02:48<03:08,  9.43s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [02:57<02:56,  9.26s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [03:07<02:48,  9.36s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [03:14<02:30,  8.85s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [03:23<02:20,  8.80s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [03:32<02:11,  8.80s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [03:39<01:57,  8.36s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [03:47<01:47,  8.27s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [03:57<01:44,  8.70s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [04:06<01:38,  8.95s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [04:15<01:28,  8.90s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [04:23<01:15,  8.43s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [04:30<01:04,  8.03s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [04:37<00:54,  7.73s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [04:44<00:44,  7.48s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [04:51<00:37,  7.45s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [04:59<00:30,  7.59s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [05:08<00:24,  8.10s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [05:17<00:16,  8.32s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [05:26<00:08,  8.39s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [05:28<00:00,  6.46s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 31 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 56 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 50 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 57 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  10%|██████▊                                                             | 2/20 [11:45<1:46:00, 353.39s/it]epoch=6 official_bev_mAP_0.3=0.0448 ap_score_thr=0.0100 bev@0.3=0.0448 bev@0.5=0.0136 3d@0.3=0.0257 3d@0.5=0.0005 bev@0.3_quartile_q1=0.1523 3d@0.3_quartile_q1=0.0747 bev@0.3_quartile_q2=0.0138 3d@0.3_quartile_q2=0.0097 bev@0.3_quartile_q3=0.0526 3d@0.3_quartile_q3=0.0168 bev@0.3_quartile_q4=0.0152 3d@0.3_quartile_q4=0.0108 score_thr=0.3000 p=0.0438 r=0.3115 f1=0.0768 tp=95 fp=2074 fn=210 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_007.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:08<05:15,  8.52s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:16<05:01,  8.37s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:25<04:58,  8.53s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:34<04:56,  8.73s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:46<05:22,  9.78s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:53<04:49,  9.04s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [01:01<04:27,  8.62s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [01:11<04:35,  9.18s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [01:21<04:28,  9.27s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [01:32<04:32,  9.73s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:41<04:20,  9.66s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:50<04:06,  9.46s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:59<03:52,  9.31s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [02:09<03:44,  9.35s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [02:18<03:32,  9.24s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [02:26<03:19,  9.05s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [02:36<03:14,  9.24s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [02:45<03:05,  9.27s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [02:52<02:43,  8.60s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [03:01<02:37,  8.73s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [03:09<02:24,  8.51s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [03:19<02:24,  9.01s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [03:27<02:09,  8.61s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [03:36<02:00,  8.63s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [03:45<01:54,  8.82s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [03:53<01:42,  8.58s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [04:00<01:29,  8.16s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [04:06<01:13,  7.32s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [04:13<01:04,  7.21s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [04:21<00:59,  7.47s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [04:27<00:50,  7.18s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [04:36<00:46,  7.70s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [04:44<00:39,  7.88s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [04:53<00:32,  8.18s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [05:03<00:26,  8.77s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [05:11<00:16,  8.35s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [05:20<00:08,  8.59s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [05:21<00:00,  6.48s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 60 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 48 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 51 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  15%|██████████▏                                                         | 3/20 [17:39<1:40:10, 353.54s/it]epoch=7 official_bev_mAP_0.3=0.0588 ap_score_thr=0.0100 bev@0.3=0.0588 bev@0.5=0.0088 3d@0.3=0.0349 3d@0.5=0.0007 bev@0.3_quartile_q1=0.1564 3d@0.3_quartile_q1=0.0933 bev@0.3_quartile_q2=0.0219 3d@0.3_quartile_q2=0.0085 bev@0.3_quartile_q3=0.0834 3d@0.3_quartile_q3=0.0306 bev@0.3_quartile_q4=0.0220 3d@0.3_quartile_q4=0.0164 score_thr=0.3000 p=0.0604 r=0.3246 f1=0.1019 tp=99 fp=1540 fn=206 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_008.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:06<03:56,  6.40s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:15<04:45,  7.93s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:25<05:17,  9.07s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:33<04:44,  8.37s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:42<04:50,  8.81s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:51<04:46,  8.96s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [01:01<04:42,  9.12s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [01:10<04:31,  9.04s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [01:18<04:16,  8.84s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [01:28<04:16,  9.18s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:37<04:03,  9.02s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:46<03:58,  9.18s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:55<03:47,  9.12s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [02:03<03:30,  8.76s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [02:09<02:58,  7.78s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [02:20<03:16,  8.95s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [02:30<03:09,  9.05s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [02:38<02:58,  8.93s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [02:47<02:47,  8.83s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [02:56<02:42,  9.04s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [03:05<02:32,  8.98s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [03:14<02:22,  8.90s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [03:24<02:17,  9.19s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [03:32<02:04,  8.88s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [03:41<01:55,  8.88s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [03:50<01:46,  8.88s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [03:58<01:34,  8.55s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [04:05<01:22,  8.27s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [04:12<01:10,  7.85s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [04:20<01:02,  7.76s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [04:26<00:51,  7.32s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [04:33<00:43,  7.20s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [04:42<00:38,  7.76s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [04:51<00:32,  8.21s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [05:00<00:25,  8.43s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [05:08<00:16,  8.24s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [05:14<00:07,  7.63s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [05:16<00:00,  5.94s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 23 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 60 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 50 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 56 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  20%|█████████████▌                                                      | 4/20 [23:25<1:33:31, 350.71s/it]epoch=8 official_bev_mAP_0.3=0.0707 ap_score_thr=0.0100 bev@0.3=0.0707 bev@0.5=0.0113 3d@0.3=0.0388 3d@0.5=0.0008 bev@0.3_quartile_q1=0.1943 3d@0.3_quartile_q1=0.1014 bev@0.3_quartile_q2=0.0225 3d@0.3_quartile_q2=0.0133 bev@0.3_quartile_q3=0.0756 3d@0.3_quartile_q3=0.0266 bev@0.3_quartile_q4=0.0362 3d@0.3_quartile_q4=0.0278 score_thr=0.3000 p=0.0723 r=0.2984 f1=0.1164 tp=91 fp=1167 fn=214 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_009.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:09<05:48,  9.41s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:19<06:03, 10.09s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:28<05:29,  9.40s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:37<05:12,  9.18s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:45<04:52,  8.88s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:55<04:58,  9.33s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [01:05<04:52,  9.42s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [01:15<04:47,  9.59s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [01:25<04:41,  9.72s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [01:33<04:20,  9.32s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:39<03:41,  8.20s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:49<03:49,  8.82s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [02:00<03:53,  9.34s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [02:09<03:46,  9.42s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [02:19<03:34,  9.32s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [02:29<03:33,  9.70s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [02:38<03:20,  9.55s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [02:47<03:07,  9.37s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [02:57<02:57,  9.33s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [03:04<02:40,  8.90s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [03:13<02:29,  8.77s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [03:22<02:20,  8.77s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [03:31<02:14,  8.96s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [03:41<02:10,  9.29s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [03:51<02:02,  9.43s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [03:59<01:48,  9.00s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [04:07<01:36,  8.77s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [04:14<01:22,  8.22s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [04:22<01:13,  8.18s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [04:30<01:04,  8.11s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [04:38<00:56,  8.09s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [04:47<00:49,  8.30s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [04:56<00:42,  8.52s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [05:05<00:35,  8.76s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [05:16<00:28,  9.39s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [05:25<00:18,  9.22s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [05:34<00:09,  9.04s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [05:36<00:00,  6.91s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 35 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 66 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 41 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 44 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  25%|█████████████████                                                   | 5/20 [29:31<1:29:00, 356.06s/it]epoch=9 official_bev_mAP_0.3=0.0650 ap_score_thr=0.0100 bev@0.3=0.0650 bev@0.5=0.0122 3d@0.3=0.0342 3d@0.5=0.0018 bev@0.3_quartile_q1=0.1362 3d@0.3_quartile_q1=0.0774 bev@0.3_quartile_q2=0.0257 3d@0.3_quartile_q2=0.0159 bev@0.3_quartile_q3=0.0864 3d@0.3_quartile_q3=0.0225 bev@0.3_quartile_q4=0.0770 3d@0.3_quartile_q4=0.0711 score_thr=0.3000 p=0.1507 r=0.1443 f1=0.1474 tp=44 fp=248 fn=261 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_010.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:07<04:19,  7.01s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:13<04:11,  6.98s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:20<03:58,  6.82s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:28<04:04,  7.20s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:38<04:36,  8.38s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:49<04:51,  9.12s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:58<04:39,  9.02s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [01:07<04:34,  9.16s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [01:18<04:37,  9.56s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [01:28<04:34,  9.79s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:37<04:18,  9.58s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:46<04:01,  9.27s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:54<03:48,  9.14s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [02:03<03:34,  8.92s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [02:10<03:13,  8.43s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [02:18<03:02,  8.32s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [02:27<02:58,  8.50s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [02:36<02:51,  8.59s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [02:44<02:42,  8.55s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [02:54<02:37,  8.73s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [03:02<02:29,  8.78s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [03:11<02:21,  8.85s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [03:19<02:08,  8.60s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [03:25<01:46,  7.61s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [03:30<01:30,  6.99s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [03:37<01:21,  6.79s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [03:43<01:13,  6.66s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [03:50<01:08,  6.83s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [03:58<01:03,  7.06s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [04:06<00:59,  7.40s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [04:14<00:52,  7.47s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [04:21<00:45,  7.54s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [04:30<00:39,  7.84s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [04:39<00:33,  8.27s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [04:48<00:25,  8.59s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [04:58<00:17,  8.96s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [05:07<00:08,  8.97s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [05:08<00:00,  6.60s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 119 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 119 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 33 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 29 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 64 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 45 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 49 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  30%|████████████████████▍                                               | 6/20 [35:09<1:21:40, 350.01s/it]epoch=10 official_bev_mAP_0.3=0.0557 ap_score_thr=0.0100 bev@0.3=0.0557 bev@0.5=0.0140 3d@0.3=0.0296 3d@0.5=0.0008 bev@0.3_quartile_q1=0.1741 3d@0.3_quartile_q1=0.1078 bev@0.3_quartile_q2=0.0162 3d@0.3_quartile_q2=0.0068 bev@0.3_quartile_q3=0.0603 3d@0.3_quartile_q3=0.0110 bev@0.3_quartile_q4=0.0207 3d@0.3_quartile_q4=0.0108 score_thr=0.3000 p=0.0587 r=0.3082 f1=0.0987 tp=94 fp=1506 fn=211 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_011.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:06<04:05,  6.63s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:13<04:10,  6.95s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:23<04:49,  8.28s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:33<05:01,  8.87s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:40<04:35,  8.35s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:49<04:26,  8.33s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:55<04:02,  7.83s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [01:02<03:47,  7.57s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [01:10<03:41,  7.63s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [01:19<03:40,  7.87s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:26<03:31,  7.85s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:34<03:23,  7.82s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:43<03:22,  8.08s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [01:53<03:26,  8.60s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [02:00<03:10,  8.28s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [02:09<03:02,  8.31s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [02:18<02:59,  8.55s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [02:27<02:53,  8.69s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [02:36<02:46,  8.77s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [02:44<02:37,  8.75s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [02:53<02:27,  8.65s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [03:01<02:15,  8.49s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [03:10<02:10,  8.68s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [03:19<02:04,  8.90s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [03:28<01:52,  8.68s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [03:38<01:51,  9.32s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [03:46<01:35,  8.71s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [03:52<01:19,  7.92s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [03:58<01:07,  7.52s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [04:05<00:57,  7.21s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [04:13<00:51,  7.43s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [04:21<00:45,  7.59s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [04:29<00:38,  7.74s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [04:38<00:33,  8.26s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [04:47<00:25,  8.44s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [04:55<00:16,  8.39s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [05:03<00:08,  8.02s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [05:04<00:00,  6.03s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 116 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 56 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 52 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 54 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  35%|███████████████████████▊                                            | 7/20 [40:41<1:14:33, 344.13s/it]epoch=11 official_bev_mAP_0.3=0.0797 ap_score_thr=0.0100 bev@0.3=0.0797 bev@0.5=0.0094 3d@0.3=0.0392 3d@0.5=0.0013 bev@0.3_quartile_q1=0.2019 3d@0.3_quartile_q1=0.1000 bev@0.3_quartile_q2=0.0270 3d@0.3_quartile_q2=0.0199 bev@0.3_quartile_q3=0.1037 3d@0.3_quartile_q3=0.0207 bev@0.3_quartile_q4=0.0353 3d@0.3_quartile_q4=0.0226 score_thr=0.3000 p=0.0665 r=0.5377 f1=0.1184 tp=164 fp=2302 fn=141 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_012.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:08<05:04,  8.24s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:16<04:48,  8.01s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:23<04:29,  7.69s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:32<04:39,  8.21s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:41<04:40,  8.50s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:52<04:55,  9.23s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [01:00<04:41,  9.09s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [01:10<04:36,  9.22s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [01:18<04:20,  8.98s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [01:26<04:03,  8.71s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:35<03:55,  8.71s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:44<03:45,  8.67s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:51<03:26,  8.27s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [02:01<03:31,  8.82s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [02:10<03:22,  8.82s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [02:17<03:04,  8.39s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [02:25<02:48,  8.04s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [02:33<02:44,  8.25s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [02:41<02:34,  8.11s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [02:49<02:27,  8.18s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [02:58<02:18,  8.15s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [03:06<02:11,  8.21s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [03:13<01:56,  7.78s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [03:20<01:45,  7.53s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [03:27<01:38,  7.61s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [03:35<01:31,  7.61s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [03:42<01:22,  7.47s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [03:50<01:14,  7.46s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [03:57<01:05,  7.30s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [04:03<00:55,  6.94s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [04:11<00:52,  7.45s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [04:19<00:45,  7.61s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [04:28<00:39,  7.91s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [04:35<00:31,  7.77s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [04:43<00:22,  7.61s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [04:51<00:15,  7.94s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [04:59<00:08,  8.03s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [05:01<00:00,  6.00s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 32 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 54 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 49 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 50 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  40%|███████████████████████████▏                                        | 8/20 [46:12<1:07:58, 339.90s/it]epoch=12 official_bev_mAP_0.3=0.0890 ap_score_thr=0.0100 bev@0.3=0.0890 bev@0.5=0.0103 3d@0.3=0.0685 3d@0.5=0.0015 bev@0.3_quartile_q1=0.2334 3d@0.3_quartile_q1=0.2036 bev@0.3_quartile_q2=0.0241 3d@0.3_quartile_q2=0.0163 bev@0.3_quartile_q3=0.0443 3d@0.3_quartile_q3=0.0109 bev@0.3_quartile_q4=0.0602 3d@0.3_quartile_q4=0.0445 score_thr=0.3000 p=0.0715 r=0.3213 f1=0.1169 tp=98 fp=1273 fn=207 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_013.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:06<04:07,  6.69s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:13<04:12,  7.00s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:22<04:33,  7.80s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:30<04:29,  7.93s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:38<04:17,  7.79s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:46<04:14,  7.94s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:54<04:08,  8.01s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [01:05<04:23,  8.78s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [01:14<04:22,  9.07s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [01:23<04:08,  8.88s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:33<04:11,  9.32s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:42<04:02,  9.34s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:49<03:29,  8.38s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [02:00<03:39,  9.17s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [02:07<03:21,  8.76s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [02:17<03:16,  8.92s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [02:25<03:03,  8.74s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [02:35<03:01,  9.07s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [02:44<02:54,  9.19s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [02:55<02:55,  9.73s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [03:06<02:51, 10.06s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [03:16<02:37,  9.87s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [03:25<02:26,  9.77s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [03:34<02:13,  9.50s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [03:43<02:00,  9.25s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [03:50<01:44,  8.67s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [03:58<01:33,  8.49s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [04:05<01:20,  8.07s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [04:11<01:07,  7.45s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [04:18<00:57,  7.13s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [04:26<00:53,  7.65s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [04:34<00:46,  7.76s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [04:43<00:39,  7.91s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [04:49<00:29,  7.44s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [04:55<00:21,  7.02s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [05:03<00:14,  7.39s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [05:11<00:07,  7.61s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [05:13<00:00,  5.66s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 23 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 60 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 50 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 54 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  45%|██████████████████████████████▌                                     | 9/20 [51:50<1:02:14, 339.51s/it]epoch=13 official_bev_mAP_0.3=0.0589 ap_score_thr=0.0100 bev@0.3=0.0589 bev@0.5=0.0198 3d@0.3=0.0427 3d@0.5=0.0026 bev@0.3_quartile_q1=0.2158 3d@0.3_quartile_q1=0.1771 bev@0.3_quartile_q2=0.0168 3d@0.3_quartile_q2=0.0130 bev@0.3_quartile_q3=0.0359 3d@0.3_quartile_q3=0.0096 bev@0.3_quartile_q4=0.0262 3d@0.3_quartile_q4=0.0168 score_thr=0.3000 p=0.0576 r=0.3770 f1=0.0999 tp=115 fp=1883 fn=190 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_014.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:07<04:49,  7.83s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:13<03:52,  6.45s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:20<03:59,  6.83s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:28<04:02,  7.14s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:36<04:12,  7.66s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:44<04:06,  7.72s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:52<04:05,  7.93s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [01:01<04:00,  8.01s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [01:10<04:01,  8.32s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [01:17<03:40,  7.88s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:24<03:28,  7.74s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:29<03:00,  6.96s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:36<02:52,  6.89s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [01:43<02:44,  6.84s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [01:49<02:33,  6.65s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [01:57<02:36,  7.09s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [02:03<02:22,  6.78s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [02:10<02:16,  6.82s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [02:18<02:14,  7.10s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [02:25<02:08,  7.15s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [02:32<02:02,  7.23s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [02:39<01:52,  7.02s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [02:45<01:39,  6.62s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [02:51<01:33,  6.68s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [02:57<01:22,  6.33s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [03:02<01:13,  6.09s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [03:08<01:05,  5.97s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [03:13<00:57,  5.72s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [03:18<00:48,  5.41s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [03:23<00:43,  5.42s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [03:30<00:40,  5.75s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [03:36<00:34,  5.77s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [03:41<00:28,  5.76s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [03:49<00:24,  6.23s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [03:55<00:19,  6.36s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [04:02<00:12,  6.41s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [04:08<00:06,  6.33s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [04:09<00:00,  4.61s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 34 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 60 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 46 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 47 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  50%|██████████████████████████████████▌                                  | 10/20 [56:17<52:49, 316.99s/it]epoch=14 official_bev_mAP_0.3=0.0724 ap_score_thr=0.0100 bev@0.3=0.0724 bev@0.5=0.0162 3d@0.3=0.0293 3d@0.5=0.0009 bev@0.3_quartile_q1=0.1833 3d@0.3_quartile_q1=0.0911 bev@0.3_quartile_q2=0.0263 3d@0.3_quartile_q2=0.0113 bev@0.3_quartile_q3=0.0626 3d@0.3_quartile_q3=0.0099 bev@0.3_quartile_q4=0.0331 3d@0.3_quartile_q4=0.0165 score_thr=0.3000 p=0.0992 r=0.2393 f1=0.1402 tp=73 fp=663 fn=232 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_015.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:06<03:46,  6.13s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:12<03:43,  6.20s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:18<03:36,  6.19s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:25<03:42,  6.55s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:32<03:40,  6.67s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:40<03:42,  6.96s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:47<03:35,  6.96s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [00:53<03:21,  6.70s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [01:00<03:23,  7.03s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [01:06<03:05,  6.63s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:14<03:06,  6.89s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:19<02:46,  6.39s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:26<02:45,  6.62s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [01:33<02:44,  6.84s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [01:40<02:33,  6.68s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [01:46<02:24,  6.55s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [01:51<02:08,  6.12s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [01:56<01:55,  5.79s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [02:03<01:53,  5.98s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [02:09<01:51,  6.19s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [02:16<01:49,  6.44s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [02:22<01:40,  6.27s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [02:27<01:28,  5.92s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [02:32<01:18,  5.62s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [02:38<01:12,  5.56s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [02:43<01:06,  5.57s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [02:49<01:00,  5.54s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [02:54<00:54,  5.41s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [03:00<00:50,  5.62s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [03:06<00:45,  5.69s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [03:11<00:38,  5.53s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [03:16<00:33,  5.55s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [03:22<00:28,  5.68s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [03:30<00:24,  6.12s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [03:36<00:19,  6.33s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [03:43<00:12,  6.36s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [03:49<00:06,  6.23s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [03:50<00:00,  4.70s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 29 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 58 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 53 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 55 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  55%|████████████████████████████████████▊                              | 11/20 [1:00:27<44:28, 296.48s/it]epoch=15 official_bev_mAP_0.3=0.0673 ap_score_thr=0.0100 bev@0.3=0.0673 bev@0.5=0.0175 3d@0.3=0.0409 3d@0.5=0.0014 bev@0.3_quartile_q1=0.2411 3d@0.3_quartile_q1=0.1778 bev@0.3_quartile_q2=0.0313 3d@0.3_quartile_q2=0.0198 bev@0.3_quartile_q3=0.0391 3d@0.3_quartile_q3=0.0118 bev@0.3_quartile_q4=0.0294 3d@0.3_quartile_q4=0.0139 score_thr=0.3000 p=0.0584 r=0.5180 f1=0.1050 tp=158 fp=2546 fn=147 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_016.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:05<03:29,  5.65s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:11<03:26,  5.74s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:16<03:10,  5.43s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:22<03:13,  5.70s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:28<03:12,  5.84s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:34<03:09,  5.94s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:39<02:51,  5.55s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [00:44<02:36,  5.20s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [00:48<02:24,  4.98s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [00:54<02:27,  5.27s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:00<02:29,  5.54s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:07<02:31,  5.83s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:11<02:15,  5.43s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [01:17<02:11,  5.48s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [01:23<02:09,  5.63s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [01:31<02:19,  6.36s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [01:36<02:09,  6.15s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [01:42<01:58,  5.95s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [01:48<01:51,  5.87s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [01:53<01:41,  5.65s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [01:58<01:32,  5.42s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [02:02<01:22,  5.17s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [02:07<01:14,  4.99s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [02:12<01:10,  5.01s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [02:17<01:05,  5.00s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [02:23<01:03,  5.27s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [02:29<01:00,  5.46s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [02:33<00:52,  5.21s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [02:38<00:45,  5.01s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [02:43<00:39,  4.99s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [02:48<00:35,  5.13s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [02:52<00:28,  4.75s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [02:56<00:22,  4.48s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [03:00<00:17,  4.42s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [03:05<00:13,  4.43s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [03:11<00:09,  4.94s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [03:16<00:05,  5.06s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [03:17<00:00,  3.83s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 29 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 54 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 52 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  60%|████████████████████████████████████████▏                          | 12/20 [1:04:03<36:15, 271.94s/it]epoch=16 official_bev_mAP_0.3=0.0874 ap_score_thr=0.0100 bev@0.3=0.0874 bev@0.5=0.0132 3d@0.3=0.0540 3d@0.5=0.0014 bev@0.3_quartile_q1=0.2042 3d@0.3_quartile_q1=0.1491 bev@0.3_quartile_q2=0.0268 3d@0.3_quartile_q2=0.0188 bev@0.3_quartile_q3=0.0823 3d@0.3_quartile_q3=0.0206 bev@0.3_quartile_q4=0.0469 3d@0.3_quartile_q4=0.0249 score_thr=0.3000 p=0.0814 r=0.4131 f1=0.1361 tp=126 fp=1421 fn=179 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_017.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:05<03:16,  5.31s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:10<03:16,  5.45s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:16<03:16,  5.62s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:22<03:07,  5.51s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:27<03:07,  5.68s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:34<03:09,  5.91s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:40<03:03,  5.92s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [00:46<02:56,  5.90s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [00:52<02:50,  5.89s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [00:57<02:37,  5.62s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:02<02:28,  5.49s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:07<02:24,  5.55s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:14<02:22,  5.72s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [01:20<02:20,  5.84s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [01:26<02:18,  6.02s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [01:30<01:58,  5.40s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [01:34<01:46,  5.08s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [01:39<01:39,  4.99s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [01:43<01:29,  4.72s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [01:49<01:29,  4.97s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [01:54<01:27,  5.13s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [02:00<01:24,  5.27s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [02:05<01:16,  5.12s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [02:10<01:11,  5.12s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [02:15<01:08,  5.30s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [02:22<01:06,  5.54s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [02:28<01:03,  5.74s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [02:33<00:55,  5.54s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [02:39<00:50,  5.64s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [02:43<00:41,  5.17s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [02:46<00:32,  4.69s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [02:51<00:27,  4.52s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [02:55<00:22,  4.59s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [02:59<00:17,  4.27s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [03:04<00:13,  4.60s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [03:10<00:10,  5.11s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [03:17<00:05,  5.45s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [03:17<00:00,  4.03s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 27 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 46 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 59 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  65%|███████████████████████████████████████████▌                       | 13/20 [1:07:40<29:47, 255.41s/it]epoch=17 official_bev_mAP_0.3=0.0732 ap_score_thr=0.0100 bev@0.3=0.0732 bev@0.5=0.0126 3d@0.3=0.0583 3d@0.5=0.0017 bev@0.3_quartile_q1=0.1970 3d@0.3_quartile_q1=0.1566 bev@0.3_quartile_q2=0.0380 3d@0.3_quartile_q2=0.0321 bev@0.3_quartile_q3=0.0398 3d@0.3_quartile_q3=0.0212 bev@0.3_quartile_q4=0.0258 3d@0.3_quartile_q4=0.0135 score_thr=0.3000 p=0.0456 r=0.5738 f1=0.0845 tp=175 fp=3663 fn=130 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_018.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:06<03:50,  6.22s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:11<03:19,  5.53s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:16<03:09,  5.41s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:21<02:59,  5.28s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:26<02:44,  4.99s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:32<02:52,  5.39s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:38<02:54,  5.64s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [00:44<02:52,  5.74s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [00:50<02:51,  5.90s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [00:55<02:33,  5.49s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [00:59<02:18,  5.13s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:05<02:20,  5.39s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:11<02:20,  5.62s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [01:17<02:16,  5.70s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [01:21<01:58,  5.14s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [01:26<01:53,  5.15s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [01:32<01:50,  5.27s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [01:36<01:41,  5.10s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [01:41<01:32,  4.86s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [01:45<01:27,  4.84s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [01:52<01:29,  5.28s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [01:58<01:30,  5.64s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [02:04<01:26,  5.77s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [02:10<01:21,  5.85s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [02:15<01:13,  5.64s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [02:21<01:06,  5.55s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [02:26<01:01,  5.56s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [02:33<00:58,  5.82s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [02:38<00:50,  5.59s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [02:41<00:40,  5.00s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [02:45<00:32,  4.60s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [02:50<00:27,  4.60s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [02:55<00:24,  4.81s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [03:01<00:20,  5.15s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [03:05<00:14,  4.83s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [03:10<00:09,  4.83s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [03:15<00:04,  4.95s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [03:16<00:00,  3.81s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 34 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 56 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 18 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 48 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 53 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  70%|██████████████████████████████████████████████▉                    | 14/20 [1:11:15<24:19, 243.27s/it]epoch=18 official_bev_mAP_0.3=0.0918 ap_score_thr=0.0100 bev@0.3=0.0918 bev@0.5=0.0200 3d@0.3=0.0584 3d@0.5=0.0024 bev@0.3_quartile_q1=0.2266 3d@0.3_quartile_q1=0.1536 bev@0.3_quartile_q2=0.0286 3d@0.3_quartile_q2=0.0163 bev@0.3_quartile_q3=0.0505 3d@0.3_quartile_q3=0.0143 bev@0.3_quartile_q4=0.0358 3d@0.3_quartile_q4=0.0194 score_thr=0.3000 p=0.0742 r=0.4000 f1=0.1252 tp=122 fp=1522 fn=183 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_019.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:04<02:43,  4.43s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:09<03:00,  5.02s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:14<02:56,  5.03s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:20<03:02,  5.37s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:27<03:07,  5.67s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:30<02:40,  5.01s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:35<02:37,  5.07s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [00:42<02:42,  5.40s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [00:48<02:45,  5.72s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [00:54<02:42,  5.80s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:00<02:37,  5.82s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:04<02:22,  5.47s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:10<02:15,  5.41s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [01:14<02:02,  5.12s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [01:18<01:49,  4.76s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [01:22<01:41,  4.63s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [01:28<01:41,  4.83s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [01:33<01:40,  5.02s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [01:39<01:37,  5.15s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [01:45<01:36,  5.38s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [01:50<01:33,  5.49s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [01:56<01:29,  5.57s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [02:01<01:22,  5.52s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [02:07<01:15,  5.38s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [02:13<01:12,  5.61s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [02:18<01:07,  5.59s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [02:24<01:03,  5.73s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [02:30<00:57,  5.76s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [02:35<00:48,  5.43s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [02:39<00:40,  5.08s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [02:44<00:35,  5.11s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [02:49<00:30,  5.14s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [02:55<00:25,  5.13s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [02:59<00:19,  4.96s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [03:05<00:15,  5.32s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [03:09<00:09,  4.86s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [03:15<00:05,  5.18s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [03:16<00:00,  3.92s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 29 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 23 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 50 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 55 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 54 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  75%|██████████████████████████████████████████████████▎                | 15/20 [1:14:47<19:28, 233.72s/it]epoch=19 official_bev_mAP_0.3=0.0565 ap_score_thr=0.0100 bev@0.3=0.0565 bev@0.5=0.0198 3d@0.3=0.0316 3d@0.5=0.0007 bev@0.3_quartile_q1=0.1621 3d@0.3_quartile_q1=0.1041 bev@0.3_quartile_q2=0.0256 3d@0.3_quartile_q2=0.0153 bev@0.3_quartile_q3=0.0412 3d@0.3_quartile_q3=0.0066 bev@0.3_quartile_q4=0.0259 3d@0.3_quartile_q4=0.0083 score_thr=0.3000 p=0.0594 r=0.4656 f1=0.1054 tp=142 fp=2248 fn=163 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_020.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:04<02:36,  4.24s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:09<02:54,  4.85s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:15<03:12,  5.51s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:21<03:14,  5.72s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:27<03:07,  5.69s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:33<03:06,  5.81s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:39<03:01,  5.84s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [00:45<02:55,  5.84s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [00:51<02:52,  5.95s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [00:56<02:41,  5.78s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [01:03<02:38,  5.88s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:07<02:24,  5.54s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:13<02:17,  5.48s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [01:18<02:13,  5.57s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [01:24<02:05,  5.46s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [01:29<01:59,  5.45s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [01:35<02:00,  5.74s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [01:40<01:49,  5.45s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [01:47<01:48,  5.71s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [01:52<01:39,  5.52s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [01:57<01:35,  5.63s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [02:03<01:30,  5.65s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [02:07<01:18,  5.25s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [02:12<01:11,  5.13s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [02:17<01:03,  4.89s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [02:22<00:59,  4.95s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [02:27<00:56,  5.13s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [02:33<00:52,  5.28s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [02:39<00:48,  5.43s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [02:45<00:45,  5.63s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [02:49<00:37,  5.34s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [02:53<00:28,  4.68s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [02:58<00:24,  4.81s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [03:03<00:19,  4.83s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [03:06<00:13,  4.53s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [03:12<00:09,  4.79s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [03:17<00:04,  5.00s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [03:18<00:00,  3.75s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 62 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 49 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 51 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  80%|█████████████████████████████████████████████████████▌             | 16/20 [1:18:24<15:15, 228.79s/it]epoch=20 official_bev_mAP_0.3=0.0869 ap_score_thr=0.0100 bev@0.3=0.0869 bev@0.5=0.0175 3d@0.3=0.0586 3d@0.5=0.0022 bev@0.3_quartile_q1=0.2371 3d@0.3_quartile_q1=0.1915 bev@0.3_quartile_q2=0.0457 3d@0.3_quartile_q2=0.0278 bev@0.3_quartile_q3=0.0520 3d@0.3_quartile_q3=0.0183 bev@0.3_quartile_q4=0.0408 3d@0.3_quartile_q4=0.0190 score_thr=0.3000 p=0.0755 r=0.4918 f1=0.1309 tp=150 fp=1837 fn=155 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_021.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:05<03:41,  5.98s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:11<03:25,  5.72s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:17<03:31,  6.03s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:22<03:11,  5.62s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:27<02:58,  5.40s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:33<02:55,  5.50s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:39<02:51,  5.54s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [00:44<02:46,  5.56s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [00:49<02:28,  5.13s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [00:52<02:11,  4.70s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [00:56<01:59,  4.41s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:00<01:52,  4.32s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:05<01:52,  4.48s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [01:11<01:56,  4.86s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [01:17<01:58,  5.17s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [01:22<01:55,  5.26s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [01:27<01:50,  5.25s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [01:33<01:50,  5.51s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [01:39<01:43,  5.45s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [01:44<01:39,  5.52s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [01:51<01:37,  5.73s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [01:57<01:33,  5.85s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [02:02<01:26,  5.78s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [02:08<01:21,  5.82s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [02:14<01:15,  5.82s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [02:19<01:06,  5.56s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [02:25<01:01,  5.62s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [02:31<00:58,  5.82s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [02:38<00:54,  6.01s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [02:43<00:46,  5.80s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [02:47<00:36,  5.22s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [02:51<00:29,  4.88s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [02:56<00:25,  5.03s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [03:01<00:19,  4.93s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [03:05<00:14,  4.76s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [03:09<00:08,  4.42s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [03:13<00:04,  4.41s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [03:14<00:00,  3.32s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 117 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 54 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 57 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 59 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  85%|████████████████████████████████████████████████████████▉          | 17/20 [1:22:00<11:14, 224.89s/it]epoch=21 official_bev_mAP_0.3=0.0668 ap_score_thr=0.0100 bev@0.3=0.0668 bev@0.5=0.0139 3d@0.3=0.0475 3d@0.5=0.0019 bev@0.3_quartile_q1=0.2117 3d@0.3_quartile_q1=0.1510 bev@0.3_quartile_q2=0.0553 3d@0.3_quartile_q2=0.0423 bev@0.3_quartile_q3=0.0358 3d@0.3_quartile_q3=0.0103 bev@0.3_quartile_q4=0.0271 3d@0.3_quartile_q4=0.0151 score_thr=0.3000 p=0.0525 r=0.5607 f1=0.0960 tp=171 fp=3087 fn=134 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_022.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:05<03:14,  5.25s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:10<03:00,  5.02s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:16<03:12,  5.49s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:22<03:13,  5.69s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:28<03:13,  5.88s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:33<03:02,  5.69s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:39<02:54,  5.62s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [00:43<02:35,  5.20s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [00:48<02:26,  5.06s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [00:53<02:26,  5.23s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [00:59<02:23,  5.32s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [01:04<02:17,  5.29s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [01:09<02:11,  5.27s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [01:14<02:05,  5.23s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [01:21<02:06,  5.49s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [01:26<02:02,  5.56s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [01:32<01:57,  5.60s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [01:38<01:52,  5.61s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [01:43<01:45,  5.55s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [01:48<01:37,  5.40s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [01:53<01:30,  5.35s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [01:58<01:23,  5.23s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [02:03<01:17,  5.18s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [02:09<01:13,  5.22s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [02:13<01:05,  5.02s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [02:18<00:59,  4.97s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [02:23<00:55,  5.04s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [02:28<00:50,  5.08s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [02:34<00:47,  5.22s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [02:39<00:41,  5.19s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [02:43<00:34,  4.95s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [02:48<00:28,  4.72s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [02:51<00:21,  4.25s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [02:54<00:15,  4.00s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [03:00<00:13,  4.41s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [03:05<00:09,  4.74s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [03:11<00:04,  4.99s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [03:11<00:00,  3.74s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 35 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 54 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 22 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 46 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 45 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  90%|████████████████████████████████████████████████████████████▎      | 18/20 [1:25:28<07:19, 219.78s/it]epoch=22 official_bev_mAP_0.3=0.0785 ap_score_thr=0.0100 bev@0.3=0.0785 bev@0.5=0.0130 3d@0.3=0.0432 3d@0.5=0.0037 bev@0.3_quartile_q1=0.1860 3d@0.3_quartile_q1=0.1019 bev@0.3_quartile_q2=0.0291 3d@0.3_quartile_q2=0.0192 bev@0.3_quartile_q3=0.0533 3d@0.3_quartile_q3=0.0151 bev@0.3_quartile_q4=0.0450 3d@0.3_quartile_q4=0.0256 score_thr=0.3000 p=0.0901 r=0.3180 f1=0.1404 tp=97 fp=980 fn=208 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_023.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:05<03:24,  5.53s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:09<02:44,  4.57s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:13<02:38,  4.53s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:18<02:29,  4.40s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:22<02:19,  4.23s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:26<02:15,  4.23s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:29<02:05,  4.05s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [00:34<02:03,  4.13s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [00:39<02:08,  4.45s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [00:43<02:05,  4.49s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [00:48<02:01,  4.49s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [00:54<02:05,  4.82s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [00:59<02:04,  5.00s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [01:04<01:57,  4.88s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [01:08<01:49,  4.76s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [01:13<01:43,  4.70s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [01:17<01:37,  4.66s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [01:23<01:39,  4.96s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [01:28<01:34,  5.00s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [01:33<01:29,  4.98s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [01:38<01:24,  4.98s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [01:43<01:18,  4.93s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [01:48<01:14,  4.96s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [01:53<01:12,  5.15s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [01:59<01:07,  5.18s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [02:03<01:01,  5.09s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [02:08<00:54,  4.96s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [02:13<00:49,  4.92s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [02:18<00:44,  4.94s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [02:23<00:39,  4.97s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [02:27<00:33,  4.79s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [02:32<00:27,  4.64s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [02:35<00:21,  4.32s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [02:39<00:16,  4.22s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [02:44<00:13,  4.53s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [02:50<00:09,  4.70s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [02:54<00:04,  4.70s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [02:55<00:00,  3.57s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 118 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 29 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 26 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 52 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 20 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 55 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 59 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints:  95%|███████████████████████████████████████████████████████████████▋   | 19/20 [1:28:41<03:31, 211.67s/it]epoch=23 official_bev_mAP_0.3=0.0756 ap_score_thr=0.0100 bev@0.3=0.0756 bev@0.5=0.0145 3d@0.3=0.0515 3d@0.5=0.0018 bev@0.3_quartile_q1=0.1899 3d@0.3_quartile_q1=0.1620 bev@0.3_quartile_q2=0.0502 3d@0.3_quartile_q2=0.0367 bev@0.3_quartile_q3=0.0634 3d@0.3_quartile_q3=0.0103 bev@0.3_quartile_q4=0.0327 3d@0.3_quartile_q4=0.0183 score_thr=0.3000 p=0.0694 r=0.5377 f1=0.1230 tp=164 fp=2198 fn=141 ign_sup=0 frames=1190
-Initialized sedan-only model from: /home/local/xinyu/MVRSS/mvrss/checkpoints/overcast/0810_train_seq12_first_1_test_seq13/0811_epoch_024.pth
-  loaded keys: 339
-
-Evaluation:   0%|                                                                                | 0/38 [00:00<?, ?it/s][A
-Evaluation:   3%|█▉                                                                      | 1/38 [00:03<02:23,  3.89s/it][A
-Evaluation:   5%|███▊                                                                    | 2/38 [00:08<02:26,  4.06s/it][A
-Evaluation:   8%|█████▋                                                                  | 3/38 [00:11<02:14,  3.83s/it][A
-Evaluation:  11%|███████▌                                                                | 4/38 [00:14<02:01,  3.58s/it][A
-Evaluation:  13%|█████████▍                                                              | 5/38 [00:19<02:08,  3.90s/it][A
-Evaluation:  16%|███████████▎                                                            | 6/38 [00:23<02:09,  4.06s/it][A
-Evaluation:  18%|█████████████▎                                                          | 7/38 [00:28<02:11,  4.23s/it][A
-Evaluation:  21%|███████████████▏                                                        | 8/38 [00:32<02:09,  4.32s/it][A
-Evaluation:  24%|█████████████████                                                       | 9/38 [00:36<01:59,  4.12s/it][A
-Evaluation:  26%|██████████████████▋                                                    | 10/38 [00:40<01:52,  4.00s/it][A
-Evaluation:  29%|████████████████████▌                                                  | 11/38 [00:43<01:46,  3.93s/it][A
-Evaluation:  32%|██████████████████████▍                                                | 12/38 [00:47<01:42,  3.94s/it][A
-Evaluation:  34%|████████████████████████▎                                              | 13/38 [00:52<01:41,  4.04s/it][A
-Evaluation:  37%|██████████████████████████▏                                            | 14/38 [00:56<01:35,  3.97s/it][A
-Evaluation:  39%|████████████████████████████                                           | 15/38 [00:59<01:30,  3.95s/it][A
-Evaluation:  42%|█████████████████████████████▉                                         | 16/38 [01:02<01:20,  3.68s/it][A
-Evaluation:  45%|███████████████████████████████▊                                       | 17/38 [01:05<01:12,  3.46s/it][A
-Evaluation:  47%|█████████████████████████████████▋                                     | 18/38 [01:08<01:05,  3.28s/it][A
-Evaluation:  50%|███████████████████████████████████▌                                   | 19/38 [01:11<00:59,  3.11s/it][A
-Evaluation:  53%|█████████████████████████████████████▎                                 | 20/38 [01:14<00:53,  2.95s/it][A
-Evaluation:  55%|███████████████████████████████████████▏                               | 21/38 [01:16<00:45,  2.66s/it][A
-Evaluation:  58%|█████████████████████████████████████████                              | 22/38 [01:18<00:40,  2.55s/it][A
-Evaluation:  61%|██████████████████████████████████████████▉                            | 23/38 [01:21<00:39,  2.63s/it][A
-Evaluation:  63%|████████████████████████████████████████████▊                          | 24/38 [01:23<00:36,  2.62s/it][A
-Evaluation:  66%|██████████████████████████████████████████████▋                        | 25/38 [01:26<00:35,  2.71s/it][A
-Evaluation:  68%|████████████████████████████████████████████████▌                      | 26/38 [01:29<00:34,  2.87s/it][A
-Evaluation:  71%|██████████████████████████████████████████████████▍                    | 27/38 [01:33<00:34,  3.11s/it][A
-Evaluation:  74%|████████████████████████████████████████████████████▎                  | 28/38 [01:37<00:32,  3.30s/it][A
-Evaluation:  76%|██████████████████████████████████████████████████████▏                | 29/38 [01:40<00:30,  3.38s/it][A
-Evaluation:  79%|████████████████████████████████████████████████████████               | 30/38 [01:44<00:28,  3.54s/it][A
-Evaluation:  82%|█████████████████████████████████████████████████████████▉             | 31/38 [01:48<00:25,  3.61s/it][A
-Evaluation:  84%|███████████████████████████████████████████████████████████▊           | 32/38 [01:51<00:19,  3.31s/it][A
-Evaluation:  87%|█████████████████████████████████████████████████████████████▋         | 33/38 [01:53<00:15,  3.12s/it][A
-Evaluation:  89%|███████████████████████████████████████████████████████████████▌       | 34/38 [01:56<00:11,  2.88s/it][A
-Evaluation:  92%|█████████████████████████████████████████████████████████████████▍     | 35/38 [01:58<00:08,  2.69s/it][A
-Evaluation:  95%|███████████████████████████████████████████████████████████████████▎   | 36/38 [02:00<00:04,  2.48s/it][A
-Evaluation:  97%|█████████████████████████████████████████████████████████████████████▏ | 37/38 [02:02<00:02,  2.34s/it][A
-Evaluation: 100%|███████████████████████████████████████████████████████████████████████| 38/38 [02:02<00:00,  1.78s/it][A
-                                                                                                                        [AFinished model inference. Collected 1190 eval frames. Running selected metrics now...
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 119 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 119 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 1 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 30 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 28 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 72 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 24 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 42 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-/home/local/miniconda3/envs/mvrss/lib/python3.10/site-packages/numba/cuda/dispatcher.py:536: NumbaPerformanceWarning: Grid size 47 will likely result in GPU under-utilization due to low occupancy.
-  warn(NumbaPerformanceWarning(msg))
-Metric computation finished.
-Checkpoints: 100%|███████████████████████████████████████████████████████████████████| 20/20 [1:30:53<00:00, 187.75s/it]Checkpoints: 100%|███████████████████████████████████████████████████████████████████| 20/20 [1:30:53<00:00, 272.66s/it]
-epoch=24 official_bev_mAP_0.3=0.0503 ap_score_thr=0.0100 bev@0.3=0.0503 bev@0.5=0.0128 3d@0.3=0.0388 3d@0.5=0.0022 bev@0.3_quartile_q1=0.1474 3d@0.3_quartile_q1=0.1225 bev@0.3_quartile_q2=0.0472 3d@0.3_quartile_q2=0.0141 bev@0.3_quartile_q3=0.0118 3d@0.3_quartile_q3=0.0026 bev@0.3_quartile_q4=0.0112 3d@0.3_quartile_q4=0.0029 score_thr=0.3000 p=0.3115 r=0.0623 f1=0.1038 tp=19 fp=42 fn=286 ign_sup=0 frames=1190
-best_epoch: epoch=18 official_bev_mAP_0.3=0.0918
-Saved evaluation table txt: /home/local/xinyu/MVRSS/mvrss/experiments4/weather_reference_reports/overcast/test_set_13/group15_seed44_source_weather_result.txt
-[2026-08-13T01:50:50+02:00] returncode=0

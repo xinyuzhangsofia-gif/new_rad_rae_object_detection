@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from scripts import evaluate_quartile_experiments as launcher
+from tests.test_evaluate_distance_experiments import temporary_checkpoint_records
 
 
 def quartile_metadata(counts=(25, 25, 25, 25)):
@@ -40,8 +41,8 @@ class QuartileExperimentLauncherTests(unittest.TestCase):
             weather: launcher.read_experiment_rows(weather)
             for weather in launcher.WEATHERS
         }
-        with tempfile.TemporaryDirectory() as temporary_dir:
-            tasks = launcher.discover_tasks(rows, Path(temporary_dir))
+        with temporary_checkpoint_records(rows) as root:
+            tasks = launcher.discover_tasks(rows, root / "output")
         self.assertEqual(len(tasks), 54)
         self.assertEqual(sum(x["weather"] == "rain" for x in tasks.values()), 30)
         self.assertEqual(sum(x["weather"] == "sleet" for x in tasks.values()), 24)

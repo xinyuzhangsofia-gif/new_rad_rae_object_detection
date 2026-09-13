@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import torch
 
-from cfg_model import RANGE_AXIS
-from coordinate_modes import resolve_evaluation_coordinate_mode
+from data.coordinates import RANGE_AXIS
+from configs.coordinates import resolve_evaluation_coordinate_mode
 from eval.polar_ap import compute_polar_ap_metrics
 from evaluation import (
     attach_evaluation_main_metric,
@@ -12,7 +12,7 @@ from evaluation import (
     outputs_to_detections,
 )
 from models import build_model
-from train_mode_utils import (
+from training_utils.configuration import (
     apply_training_coordinate_mode,
     resolve_loss_mode,
     resolve_model7_decoder_hidden_channels,
@@ -21,7 +21,7 @@ from training_utils.losses import (
     cartesian_centerpoint_detection_loss,
     radenet_detection_loss,
 )
-from training_utils.radenet_utils import (
+from data.geometry import (
     feature_indices_to_cartesian_xy,
     metric_boxes_to_raw_local_rae,
 )
@@ -98,7 +98,7 @@ class CoordinateModeTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["polar_bev_mAP_0.3"], 100.0)
         self.assertAlmostEqual(metrics["polar_bev_mAP_0.5"], 100.0)
 
-    def test_training_switch_routes_the_matching_evaluator(self):
+    def test_training_rejects_polar_and_routes_cartesian_evaluation(self):
         polar_args = SimpleNamespace(
             box_coordinate_mode="polar",
             cartesian_gt_root=None,
@@ -106,11 +106,8 @@ class CoordinateModeTests(unittest.TestCase):
             model_type="model7",
             best_metric_key="auto",
         )
-        apply_training_coordinate_mode(polar_args)
-        self.assertFalse(polar_args.official_eval_enabled)
-        self.assertTrue(polar_args.polar_eval_enabled)
-        self.assertEqual(polar_args.best_metric_key, "polar_bev_mAP_0.3")
-        self.assertEqual(polar_args.model_type, "model7")
+        with self.assertRaisesRegex(ValueError, "Only Cartesian"):
+            apply_training_coordinate_mode(polar_args)
 
         cartesian_args = SimpleNamespace(
             box_coordinate_mode="cartesian",

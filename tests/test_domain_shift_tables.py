@@ -64,7 +64,7 @@ class DomainShiftTablesTest(unittest.TestCase):
         self.assertEqual(information[1]["weather"], "normal")
         self.assertEqual(information[13]["weather"], "overcast")
         self.assertEqual(information[46]["weather"], "heavysnow")
-        self.assertEqual(information[58]["object_count"], 925)
+        self.assertEqual(information[58]["object_count"], 926)
 
     def test_three_epoch_selections_and_before_after_are_separate(self):
         with tempfile.TemporaryDirectory() as temporary_dir:

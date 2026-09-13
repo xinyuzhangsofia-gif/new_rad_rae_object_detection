@@ -4,17 +4,17 @@ import numpy as np
 import torch
 import tqdm
 
-from cfg_model import (
+from data.coordinates import (
     SCOPE_FULL,
     denormalize_rae_boxes_for_scope,
     denormalize_rae_boxes_to_local_scope,
 )
-from coordinate_modes import (
+from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     BOX_COORDINATE_POLAR,
     validate_box_coordinate_mode,
 )
-from dataloader import prepare_model_inputs
+from data.dataloader import prepare_model_inputs
 from eval.adapter import (
     compute_official_kradar_style_metrics,
     load_official_eval_function,
@@ -34,7 +34,7 @@ from eval.distance_quartiles import (
 )
 from eval.nuscenes_style import compute_nuscenes_style_metrics
 from eval.polar_ap import compute_polar_ap_metrics
-from training_utils.radenet_utils import metric_boxes_to_raw_local_rae
+from data.geometry import metric_boxes_to_raw_local_rae
 
 from eval.decoding import (
     decode_batch_predictions,

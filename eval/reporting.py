@@ -13,10 +13,12 @@ import torch
 import yaml
 from torch.utils.tensorboard import SummaryWriter
 
-from coordinate_modes import BOX_COORDINATE_POLAR, validate_box_coordinate_mode
-from dataloader import normalize_sequence_list
+from configs.coordinates import BOX_COORDINATE_POLAR, validate_box_coordinate_mode
+from data.coordinates import SCOPE_FULL
+from data.dataloader import normalize_sequence_list
+from data.geometry import object_center_in_scope, prepare_cartesian_objects
 from eval.custom_iou_range import format_custom_iou_suffix
-from train_mode_utils import (
+from training_utils.configuration import (
     normalize_train_sequence_half_ratio,
     normalize_train_sequence_half_selection,
 )
@@ -2392,11 +2394,16 @@ def compute_subset_bbox_count_summary(dataset_subset):
         dataset_idx, sample_idx = base_dataset._resolve_index(int(global_index))
         sequence_dataset = base_dataset.sequence_datasets[dataset_idx]
         all_objects = sequence_dataset.gt_by_file_idx.get(int(sample_idx), [])
+        if sequence_dataset.scope_mode != SCOPE_FULL:
+            radar_data = sequence_dataset.radar_dataset[int(sample_idx)]
+            all_objects = prepare_cartesian_objects(
+                all_objects, radar_data["full_rae_shape"]
+            )
         for obj in all_objects:
             class_name = str(obj.get("cls", ""))
             if class_name not in summary["bbox_by_class"]:
                 continue
-            if not sequence_dataset._object_center_in_scope(obj):
+            if not object_center_in_scope(obj, sequence_dataset.scope_mode):
                 continue
             summary["bbox_by_class"][class_name] += 1
             summary["bbox_total"] += 1

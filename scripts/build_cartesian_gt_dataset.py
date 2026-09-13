@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """Build a K-Radar Cartesian GT root keyed by radar tesseract frame names.
 
-The output intentionally keeps the official per-frame revised label files and
-also writes a flat ``<sequence>/gt/gt.txt`` for inspection.  The per-frame
-files are the files consumed by the Cartesian dataloader; the flat file is
-not parsed by the Polar ``read_gt_txt`` reader.
+The output keeps radar-aligned per-frame revised labels and also writes a flat
+``<sequence>/gt/gt.txt``. The Cartesian dataset prefers this flat file, parsed
+by ``read_cartesian_gt_txt``; per-frame labels are its fallback when the flat
+file is absent and are also used by sensor visualization.
 
 Flat Cartesian format::
 
     frame_idx,object_label,x,y,z,x_width,y_width,z_width,yaw_deg,class
 
 ``frame_idx`` is the one-based ordinal of the shared, sorted radar/rae npy
-files, matching the convention used by Polar ``gt.txt``.  The exact
-``frame_idx`` to tesseract filename mapping is recorded in
-``frame_manifest.csv``.
+files. The exact ``frame_idx`` to tesseract filename mapping is recorded in
+``frame_manifest.csv``. This command does not produce Polar GT.
 """
 
 from __future__ import annotations
@@ -23,10 +22,18 @@ import csv
 import math
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import numpy as np
 import yaml
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from configs.data import CARTESIAN_GT_ROOT, RADAR_NPY_ROOT
 
 
 HEADER_INDEX_RE = re.compile(r"=\s*([^,\s]+)")
@@ -344,12 +351,12 @@ def parse_args():
     parser.add_argument(
         "--radar-root",
         type=Path,
-        default=Path("/home/local/xinyu/K-Radar-RAD"),
+        default=Path(RADAR_NPY_ROOT),
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("/home/local/xinyu/K-Radar-GT-cartesian-radar-v2"),
+        default=Path(CARTESIAN_GT_ROOT),
     )
     parser.add_argument(
         "--lidar2radar-calib",

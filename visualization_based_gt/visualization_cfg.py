@@ -8,6 +8,8 @@ their boxes use different coordinate frames.
 from dataclasses import dataclass
 from pathlib import Path
 
+from configs.data import CARTESIAN_GT_ROOT, RADAR_NPY_ROOT
+
 
 VISUALIZATION_DIR = Path(__file__).resolve().parent
 
@@ -17,13 +19,11 @@ OFFICIAL_KRADAR_GT_ROOT = (
     "KRadar_revised_visibility"
 )
 
-# Current GT: the labels currently configured and used by train_cfg.py.
-CURRENT_GT_ROOT = (
-    "/home/local/xinyu/K-Radar-GT-cartesian-radar-v2"
-)
+# Current GT: the labels configured in configs/training.py.
+CURRENT_GT_ROOT = CARTESIAN_GT_ROOT
 
 # Current Radar tensors: the same paired RAD/RAE npy files used by train.py.
-CURRENT_RADAR_NPY_ROOT = "/home/local/xinyu/K-Radar-RAD"
+CURRENT_RADAR_NPY_ROOT = RADAR_NPY_ROOT
 
 # Front-camera images. The SMB URI is resolved to its local GVFS mount by
 # visualization_utils.py before OpenCV reads it.
@@ -63,7 +63,7 @@ class DataConfig:
 
     # Choose one GT source:
     #   OFFICIAL_KRADAR_GT_ROOT -> GT used by the past visualization
-    #   CURRENT_GT_ROOT         -> GT currently used by train_cfg.py
+    #   CURRENT_GT_ROOT         -> GT selected in configs/training.py
     info_label_root: str = CURRENT_GT_ROOT
 
     # Paired Radar npy input used by train.py.  "rae" collapses elevation to

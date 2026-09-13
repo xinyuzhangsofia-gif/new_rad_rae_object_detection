@@ -20,7 +20,7 @@ from visualization import (
 )
 from visualization_cfg import DataConfig, VISUALIZATION_DIR
 from visualization_utils import get_label_dir, get_visualization_camera_dir
-from zxy_data_path import get_camera_calib_path, get_label_files
+from data.paths import get_camera_calib_path, get_label_files
 
 
 SEQUENCE = 50
