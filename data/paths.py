@@ -3,7 +3,7 @@
 import os
 from functools import lru_cache
 
-from configs.data import CARTESIAN_GT_ROOT, RADAR_NPY_ROOT
+from configs.data import CARTESIAN_GT_ROOT, RADAR_NPY_ROOT, RAW_RADAR_ROOT
 
 
 @lru_cache(maxsize=64)
@@ -76,8 +76,8 @@ def get_lidar2radar_calib_path(cfg):
     return lidar2radar_calib_path
 
 def get_radar_dir(cfg):
-    radar_dir = f"/run/user/1000/gvfs/smb-share:server=192.168.189.30,share=elab-share/Datasets/K-Radar/{cfg.sequence}/radar_tesseract"
-    return radar_dir
+    raw_radar_root = getattr(cfg, "raw_radar_root", RAW_RADAR_ROOT)
+    return os.path.join(raw_radar_root, str(cfg.sequence), "radar_tesseract")
 
 
 def get_radar_path(radar_dir,tesseract_idx):

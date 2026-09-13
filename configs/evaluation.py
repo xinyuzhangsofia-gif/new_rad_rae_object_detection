@@ -1,4 +1,10 @@
-from configs.data import CARTESIAN_GT_ROOT
+from configs.data import (
+    CARTESIAN_GT_ROOT,
+    EVALUATION_PLOTS_BASE_DIR,
+    EVALUATION_RESULTS_BASE_DIR,
+    LOG_BASE_DIR,
+)
+from configs.runtime import EVALUATION_RUNTIME_CONFIG
 
 
 EVAL_CONFIG = {
@@ -59,20 +65,17 @@ EVAL_CONFIG = {
         "Motorcycle",
     ),
     "table_txt_enabled": True,
-    "table_output_base_dir": "evaluation_plots",
-    "evaluation_tensorboard_log_dir": "runs",
+    "table_output_base_dir": EVALUATION_PLOTS_BASE_DIR,
+    "evaluation_tensorboard_log_dir": LOG_BASE_DIR,
 
     # Automatically update source-to-target domain-shift tables after every
     # fully successful evaluation. Failed/interrupted runs never reach this step.
     "domain_comparison_enabled": False,
-    "domain_comparison_output_dir": "evaluation_results",
+    "domain_comparison_output_dir": EVALUATION_RESULTS_BASE_DIR,
     "domain_comparison_sequence_info_path": "sequence_information.csv",
 
-    # Runtime settings.
-    "batch_size": 32,
-    "num_workers": 0,
-    "gpu_ids": "0,1,2",
-    "cuda": "cuda:1",
+    # Runtime settings remain present in the public flat dictionary.
+    **EVALUATION_RUNTIME_CONFIG,
     "max_detections": 64,
     "heatmap_nms_kernel": 3,
     "yolox_nms_iou": 0.65,

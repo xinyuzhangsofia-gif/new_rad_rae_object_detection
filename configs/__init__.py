@@ -1,1 +1,1 @@
-"""Training, evaluation, data, and coordinate settings."""
+"""Training, resume, runtime, domain-shift, data, and evaluation settings."""

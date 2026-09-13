@@ -9,8 +9,8 @@ Run commands from the repository root after configuring local data and checkpoin
 
 | Task | Configuration | Command |
 | --- | --- | --- |
-| Train a detector or run an enabled experiment queue | `configs/training.py` | `python train.py` |
-| Resume training | `RESUME_CONFIG` in `configs/training.py` | `python train_resume.py` |
+| Train a detector | Stable defaults in `configs/training.py` | `python train.py` |
+| Resume training | Run-specific overrides in `configs/resume.py`; compatibility export in `configs/training.py` | `python train_resume.py` |
 | Evaluate checkpoints | `configs/evaluation.py` and CLI options | `python evaluation.py` |
 | Visualize predictions | `visualize_cfg.py` and CLI options | `python visualize.py` |
 
@@ -37,9 +37,19 @@ the source. Existing defaults still include the original machine's paths:
 | --- | --- |
 | Paired RAD/RAE NumPy data | `configs/data.py::RADAR_NPY_ROOT` or `MVRSS_RADAR_ROOT` |
 | Radar-aligned Cartesian GT | `configs/data.py::CARTESIAN_GT_ROOT` or `MVRSS_CARTESIAN_GT_ROOT`; optional training/evaluation overrides |
-| Raw sensors, radar SMB mount, and calibration | `configs/data.py`, `data/paths.py`, `visualization_based_gt/visualization_cfg.py` |
+| Raw sensors, radar SMB mount, official labels, camera SMB URI, and calibration | `configs/data.py` (consumed by visualization configurations and `data/paths.py`) |
 | Checkpoints and enabled experiments | Training, evaluation, and visualization configurations above |
 | Standalone analyses | Each tool's CLI options/defaults |
+
+Other configuration responsibilities are separated without changing the flat
+runtime dictionaries expected by existing code:
+
+| Responsibility | Configuration |
+| --- | --- |
+| GPUs, workers, queue concurrency, and memory thresholds | `configs/runtime.py` |
+| Domain-shift sequences, tables, controlled splits, and queue behavior | `configs/domain_shift.py` |
+| Interrupted queue checkpoint overrides | `configs/historical_overrides.py` |
+| Shared output directories | `configs/data.py` |
 
 Use trusted checkpoints: project checkpoints can contain Python objects as well
 as model tensors.
@@ -57,6 +67,12 @@ Set shared roots before starting a command:
 ```bash
 export MVRSS_RADAR_ROOT=/path/to/K-Radar-RAD
 export MVRSS_CARTESIAN_GT_ROOT=/path/to/K-Radar-GT-cartesian-radar-v2
+export MVRSS_RAW_KRADAR_ROOT=/path/to/raw/KRadar
+export MVRSS_RAW_RADAR_ROOT=/path/or/mount/to/K-Radar
+export MVRSS_OFFICIAL_KRADAR_GT_ROOT=/path/to/KRadar_revised_visibility
+export MVRSS_CAMERA_RGB_ROOT=smb://server/share/Datasets/K-Radar-RGB
+export MVRSS_LIDAR2RADAR_CALIB_PATH=/path/to/lidar2radar_calib.yml
+export MVRSS_KRADAR_TOOLS_ROOT=/path/to/official/K-Radar/repository
 ```
 
 Each sequence pairs `rad/<frame>.npy` with `rae/<frame>.npy` and prefers

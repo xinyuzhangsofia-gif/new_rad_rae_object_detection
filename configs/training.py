@@ -1,40 +1,43 @@
+"""Stable model/training defaults and compatibility configuration exports."""
+
+from configs.data import CARTESIAN_GT_ROOT, CHECKPOINT_BASE_DIR, LOG_BASE_DIR
+from configs.domain_shift import DOMAIN_SHIFT_CONFIG, EXPERIMENT_QUEUE_CONFIG
+from configs.historical_overrides import HISTORICAL_EXPERIMENT_QUEUE_OVERRIDES
+from configs.resume import build_resume_config
+from configs.runtime import (
+    EXPERIMENT_QUEUE_RUNTIME_CONFIG,
+    TRAIN_RUNTIME_CONFIG,
+)
 from data.coordinates import SCOPE_FULL, SCOPE_NARROW
-from configs.data import CARTESIAN_GT_ROOT
 
 
-# Edit this file, then run:
-#   python train.py
+# Edit stable model/training settings here, then run: python train.py
+# The imported sections below keep the historical flat-dictionary API used by
+# training, queue workers, checkpoints, and existing scripts.
 TRAIN_CONFIG = {
     # Cartesian GT only. RAD/RAE radar tensors remain the model inputs.
-    # Choose the Cartesian detection head/loss with loss_mode.
     "box_coordinate_mode": "cartesian",
-    # Loss selector for compatible workflows:
-    #   "radenet"    -> official RADE-Net heatmap + GWD + Smooth-L1 loss,
-    #                   including the original detached-mean normalization
-    #   "centerpoint"-> Gaussian-Focal heatmap + Smooth-L1 + GWD;
-    #                   no RADE-Net detached-mean normalization
-    #   "auto"       -> select from model/coordinate mode (legacy behavior)
-    "loss_mode": "centerpoint",    #radenet, centerpoint without normalization
+    # radenet, centerpoint without normalization, or auto (legacy selection).
+    "loss_mode": "centerpoint",
     "cartesian_gt_root": CARTESIAN_GT_ROOT,
 
-    # Model and optimization
+    # Model and optimization.
     "epochs": 50,
     "batch_size": 64,
-    "lr": 5e-5,   #5e-5
+    "lr": 5e-5,
     "max_detections": 64,
     "heatmap_radius": 3,
-    "centerpoint_gwd_loss_weight": 2.0,  # metric-space BEV Gaussian Wasserstein loss
-    "quality_loss_weight": 0.25,  # only model6 has the separate quality head; inactive for model7
-    "init_from_checkpoint": "",           # optional init checkpoint; 2-class cls heads can be adapted when include_bus_as_target=False
+    "centerpoint_gwd_loss_weight": 2.0,
+    "quality_loss_weight": 0.25,
+    "init_from_checkpoint": "",
 
-    # Target classes and ignored GT regions
-    "include_bus_as_target": True,          # True -> 2-class Sedan+Bus; False -> Sedan-only and Bus becomes ignore
-    "ignore_object_label_minus_one": False, # Keep object_label=-1 in Polar/Cartesian GT
-    "ignore_out_of_scope_gt": True,         # Ignore GT boxes outside the configured radar RAE/scope during training
-    "gt_object_ignore_override_path": None,  # optional; if None, auto-use split_dir/object_ignore_override.json when present
-    "ignore_mask_margin": 1.0,           # ignored region margin added after box scaling
-    "ignore_mask_expand_ratio": 1.5,     # ignored region = GT ignore box size * ratio + margin
-    # These classes are always ignored. Bus is added/removed automatically by include_bus_as_target.
+    # Target classes and ignored GT regions.
+    "include_bus_as_target": True,
+    "ignore_object_label_minus_one": False,
+    "ignore_out_of_scope_gt": True,
+    "gt_object_ignore_override_path": None,
+    "ignore_mask_margin": 1.0,
+    "ignore_mask_expand_ratio": 1.5,
     "ignore_class_names": (
         "Pedestrian",
         "Pedestrian Group",
@@ -43,187 +46,50 @@ TRAIN_CONFIG = {
         "Motorcycle",
     ),
 
-    # Training-time evaluation and checkpoint selection
+    # Training-time evaluation and checkpoint selection.
     "eval_train": False,
-    "training_eval_enabled": True,         # Needed to select and save the global-best checkpoint
-    "best_metric_key": "auto",             # only used when training_eval_enabled=True
-    # Set automatically from box_coordinate_mode; do not edit this separately.
+    "training_eval_enabled": True,
+    "best_metric_key": "auto",
     "official_eval_enabled": None,
-    "official_eval_version": "revised",    # revised or legacy
-    # The flags below only take effect when training_eval_enabled is True.
-    # Use the GPU rotated-IoU backend for the Cartesian BEV/3D AP selection.
-    "official_eval_iou_backend": "gpu",    # GPU rotated IoU backend
-    "official_eval_iou_mode": "easy",      # BEV/3D AP at IoU=0.3
-    "official_detection_metrics_enabled": False, # only BEV/3D AP is needed
-    "ap_score_thresh": 0.01,               # only used when training_eval_enabled=True; boxes below this are dropped before AP/mAP
-    "score_thresh": 0.3,                   # only used when training_eval_enabled=True; for TP/FP/FN/Precision/Recall/F1
-    "train_scope": SCOPE_FULL,             # SCOPE_FULL or SCOPE_NARROW
+    "official_eval_version": "revised",
+    "official_eval_iou_backend": "gpu",
+    "official_eval_iou_mode": "easy",
+    "official_detection_metrics_enabled": False,
+    "ap_score_thresh": 0.01,
+    "score_thresh": 0.3,
+    "train_scope": SCOPE_FULL,
 
-    # Base train/validation split
+    # Ordinary train/validation split.
     "train_ratio": 0.7,
-    "split_mode": "file",                  # strictly use split/train.txt and split/test.txt
-    "split_dir": "split",  # used when split_mode == "file"
-    "train_sequences": None,               # file split membership comes from train.txt
-    "val_sequences": None,                 # file split membership comes from test.txt
-
-    # Ordered multi-weather domain-shift queue. One top-level train.py reads
-    # every table in this list and advances to the next table automatically.
-    # Within each table, source/target branch workers can overlap.
-    "experiment_queue_enabled": False,
-    "experiment_sheet_paths": (
-        "experiments/heavy_snow_experiments.txt",
-        "experiments/light_snow_experiments.txt",
-        "experiments/overcast_experiments.txt",
-        "experiments/rain_experiments.txt",
-        "experiments/sleet_experiments.txt",
-    ),
-    # Global queue order: finish seed42 weather by weather, then seed43,
-    # then seed44. Within a weather/seed, the existing test/group order stays.
-    "experiment_queue_order": "seed_then_weather",
-    "experiment_queue_seed_order": (42, 43, 44),
-    # For each seed: finish every training task first, then evaluate all of
-    # its checkpoints. The next seed starts only after both phases finish.
-    "experiment_queue_execution_mode": "seed_two_phase",
-    "experiment_queue_branches": ("source", "target"),
-    # Completed branches are skipped. Missing AP values are trained/evaluated
-    # and written back into the same CSV, including TD and the average row.
-    "experiment_queue_skip_completed_branches": True,
-    "experiment_queue_update_sheet_results": True,
-    "experiment_queue_require_full_table": True,
-    "experiment_results_base_dir": "evaluation_plots",
-    # One batch-size-32 training process per GPU. A real model7 smoke test used
-    # 12.55 GiB peak reserved memory on one 16-GiB RTX 5060 Ti.
-    "experiment_queue_train_workers": 3,
-    "experiment_queue_gpu_strategy": "isolated",
-    "experiment_queue_train_gpu_slots": (
-        "0",
-        "1",
-        "2",
-    ),
-    # Resume the two seed-43 tasks that still need epochs after the queue
-    # interruption.  group11/source already reached epoch 30; its queue state
-    # is recorded as trained so it goes directly to evaluation.
-    "experiment_queue_resume_checkpoints": {
-        "overcast_022_group11_seed43_target": (
-            "checkpoints/overcast/0807_train_seq9_13_test_seq22/"
-            "0808_epoch_018.pth"
-        ),
-        "overcast_023_group12_seed43_source": (
-            "checkpoints/overcast/0807_train_seq12_11_test_seq22/"
-            "0808_epoch_014.pth"
-        ),
-    },
-    # Evaluation starts only after all training for the active seed. Run three
-    # evaluators per GPU (nine total); monitor host RAM because each evaluator
-    # can use roughly 3 GiB and this machine has 30 GiB.
-    "experiment_queue_eval_workers": 9,
-    "experiment_queue_eval_gpu_pool": "0,1,2",
-    "experiment_queue_eval_max_per_gpu": 3,
-    "experiment_queue_eval_batch_size": 32,
-    "experiment_queue_eval_min_free_memory_mb": 1500,
-    # A temporary reservation prevents two evaluations launched in the same
-    # polling cycle from both assuming that the same free memory is available.
-    "experiment_queue_eval_reservation_memory_mb": 2500,
-    "experiment_queue_poll_seconds": 1.0,
-
-    # Domain-shift experiment design.
-    #   source -> shared + source train, evaluated on target_test
-    #   target -> shared + target train, evaluated on the same target_test
-    # train_sequences/val_sequences are derived automatically from this block.
-    "domain_shift_train_branch": None,      # disabled for the ordinary file split
-    "shared_train_sequences": (9, 12),
-    "source_train_sequences": (4, 3, 20, 14),
-    "target_train_sequences": (46, 47, 55, 58),
-    "target_test_sequences": (54, 56),
-    # The target-test weather and checkpoints/<weather>/ directory are inferred
-    # automatically from target_test_sequences using this table.
-    "sequence_information_path": "sequence_information.csv",
-    # Optional chronological truncation, including shared sequences.
-    # Empty means use each selected sequence in full.
-    "train_sequence_half_selection": {},
-    "train_sequence_half_ratio": 0.5,
-
-    # Automatic controlled training sequences. In domain-shift mode the source
-    # and reference sequences are derived from source_train_sequences and
-    # target_train_sequences, so they cannot drift away from the experiment.
-    # In an experiment queue, True controls only the source branch; the target
-    # branch is automatically kept unfiltered.
-    "train_control_split_enabled": False,
-    "controlled_split_base_dir": "split",  # generated control directories are created below this directory
-    "control_window_position": "last",  # "first" or "last" continuous source window
-    # Physical radar-center range bins used by the optional controlled split.
-    # In Cartesian mode, r_m = sqrt(x**2 + y**2 + z**2) is computed from the
-    # Cartesian GT center.  The intervals are left-closed and right-open.
-    "control_range_m_bins": (
-        (0.0, 20.0),
-        (20.0, 40.0),
-        (40.0, 60.0),
-        (60.0, 80.0),
-        (80.0, 120.0),
-    ),
-    # Sedan-only control: match Sedan positives first. Bus/Truck remains an
-    # ignore-mask class and is not counted as a controlled positive bbox.
-    "control_class_names": ("Sedan",),
-    "control_num_trials": 300,  # random trials for secondary distribution tie-breaking
-    # Exact Sedan-count control.  If source has more Sedan boxes than its
-    # reference, mask the excess using near-to-far retention until counts are
-    # equal.  If source has fewer boxes, keep all because masking cannot add GT.
-    "control_total_bbox_tolerance_ratio": 0.0,
-    "train_control_split_dir": None,  # filled automatically when control is enabled
-
-    # Runtime, output, and model choice
-    "seed": 42,
-    "num_workers": 0,
-    "limit_samples": None,
-    "checkpoint_epoch_step": 1,           # save one checkpoint after every completed epoch
-    "checkpoint_base_dir": "checkpoints",
-    "checkpoint_layout": "legacy",
-    "checkpoint_filename_style": "compact",
-    "log_base_dir": "runs",
-    "gpu_ids": "0,1,2",
-    # After a successful final epoch, evaluate this run's checkpoint directory.
-    # The allowed GPU with the most free memory is selected automatically.
-    "post_training_eval_enabled": False,
-    "post_training_eval_min_free_memory_mb": 4096,
-    "model_type": "model7",               # remains model7 in both coordinate modes
-    # model7 decoder width: choose 64 or 128. "auto" uses 128 for Cartesian.
-    # The FPN width remains 128.
-    "model7_decoder_hidden_channels": "64",
-}
-
-
-# Edit this block, then run:
-#   python train_resume.py
-RESUME_CONFIG = {
-    **TRAIN_CONFIG,
-    "resume_checkpoint": (
-        "checkpoints/object_detection/"
-        "20260815_134341_021343__model_7__seq1-58/"
-        "0816_epoch_050.pth"
-    ),
-    # Keep the existing epoch-6 AP-best file. Resumed training skips the
-    # memory-heavy official AP pass; periodic checkpoints can be evaluated
-    # separately after training to select the final AP-best checkpoint.
-    "initial_best_checkpoint": None,
-    "start_epoch": None,                   # None means checkpoint epoch + 1
-    "end_epoch": 100,                      # resume epoch 51 through epoch 100
-    "load_optimizer": True,                # resume optimizer state if checkpoint has it
-    "training_eval_enabled": False,
-    "post_training_eval_enabled": False,
-    # Continue this interrupted run in its existing checkpoint/TensorBoard
-    # directories. Existing epoch files are never overwritten.
-    "resume_save_in_checkpoint_dir": True,
-    "resume_tensorboard_log_dir": (
-        "runs/object_detection/"
-        "20260815_134341_021894__model_7__seq1-58"
-    ),
-    # Restore the ordinary file split used by the interrupted model7 run.
     "split_mode": "file",
     "split_dir": "split",
     "train_sequences": None,
     "val_sequences": None,
-    "domain_shift_train_branch": None,
-    "train_sequence_half_selection": {},
-    "train_control_split_enabled": False,
-    "train_control_split_dir": None,
+
+    # Ordinary run and checkpoint behavior.
+    "seed": 42,
+    "limit_samples": None,
+    "checkpoint_epoch_step": 1,
+    "checkpoint_base_dir": CHECKPOINT_BASE_DIR,
+    "checkpoint_layout": "legacy",
+    "checkpoint_filename_style": "compact",
+    "log_base_dir": LOG_BASE_DIR,
+    "post_training_eval_enabled": False,
+    "model_type": "model7",
+    "model7_decoder_hidden_channels": "64",
+
+    # Compatibility aggregation. Edit these settings in their named modules.
+    **DOMAIN_SHIFT_CONFIG,
+    **EXPERIMENT_QUEUE_CONFIG,
+    **TRAIN_RUNTIME_CONFIG,
+    **EXPERIMENT_QUEUE_RUNTIME_CONFIG,
+    **HISTORICAL_EXPERIMENT_QUEUE_OVERRIDES,
 }
+
+
+# Backward-compatible import used by train_resume.py and external scripts.
+# Resume-only choices live in configs/resume.py and reuse all training defaults.
+RESUME_CONFIG = build_resume_config(TRAIN_CONFIG)
+
+
+__all__ = ["TRAIN_CONFIG", "RESUME_CONFIG", "SCOPE_FULL", "SCOPE_NARROW"]

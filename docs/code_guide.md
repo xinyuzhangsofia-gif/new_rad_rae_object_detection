@@ -6,6 +6,10 @@
 
 ```text
 configs/training.py → train.py → training_utils/runner.py
+    ├─ configs/runtime.py → GPU、worker 和队列并发
+    ├─ configs/domain_shift.py → 域偏移实验设计
+    ├─ configs/resume.py → 断点续训覆盖项
+    └─ configs/historical_overrides.py → 历史任务恢复状态
                                 ├─ data/ → 数据、GT、坐标及划分
                                 ├─ models/factory.py → model1 … model16
                                 └─ training_utils/ → 损失、训练、检查点、队列
@@ -156,9 +160,13 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | --- | ---: | --- | --- |
 | [configs/__init__.py](../configs/__init__.py) | 1 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
 | [configs/coordinates.py](../configs/coordinates.py) | 101 | Cartesian 数据入口校验；内部几何及辅助指标模式解析。 | 保留明确配置入口；后续统一机器路径，保持原默认值。 |
-| [configs/data.py](../configs/data.py) | 56 | 通用传感器/数据可视化配置数据类。 | 保留明确配置入口；后续统一机器路径，保持原默认值。 |
+| [configs/data.py](../configs/data.py) | — | 数据集、原始传感器、校准及共享输出路径；本机数据路径支持环境变量覆盖。 | 机器路径的统一配置入口。 |
+| [configs/domain_shift.py](../configs/domain_shift.py) | — | 域偏移序列、实验表、受控划分和队列行为。 | 与普通训练超参数分离。 |
 | [configs/evaluation.py](../configs/evaluation.py) | 82 | 可编辑独立评估配置。 | 保留明确配置入口；后续统一机器路径，保持原默认值。 |
-| [configs/training.py](../configs/training.py) | 229 | 可编辑训练和断点续训配置。 | 保留明确配置入口；后续统一机器路径，保持原默认值。 |
+| [configs/historical_overrides.py](../configs/historical_overrides.py) | — | 中断的历史队列任务所需检查点覆盖项。 | 与稳定默认值隔离但保留信息。 |
+| [configs/resume.py](../configs/resume.py) | — | 当前断点续训任务的覆盖项。 | 基于训练默认值合并；兼容导出仍在 `configs/training.py`。 |
+| [configs/runtime.py](../configs/runtime.py) | — | 训练、评估和实验队列的 GPU、worker、内存与轮询设置。 | 机器运行参数的统一入口。 |
+| [configs/training.py](../configs/training.py) | — | 稳定训练/模型默认值，并组合兼容的平铺配置字典。 | 保留 `TRAIN_CONFIG` 和 `RESUME_CONFIG` 公共接口。 |
 
 ### data
 

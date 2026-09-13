@@ -69,7 +69,7 @@ def build_resume_args(resume_config=None):
     if args.resume_checkpoint == "":
         raise ValueError(
             "Set RESUME_CONFIG['resume_checkpoint'] in "
-            "configs/training.py before running train_resume.py"
+            "configs/resume.py before running train_resume.py"
         )
     if args.end_epoch <= 0:
         raise ValueError("RESUME_CONFIG['end_epoch'] must be greater than 0")
@@ -226,8 +226,9 @@ def initialize_best_state(best_state, initial_best_checkpoint, checkpoint_dir):
 def main(resume_config=None):
     if resume_config is None and len(sys.argv) > 1:
         raise ValueError(
-            "train_resume.py reads settings from configs/training.py. Edit "
-            "RESUME_CONFIG, then run: python train_resume.py"
+            "train_resume.py reads the merged RESUME_CONFIG exported from "
+            "configs/training.py. Edit overrides in configs/resume.py, then "
+            "run: python train_resume.py"
         )
 
     args = build_resume_args(resume_config=resume_config)

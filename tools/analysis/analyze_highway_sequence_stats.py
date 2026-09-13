@@ -10,11 +10,11 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from data.coordinates import AZIMUTH_AXIS, ELEVATION_AXIS, RANGE_AXIS, cartesian_to_rae, is_rae_center_in_gt_scope
-from configs.data import CARTESIAN_GT_ROOT
+from configs.data import CARTESIAN_GT_ROOT, KRADAR_TOOLS_ROOT
 from data.labels import read_cartesian_gt_txt
 
 
-OFFICIAL_TAG_PATH = Path("/home/local/xinyu/K-Radar/tools/tag_generator/tag_generation.py")
+OFFICIAL_TAG_PATH = Path(KRADAR_TOOLS_ROOT) / "tools/tag_generator/tag_generation.py"
 GT_ROOT = Path(CARTESIAN_GT_ROOT)
 OUTPUT_DIR = Path("analysis_plots/road_type_stats")
 

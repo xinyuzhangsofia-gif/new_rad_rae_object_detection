@@ -8,26 +8,23 @@ their boxes use different coordinate frames.
 from dataclasses import dataclass
 from pathlib import Path
 
-from configs.data import CARTESIAN_GT_ROOT, RADAR_NPY_ROOT
+from configs.data import (
+    CAMERA_RGB_ROOT,
+    CARTESIAN_GT_ROOT,
+    OFFICIAL_KRADAR_GT_ROOT,
+    RADAR_NPY_ROOT,
+    RAW_KRADAR_ROOT,
+    VISUALIZATION_LIDAR2RADAR_CALIB_PATH,
+)
 
 
 VISUALIZATION_DIR = Path(__file__).resolve().parent
 
-# Past visualization GT: the official K-Radar revised visibility labels.
-OFFICIAL_KRADAR_GT_ROOT = (
-    "/home/local/xinyu/kradar_revised_label_v2_1/"
-    "KRadar_revised_visibility"
-)
-
-# Current GT: the labels configured in configs/training.py.
+# Current GT: the shared Cartesian labels configured in configs/data.py.
 CURRENT_GT_ROOT = CARTESIAN_GT_ROOT
 
 # Current Radar tensors: the same paired RAD/RAE npy files used by train.py.
 CURRENT_RADAR_NPY_ROOT = RADAR_NPY_ROOT
-
-# Front-camera images. The SMB URI is resolved to its local GVFS mount by
-# visualization_utils.py before OpenCV reads it.
-CAMERA_RGB_ROOT = "smb://192.168.189.30/elab-share/Datasets/K-Radar-RGB"
 
 GT_KIND_OFFICIAL_KRADAR = "official_kradar_gt"
 GT_KIND_CURRENT = "current_gt"
@@ -59,11 +56,11 @@ INFO_LABEL_KIND_BY_ROOT = {
 @dataclass
 class DataConfig:
     # Raw sensor/calibration data root.  It is independent of info_label_root.
-    root_dir: str = "/home/local/xinyu/KRadar"
+    root_dir: str = RAW_KRADAR_ROOT
 
     # Choose one GT source:
     #   OFFICIAL_KRADAR_GT_ROOT -> GT used by the past visualization
-    #   CURRENT_GT_ROOT         -> GT selected in configs/training.py
+    #   CURRENT_GT_ROOT         -> GT selected in configs/data.py
     info_label_root: str = CURRENT_GT_ROOT
 
     # Paired Radar npy input used by train.py.  "rae" collapses elevation to
@@ -90,9 +87,7 @@ class DataConfig:
     prediction_heatmap_score_mode: str = "peak_times_local_mean"
     prediction_yolox_nms_iou: float = 0.65
 
-    lidar2radar_calib_path: str = str(
-        VISUALIZATION_DIR / "lidar2radar_calib.yml"
-    )
+    lidar2radar_calib_path: str = VISUALIZATION_LIDAR2RADAR_CALIB_PATH
 
     start_frame_idx: int = 0
     sequence: int = 11

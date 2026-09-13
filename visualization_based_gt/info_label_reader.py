@@ -11,7 +11,7 @@ import yaml
 from visualization_cfg import (
     GT_KIND_CURRENT,
     GT_KIND_OFFICIAL_KRADAR,
-    VISUALIZATION_DIR,
+    VISUALIZATION_LIDAR2RADAR_CALIB_PATH,
 )
 from visualization_utils import resolve_info_label_kind
 
@@ -111,9 +111,9 @@ def read_official_kradar_gt(label_path):
 
 def read_current_gt(
     label_path,
-    calib_path=VISUALIZATION_DIR / "lidar2radar_calib.yml",
+    calib_path=VISUALIZATION_LIDAR2RADAR_CALIB_PATH,
 ):
-    """Read the radar-aligned GT selected in configs/training.py.
+    """Read the radar-aligned GT selected in configs/data.py.
 
     The generated training labels store boxes in Radar coordinates.  The
     visualizer historically expects ``obj['box']`` in LiDAR coordinates for

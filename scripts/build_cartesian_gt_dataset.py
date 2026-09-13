@@ -33,15 +33,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from configs.data import CARTESIAN_GT_ROOT, RADAR_NPY_ROOT
+from configs.data import (
+    CARTESIAN_GT_ROOT,
+    OFFICIAL_KRADAR_GT_ROOT,
+    RADAR_NPY_ROOT,
+    VISUALIZATION_LIDAR2RADAR_CALIB_PATH,
+)
 
 
 HEADER_INDEX_RE = re.compile(r"=\s*([^,\s]+)")
-DEFAULT_CALIB_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "visualization_based_gt"
-    / "lidar2radar_calib.yml"
-)
+DEFAULT_CALIB_PATH = Path(VISUALIZATION_LIDAR2RADAR_CALIB_PATH)
 
 # In the revised visibility labels, LR means that the object is visible to
 # both LiDAR and radar.  A radar GT must therefore keep both R and LR.
@@ -346,7 +347,7 @@ def parse_args():
     parser.add_argument(
         "--source-root",
         type=Path,
-        default=Path("/home/local/xinyu/kradar_revised_label_v2_1/KRadar_revised_visibility"),
+        default=Path(OFFICIAL_KRADAR_GT_ROOT),
     )
     parser.add_argument(
         "--radar-root",
