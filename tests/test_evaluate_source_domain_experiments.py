@@ -111,6 +111,11 @@ class SourceDomainLauncherTests(unittest.TestCase):
             self.assertIsNone(
                 launcher.parse_completed_weather_reference(task)
             )
+            task["expected_weather_bbox_count"] = 12
+            task["target_sequences"] = (46, 48)
+            self.assertIsNone(
+                launcher.parse_completed_weather_reference(task)
+            )
 
     def test_discovers_exactly_80_all_weather_source_tasks(self):
         rows = {
@@ -145,6 +150,19 @@ class SourceDomainLauncherTests(unittest.TestCase):
             references = launcher.discover_weather_reference_tasks(
                 rows, root / "output", controls
             )
+            mismatched_controls = dict(controls)
+            first_weather = launcher.WEATHER_REFERENCE_WEATHERS[0]
+            first_target = launcher._sequence_tuple(
+                rows[first_weather][0]["test_seq"]
+            )
+            wrong_target = (*first_target, 999)
+            mismatched_controls[(first_weather, wrong_target)] = (
+                mismatched_controls.pop((first_weather, first_target))
+            )
+            with self.assertRaisesRegex(RuntimeError, "Missing valid control"):
+                launcher.discover_weather_reference_tasks(
+                    rows, root / "mismatched", mismatched_controls
+                )
             combined = {
                 task_id: task
                 for task_id, task in experiments3["tasks"].items()
@@ -382,6 +400,9 @@ class SourceDomainLauncherTests(unittest.TestCase):
             parsed = launcher.parse_completed_normal_report(task)
             self.assertIsNotNone(parsed)
             task["control"]["N_bbox_masked"] = 4
+            self.assertIsNone(launcher.parse_completed_normal_report(task))
+            task["control"]["N_bbox_masked"] = 3
+            task["control"]["source_sequences"] = (19,)
             self.assertIsNone(launcher.parse_completed_normal_report(task))
 
     def test_wait_gate_rejects_failed_quartile_task(self):

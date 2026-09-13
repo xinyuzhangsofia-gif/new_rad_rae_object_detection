@@ -42,30 +42,19 @@ from eval.evaluation_config import (
     select_evaluation_device,
 )
 from eval.metrics_runner import evaluate_checkpoint_with_kradar_revised
-from eval.reporting import (
-    attach_evaluation_main_metric,
-    build_plot_metadata,
-    build_split_statistics_metadata,
-    checkpoint_group_name,
-    create_evaluation_tensorboard_writer,
-    default_eval_table_txt_path,
-    group_checkpoint_plot_best_only_active,
-    official_ap_text,
-    plot_output_requested,
-    print_checkpoint_metrics,
+from eval.report_paths import (
     resolve_output_base_dir,
     resolve_plot_output_path,
     resolve_yaml_output_path,
-    result_main_metric_key,
-    result_main_metric_value,
-    save_eval_table_txt,
-    save_evaluation_plot,
-    save_evaluation_yaml,
-    select_best_result_by_metric,
-    selection_iou_mode_for_group_plot,
     weather_prefixed_model_variant_name,
-    write_evaluation_tensorboard_result,
 )
+from eval.report_plots import build_plot_metadata, save_evaluation_plot
+from eval.result_metadata import build_split_statistics_metadata
+from eval.result_selection import (
+    attach_evaluation_main_metric,
+    select_best_result_by_metric,
+)
+from eval.result_serialization import save_evaluation_yaml
 
 __all__ = [
     'evaluate_checkpoint_result',

@@ -5,8 +5,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from domain_shift_tables import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_SEQUENCE_INFO_PATH,
@@ -17,6 +15,7 @@ from domain_shift_tables import (
     update_domain_shift_tables,
 )
 from eval.checkpoints import infer_checkpoint_decoder_overrides
+from eval.result_serialization import load_evaluation_yaml
 from training_utils.torch_load import load_torch_checkpoint
 
 
@@ -47,7 +46,7 @@ def first_checkpoint(path_value: str | Path | None) -> Path | None:
 def load_yaml_candidates(plot_root: Path) -> list[dict[str, Any]]:
     candidates = []
     for yaml_path in sorted(plot_root.rglob("*.yml")):
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+        data = load_evaluation_yaml(yaml_path)
         plot_metadata = data.get("plot_metadata") or {}
         best_result = data.get("best_result") or {}
         checkpoint_path = first_checkpoint(best_result.get("checkpoint_path"))

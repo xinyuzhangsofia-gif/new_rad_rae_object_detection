@@ -4,7 +4,6 @@ Reusable helpers live in sibling ``eval`` modules.  ``evaluation.py`` remains
 the backwards-compatible command-line facade.
 """
 
-import json
 import os
 from pathlib import Path
 
@@ -14,7 +13,34 @@ from eval.checkpoints import *
 from eval.decoding import *
 from eval.evaluation_config import *
 from eval.metrics_runner import *
-from eval.reporting import *
+from eval.domain_shift_summaries import refresh_weather_domain_shift_summary
+from eval.report_paths import (
+    default_eval_table_txt_path,
+    plot_output_requested,
+    resolve_output_base_dir,
+    resolve_plot_output_path,
+    resolve_yaml_output_path,
+)
+from eval.report_plots import save_evaluation_plot
+from eval.result_metadata import build_eval_table_metadata
+from eval.result_selection import (
+    group_checkpoint_plot_best_only_active,
+    result_main_metric_key,
+    result_main_metric_value,
+    select_best_main_metric_result,
+    select_best_result_by_metric,
+    selection_iou_mode_for_group_plot,
+)
+from eval.result_serialization import (
+    official_ap_text,
+    print_checkpoint_metrics,
+    save_eval_table_txt,
+    save_evaluation_yaml,
+)
+from eval.tensorboard_reporting import (
+    create_evaluation_tensorboard_writer,
+    write_evaluation_tensorboard_result,
+)
 from eval.runner import *
 
 
@@ -257,72 +283,14 @@ def main():
             print_checkpoint_metrics(int(full_result["epoch"]), full_result)
 
         if len(selection_results) > 0 and default_table_txt_path is not None:
-            table_metadata = {
-                "model_type": model_variant_name,
-                "checkpoint_root": str(args.checkpoint_root),
-                "checkpoint_group": checkpoint_group_name(args.checkpoint_root),
-                "weather_group": source_metadata.get("weather_group"),
-                "seed": source_metadata.get("seed", args.seed),
-                "train_sequences": source_metadata["train_sequences"],
-                "train_sequence_half_selection": source_metadata[
-                    "train_sequence_half_selection"
-                ],
-                "train_sequence_half_ratio": source_metadata[
-                    "train_sequence_half_ratio"
-                ],
-                "val_sequences": args.val_sequences,
-                "eval_val_sequences": getattr(args, "eval_val_sequences", None),
-                "eval_frame_manifest_path": getattr(
-                    args, "eval_frame_manifest_path", None
-                ),
-                "eval_gt_object_ignore_override_path": getattr(
-                    args, "eval_gt_object_ignore_override_path", None
-                ),
-                "eval_report_path": getattr(args, "eval_report_path", None),
-                "official_neutral_gt_count": selection_results[0].get(
-                    "official_neutral_gt_count", 0
-                ) if selection_results else 0,
-                "domain_shift_train_branch": source_metadata.get(
-                    "domain_shift_train_branch"
-                ),
-                "shared_train_sequences": source_metadata.get(
-                    "shared_train_sequences"
-                ),
-                "source_train_sequences": source_metadata.get(
-                    "source_train_sequences"
-                ),
-                "target_train_sequences": source_metadata.get(
-                    "target_train_sequences"
-                ),
-                "target_test_sequences": source_metadata.get(
-                    "target_test_sequences"
-                ),
-                "eval_scope": args.eval_scope,
-                "eval_coordinate_mode": args.eval_coordinate_mode,
-                "effective_eval_coordinate_mode": args.effective_eval_coordinate_mode,
-                "box_coordinate_mode": args.box_coordinate_mode,
-                "include_bus_as_target": args.include_bus_as_target,
-                "checkpoint_include_bus_as_target": source_metadata["include_bus_as_target"],
-                "gt_object_ignore_override_path": source_metadata["gt_object_ignore_override_path"],
-                "train_control_split_enabled": source_metadata["train_control_split_enabled"],
-                "ap_score_thresh": args.ap_score_thresh,
-                "score_thresh": args.score_thresh,
-                "distance_range_eval_enabled": args.distance_range_eval_enabled,
-                "distance_range_bins": args.distance_range_bins,
-                "distance_quartile_eval_enabled": args.distance_quartile_eval_enabled,
-                "distance_quartile_bins_mode": selection_results[0].get(
-                    "distance_quartile_bins_mode"
-                ) if selection_results else None,
-                "distance_quartile_bins": (
-                    json.dumps(
-                        selection_results[0].get("distance_quartile_bins"),
-                        sort_keys=True,
-                    )
-                    if selection_results else None
-                ),
-                "group_checkpoint_plot_best_only": True,
-                **split_statistics_metadata,
-            }
+            table_metadata = build_eval_table_metadata(
+                args=args,
+                model_variant_name=model_variant_name,
+                source_metadata=source_metadata,
+                results=selection_results,
+                split_statistics_metadata=split_statistics_metadata,
+                group_checkpoint_plot_best_only=True,
+            )
             saved_table_path = save_eval_table_txt(
                 selection_results,
                 default_table_txt_path,
@@ -381,10 +349,7 @@ def main():
         print_checkpoint_metrics(int(epoch), result)
 
     if len(results) > 0:
-        best_result = max(
-            results,
-            key=result_main_metric_value,
-        )
+        best_result = select_best_main_metric_result(results)
         best_metric_key = result_main_metric_key(best_result)
         print(
             "best_epoch:",
@@ -393,68 +358,13 @@ def main():
             f"{official_ap_text(result_main_metric_value(best_result))}",
         )
         if default_table_txt_path is not None:
-            table_metadata = {
-                "model_type": model_variant_name,
-                "checkpoint_root": str(args.checkpoint_root),
-                "checkpoint_group": checkpoint_group_name(args.checkpoint_root),
-                "weather_group": source_metadata.get("weather_group"),
-                "seed": source_metadata.get("seed", args.seed),
-                "train_sequences": source_metadata["train_sequences"],
-                "train_sequence_half_selection": source_metadata[
-                    "train_sequence_half_selection"
-                ],
-                "train_sequence_half_ratio": source_metadata[
-                    "train_sequence_half_ratio"
-                ],
-                "val_sequences": args.val_sequences,
-                "eval_val_sequences": getattr(args, "eval_val_sequences", None),
-                "eval_frame_manifest_path": getattr(
-                    args, "eval_frame_manifest_path", None
-                ),
-                "eval_gt_object_ignore_override_path": getattr(
-                    args, "eval_gt_object_ignore_override_path", None
-                ),
-                "eval_report_path": getattr(args, "eval_report_path", None),
-                "official_neutral_gt_count": results[0].get(
-                    "official_neutral_gt_count", 0
-                ),
-                "domain_shift_train_branch": source_metadata.get(
-                    "domain_shift_train_branch"
-                ),
-                "shared_train_sequences": source_metadata.get(
-                    "shared_train_sequences"
-                ),
-                "source_train_sequences": source_metadata.get(
-                    "source_train_sequences"
-                ),
-                "target_train_sequences": source_metadata.get(
-                    "target_train_sequences"
-                ),
-                "target_test_sequences": source_metadata.get(
-                    "target_test_sequences"
-                ),
-                "eval_scope": args.eval_scope,
-                "eval_coordinate_mode": args.eval_coordinate_mode,
-                "effective_eval_coordinate_mode": args.effective_eval_coordinate_mode,
-                "box_coordinate_mode": args.box_coordinate_mode,
-                "include_bus_as_target": args.include_bus_as_target,
-                "checkpoint_include_bus_as_target": source_metadata["include_bus_as_target"],
-                "gt_object_ignore_override_path": source_metadata["gt_object_ignore_override_path"],
-                "train_control_split_enabled": source_metadata["train_control_split_enabled"],
-                "ap_score_thresh": args.ap_score_thresh,
-                "score_thresh": args.score_thresh,
-                "distance_range_eval_enabled": args.distance_range_eval_enabled,
-                "distance_range_bins": args.distance_range_bins,
-                "distance_quartile_eval_enabled": args.distance_quartile_eval_enabled,
-                "distance_quartile_bins_mode": results[0].get(
-                    "distance_quartile_bins_mode"
-                ),
-                "distance_quartile_bins": json.dumps(
-                    results[0].get("distance_quartile_bins"),
-                    sort_keys=True,
-                ),
-                **split_statistics_metadata,
-            }
+            table_metadata = build_eval_table_metadata(
+                args=args,
+                model_variant_name=model_variant_name,
+                source_metadata=source_metadata,
+                results=results,
+                split_statistics_metadata=split_statistics_metadata,
+            )
             saved_table_path = save_eval_table_txt(
                 results,
                 default_table_txt_path,

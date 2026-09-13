@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-from datetime import datetime
 import fcntl
 import hashlib
 import json
@@ -36,6 +35,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from scripts import evaluate_distance_experiments as distance_launcher
 from scripts import evaluate_quartile_experiments as quartile_launcher
+from scripts.experiment_analysis import discovery as analysis_discovery
+from scripts.experiment_analysis import execution as analysis_execution
+from scripts.experiment_analysis import results as analysis_results
+from scripts.experiment_analysis import state as analysis_state
 
 
 SOURCE_EXPERIMENT_DIR = PROJECT_ROOT / "experiments"
@@ -59,7 +62,7 @@ STATE_VERSION = 2
 
 
 def now_text():
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    return analysis_state.now_text()
 
 
 def parse_args(argv=None):
@@ -150,70 +153,44 @@ def parse_args(argv=None):
 
 
 def atomic_write_text(path, text):
-    distance_launcher.atomic_write_text(path, text)
+    return analysis_state.atomic_write_text(path, text)
 
 
 def atomic_write_json(path, payload):
-    distance_launcher.atomic_write_json(path, payload)
+    return analysis_state.atomic_write_json(path, payload)
 
 
 def acquire_output_lock(output_dir):
-    lock_path = Path(output_dir) / ".sd_evaluation.lock"
-    lock_handle = lock_path.open("a+", encoding="utf-8")
-    try:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as exc:
-        lock_handle.close()
-        raise RuntimeError(f"Another SD launcher holds {lock_path}.") from exc
-    lock_handle.seek(0)
-    lock_handle.truncate()
-    lock_handle.write(f"pid={os.getpid()} started_at={now_text()}\n")
-    lock_handle.flush()
-    return lock_handle
+    return analysis_state.acquire_output_lock(
+        output_dir=output_dir,
+        lock_name=".sd_evaluation.lock",
+        conflict_message="Another SD launcher holds {lock_path}.",
+        timestamp=now_text,
+    )
 
 
 def read_experiment_rows(weather):
-    return distance_launcher.read_experiment_rows(weather)
+    return analysis_discovery.read_experiment_rows(
+        SOURCE_EXPERIMENT_DIR,
+        weather,
+        METADATA_HEADERS,
+    )
 
 
 def row_identity(row):
-    return distance_launcher.row_identity(row)
+    return analysis_discovery.row_identity(row)
 
 
 def load_completed_source_checkpoint_records(weather, experiment_rows):
     """Resolve one completed source branch without requiring target completion."""
-    state_path = distance_launcher.queue_state_path(weather)
-    payload = _load_json(state_path)
-    expected = {
-        identity for identity in map(row_identity, experiment_rows)
-        if identity is not None
-    }
-    candidates = {}
-    for record in payload.get("tasks", {}).values():
-        if str(record.get("branch", "")).lower() != "source":
-            continue
-        if str(record.get("status", "")).lower() != "completed":
-            continue
-        try:
-            identity = (str(record["group"]), int(record["seed"]))
-        except (KeyError, TypeError, ValueError):
-            continue
-        if identity not in expected:
-            continue
-        checkpoint_root = Path(str(record.get("checkpoint_root", ""))).expanduser()
-        if not checkpoint_root.is_dir():
-            continue
-        previous = candidates.get(identity)
-        if previous is None or str(record.get("updated_at", "")) > str(
-            previous.get("updated_at", "")
-        ):
-            candidates[identity] = dict(record)
-    missing = sorted(expected - set(candidates))
-    if missing:
-        raise RuntimeError(
-            f"{weather}: missing completed source checkpoint records: {missing!r}"
-        )
-    return candidates
+    return analysis_discovery.load_completed_checkpoint_records(
+        state_path=distance_launcher.queue_state_path(weather),
+        experiment_rows=experiment_rows,
+        branches=("source",),
+        weather=weather,
+        include_branch_in_key=False,
+        missing_description="completed source checkpoint records",
+    )
 
 
 def _load_json(path):
@@ -306,26 +283,15 @@ def _sequence_tuple(value):
 
 
 def _metadata_header(report_path):
-    metadata = {}
-    for line in Path(report_path).read_text(
-        encoding="utf-8", errors="replace"
-    ).splitlines():
-        if not line.strip():
-            break
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        metadata[key.strip()] = value.strip()
-    return metadata
+    return analysis_results.read_report_metadata(report_path)
 
 
 def _paths_equal(value, expected):
-    if value in (None, "") or expected in (None, ""):
-        return value in (None, "") and expected in (None, "")
-    value_path = Path(str(value)).expanduser()
-    if not value_path.is_absolute():
-        value_path = PROJECT_ROOT / value_path
-    return value_path.resolve() == Path(expected).expanduser().resolve()
+    return analysis_results.paths_equal(
+        value,
+        expected,
+        project_root=PROJECT_ROOT,
+    )
 
 
 def _quartile_bounds(metrics):
@@ -879,41 +845,27 @@ def discover_weather_reference_tasks(all_rows, output_dir, controls):
 
 
 def build_weather_reference_command(task, args):
-    return [
-        sys.executable,
-        str(PROJECT_ROOT / "evaluation.py"),
-        "--checkpoint-root", task["checkpoint_root"],
-        "--start-epoch", "5", "--end-epoch", "24",
-        "--batch-size", str(args.batch_size), "--num-workers", "0",
-        "--cuda", "cuda:0", "--gpu-ids", "0",
-        "--eval-val-sequences", ",".join(
-            str(value) for value in task["target_sequences"]
-        ),
-        "--eval-report-path", task["report_path"],
-        "--official-eval-version", "revised",
-        "--official-eval-iou-backend", "cuda",
-        "--official-eval-iou-mode", "all",
-        "--official-detection-metrics-enabled", "true",
-        "--custom-iou-range-eval-enabled", "false",
-        "--nuscenes-style-eval-enabled", "false",
-        "--loss-eval-enabled", "false",
-        "--group-checkpoint-plot-best-only", "false",
-        "--distance-range-eval-enabled", "false",
-        "--distance-quartile-eval-enabled", "true",
-        "--max-detections", "64", "--heatmap-nms-kernel", "3",
-        "--heatmap-score-mode", "peak_times_local_mean",
-        "--yolox-nms-iou", "0.65",
-        "--ap-score-thresh", "0.01", "--score-thresh", "0.3",
-        "--eval-ignore-suppress-enabled", "false",
-        "--table-txt-enabled", "true",
-        "--table-output-base-dir", str(
+    return analysis_execution.build_evaluation_command(
+        checkpoint_root=task["checkpoint_root"],
+        batch_size=args.batch_size,
+        table_output_base_dir=(
             args.output_dir / "weather_reference_reports"
         ),
-        "--evaluation-tensorboard-log-dir", str(
+        tensorboard_log_dir=(
             args.output_dir / "tensorboard_weather_reference"
         ),
-        "--domain-comparison-enabled", "false", "--plot-output", "none",
-    ]
+        project_root=PROJECT_ROOT,
+        selection_arguments=(
+            "--eval-val-sequences",
+            ",".join(str(value) for value in task["target_sequences"]),
+            "--eval-report-path", task["report_path"],
+        ),
+        analysis_arguments=(
+            "--distance-range-eval-enabled", "false",
+            "--distance-quartile-eval-enabled", "true",
+        ),
+        python_executable=sys.executable,
+    )
 
 
 def parse_completed_weather_reference(task):
@@ -941,18 +893,12 @@ def parse_completed_weather_reference(task):
     actual_count = sum(int(metrics[tag]["N_bbox"]) for tag in QUARTILES)
     if actual_count != int(task["expected_weather_bbox_count"]):
         return None
-    try:
-        report_mtime = report_path.stat().st_mtime_ns
-        checkpoint_mtime = max(
-            path.stat().st_mtime_ns
-            for path in Path(task["checkpoint_root"]).iterdir()
-            if path.is_file()
-            and re.search(r"(?i)epoch[_-]?0*(\d+)", path.name)
-            and 5 <= int(re.search(r"(?i)epoch[_-]?0*(\d+)", path.name).group(1)) <= 24
-        )
-    except (OSError, ValueError):
-        return None
-    if report_mtime < checkpoint_mtime:
+    if not analysis_results.report_is_newer_than_inputs(
+        report_path=report_path,
+        input_paths=(),
+        checkpoint_root=task["checkpoint_root"],
+        require_epoch_checkpoint=True,
+    ):
         return None
     return metrics
 
@@ -969,18 +915,8 @@ def initialize_weather_reference_state(state_path, discovered):
                 f"Recorded weather evaluator remains alive for {task_id} "
                 f"(pid={old.get('pid')})."
             )
-        task = dict(found)
-        task.update(
-            status="pending",
-            attempts=int(old.get("attempts", 0)),
-            metrics=None,
-            pid=None,
-            gpu=None,
-            started_at=old.get("started_at"),
-            finished_at=old.get("finished_at"),
-            returncode=old.get("returncode"),
-            error=None,
-        )
+        task = analysis_state.initialize_runtime_task(found, old)
+        task["metrics"] = None
         if old.get("input_signature") in (None, task["input_signature"]):
             metrics = parse_completed_weather_reference(task)
             if metrics is not None:
@@ -1003,126 +939,31 @@ def initialize_weather_reference_state(state_path, discovered):
 
 def run_weather_reference_queue(args, state_path, state):
     """Run the three missing weather groups before normal-domain controls."""
-    gpu_use = {gpu: 0 for gpu in args.gpus}
-    running = {}
-    pending = [
-        task_id for task_id, task in state["tasks"].items()
-        if task.get("status") == "pending"
-    ]
 
     def save():
         state["updated_at"] = now_text()
         atomic_write_json(state_path, state)
 
-    def stop_children(reason):
-        for process, _, _ in running.values():
-            if process.poll() is None:
-                process.terminate()
-        deadline = time.monotonic() + 15.0
-        for process, _, _ in running.values():
-            try:
-                process.wait(timeout=max(0.0, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-        for task_id, (process, log_file, _) in running.items():
-            log_file.write(f"[{now_text()}] launcher stopped child: {reason}\n")
-            log_file.close()
-            state["tasks"][task_id].update(
-                status="pending", pid=None, gpu=None,
-                finished_at=now_text(), returncode=process.returncode,
-                error=f"launcher stopped child: {reason}",
-            )
-        save()
-
-    old_handlers = {}
-
-    def interrupt_handler(signum, _frame):
-        raise KeyboardInterrupt(f"received signal {signum}")
-
-    for number in (signal.SIGINT, signal.SIGTERM):
-        old_handlers[number] = signal.signal(number, interrupt_handler)
-    try:
-        while pending or running:
-            while pending and len(running) < args.max_workers:
-                gpu = distance_launcher.choose_gpu(
-                    gpu_use, args.gpus, args.max_per_gpu
-                )
-                if gpu is None:
-                    break
-                task_id = pending.pop(0)
-                task = state["tasks"][task_id]
-                command = build_weather_reference_command(task, args)
-                log_path = Path(task["log_path"])
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                log_file = log_path.open("a", encoding="utf-8", buffering=1)
-                log_file.write(
-                    f"\n[{now_text()}] launch physical cuda:{gpu}\n"
-                    f"command: {' '.join(command)}\n"
-                )
-                environment = os.environ.copy()
-                environment["CUDA_VISIBLE_DEVICES"] = str(gpu)
-                process = subprocess.Popen(
-                    command, cwd=str(PROJECT_ROOT), env=environment,
-                    stdout=log_file, stderr=subprocess.STDOUT,
-                )
-                gpu_use[gpu] += 1
-                task.update(
-                    status="running", attempts=int(task.get("attempts", 0)) + 1,
-                    pid=process.pid, gpu=gpu, started_at=now_text(),
-                    finished_at=None, returncode=None, error=None,
-                )
-                running[task_id] = (process, log_file, gpu)
-                print(
-                    f"Started weather reference {task_id} pid={process.pid} "
-                    f"physical_cuda={gpu} ({len(running)}/{args.max_workers} active)",
-                    flush=True,
-                )
-                save()
-            for task_id, (process, log_file, gpu) in list(running.items()):
-                returncode = process.poll()
-                if returncode is None:
-                    continue
-                log_file.write(f"[{now_text()}] returncode={returncode}\n")
-                log_file.close()
-                gpu_use[gpu] -= 1
-                task = state["tasks"][task_id]
-                task.update(
-                    pid=None, gpu=None, finished_at=now_text(),
-                    returncode=int(returncode),
-                )
-                metrics = parse_completed_weather_reference(task)
-                if returncode == 0 and metrics is not None:
-                    task.update(status="completed", metrics=metrics, error=None)
-                    print(
-                        f"Completed weather reference {task_id}: "
-                        f"{task['report_path']}", flush=True,
-                    )
-                else:
-                    task.update(
-                        status="failed", metrics=None,
-                        error=(
-                            f"evaluation returncode={returncode}; valid exact "
-                            f"report={'yes' if metrics else 'no'}"
-                        ),
-                    )
-                    print(
-                        f"FAILED weather reference {task_id}: {task['error']} "
-                        f"(log={task['log_path']})", flush=True,
-                    )
-                del running[task_id]
-                save()
-            if pending or running:
-                time.sleep(args.poll_seconds)
-    except BaseException as exc:
-        stop_children(str(exc))
-        raise
-    finally:
-        for number, handler in old_handlers.items():
-            signal.signal(number, handler)
-    counts = state_counts(state)
-    print(f"Weather-reference queue finished: {counts}", flush=True)
-    return counts.get("failed", 0) == 0
+    return analysis_execution.run_evaluation_jobs(
+        args=args,
+        state=state,
+        build_command=lambda task: build_weather_reference_command(task, args),
+        resolve_result=lambda task: (
+            parse_completed_weather_reference(task),
+            None,
+        ),
+        save_progress=save,
+        project_root=PROJECT_ROOT,
+        now=now_text,
+        task_label="weather reference",
+        queue_finished_label="Weather-reference queue finished",
+        valid_result_label="valid exact report",
+        return_boolean=True,
+        popen=subprocess.Popen,
+        environment=os.environ,
+        signal_module=signal,
+        sleep=time.sleep,
+    )
 
 
 def _weather_task_index(experiments3_state):
@@ -1359,73 +1200,39 @@ def build_evaluation_command(task, args):
         raise ValueError(
             f"Task {task['task_id']} is not ready: {task['readiness_errors']}"
         )
-    return [
-        sys.executable,
-        str(PROJECT_ROOT / "evaluation.py"),
-        "--checkpoint-root", task["checkpoint_root"],
-        "--start-epoch", "5", "--end-epoch", "24",
-        "--batch-size", str(args.batch_size), "--num-workers", "0",
-        "--cuda", "cuda:0", "--gpu-ids", "0",
-        "--eval-val-sequences", ",".join(
-            str(value) for value in control["source_sequences"]
+    return analysis_execution.build_evaluation_command(
+        checkpoint_root=task["checkpoint_root"],
+        batch_size=args.batch_size,
+        table_output_base_dir=args.output_dir / "evaluation_reports",
+        tensorboard_log_dir=args.output_dir / "tensorboard",
+        project_root=PROJECT_ROOT,
+        selection_arguments=(
+            "--eval-val-sequences",
+            ",".join(str(value) for value in control["source_sequences"]),
+            "--eval-frame-manifest-path", control["manifest_path"],
+            "--eval-gt-object-ignore-override-path", control["override_path"],
+            "--eval-report-path", task["report_path"],
         ),
-        "--eval-frame-manifest-path", control["manifest_path"],
-        "--eval-gt-object-ignore-override-path", control["override_path"],
-        "--eval-report-path", task["report_path"],
-        "--official-eval-version", "revised",
-        "--official-eval-iou-backend", "cuda",
-        "--official-eval-iou-mode", "all",
-        "--official-detection-metrics-enabled", "true",
-        "--custom-iou-range-eval-enabled", "false",
-        "--nuscenes-style-eval-enabled", "false",
-        "--loss-eval-enabled", "false",
-        "--group-checkpoint-plot-best-only", "false",
-        "--distance-range-eval-enabled", "false",
-        "--distance-quartile-eval-enabled", "true",
-        "--distance-quartile-bins", _fixed_bins_cli_text(task),
-        "--max-detections", "64", "--heatmap-nms-kernel", "3",
-        "--heatmap-score-mode", "peak_times_local_mean",
-        "--yolox-nms-iou", "0.65",
-        "--ap-score-thresh", "0.01", "--score-thresh", "0.3",
-        "--eval-ignore-suppress-enabled", "false",
-        "--table-txt-enabled", "true",
-        "--table-output-base-dir", str(args.output_dir / "evaluation_reports"),
-        "--evaluation-tensorboard-log-dir", str(args.output_dir / "tensorboard"),
-        "--domain-comparison-enabled", "false", "--plot-output", "none",
-    ]
+        analysis_arguments=(
+            "--distance-range-eval-enabled", "false",
+            "--distance-quartile-eval-enabled", "true",
+            "--distance-quartile-bins", _fixed_bins_cli_text(task),
+        ),
+        python_executable=sys.executable,
+    )
 
 
 def _report_is_newer_than_inputs(report_path, task):
-    try:
-        report_mtime = Path(report_path).stat().st_mtime_ns
-    except OSError:
-        return False
-    inputs = [
-        task.get("weather_report_path"),
-        task.get("control", {}).get("manifest_path"),
-        task.get("control", {}).get("override_path"),
-        task.get("control", {}).get("stats_path"),
-    ]
-    for input_path in inputs:
-        if input_path in (None, ""):
-            continue
-        try:
-            if Path(input_path).stat().st_mtime_ns > report_mtime:
-                return False
-        except OSError:
-            return False
-    checkpoint_root = Path(task.get("checkpoint_root", ""))
-    try:
-        for path in checkpoint_root.iterdir():
-            if not path.is_file():
-                continue
-            match = re.search(r"(?i)epoch[_-]?0*(\d+)", path.name)
-            if match and 5 <= int(match.group(1)) <= 24:
-                if path.stat().st_mtime_ns > report_mtime:
-                    return False
-    except OSError:
-        return False
-    return True
+    return analysis_results.report_is_newer_than_inputs(
+        report_path=report_path,
+        input_paths=(
+            task.get("weather_report_path"),
+            task.get("control", {}).get("manifest_path"),
+            task.get("control", {}).get("override_path"),
+            task.get("control", {}).get("stats_path"),
+        ),
+        checkpoint_root=task.get("checkpoint_root", ""),
+    )
 
 
 def parse_completed_normal_report(task):
@@ -1486,21 +1293,9 @@ def parse_completed_normal_report(task):
 
 
 def task_process_is_alive(task):
-    try:
-        pid = int(task.get("pid"))
-    except (TypeError, ValueError):
-        return False
-    path = Path(f"/proc/{pid}/cmdline")
-    try:
-        command = path.read_bytes().replace(b"\0", b" ").decode(
-            "utf-8", errors="replace"
-        )
-    except OSError:
-        return False
-    return (
-        "evaluation.py" in command
-        and str(task.get("checkpoint_root", "")) in command
-        and str(task.get("report_path", "")) in command
+    return analysis_state.task_process_is_alive(
+        task,
+        require_report_path=True,
     )
 
 
@@ -1516,18 +1311,8 @@ def initialize_state(state_path, discovered):
                 f"Recorded evaluator remains alive for {task_id} "
                 f"(pid={previous.get('pid')})."
             )
-        task = dict(found)
-        task.update(
-            status="pending",
-            attempts=int(previous.get("attempts", 0)),
-            metrics=None,
-            pid=None,
-            gpu=None,
-            started_at=previous.get("started_at"),
-            finished_at=previous.get("finished_at"),
-            returncode=previous.get("returncode"),
-            error=None,
-        )
+        task = analysis_state.initialize_runtime_task(found, previous)
+        task["metrics"] = None
         previous_signature = previous.get("input_signature")
         if previous_signature in (None, task["input_signature"]):
             metrics = parse_completed_normal_report(task)
@@ -1846,11 +1631,7 @@ def write_readme(output_dir):
 
 
 def state_counts(state):
-    counts = {key: 0 for key in ("pending", "running", "completed", "failed")}
-    for task in state["tasks"].values():
-        status = task.get("status", "pending")
-        counts[status] = counts.get(status, 0) + 1
-    return counts
+    return analysis_state.state_counts(state)
 
 
 def save_progress(state_path, state, all_rows, output_dir):
@@ -1860,135 +1641,26 @@ def save_progress(state_path, state, all_rows, output_dir):
 
 
 def run_queue(args, state_path, state, all_rows):
-    gpu_use = {gpu: 0 for gpu in args.gpus}
-    running = {}
-    pending = [
-        task_id
-        for task_id, task in state["tasks"].items()
-        if task.get("status") == "pending"
-    ]
-
-    def stop_children(reason):
-        for process, _, _ in running.values():
-            if process.poll() is None:
-                process.terminate()
-        deadline = time.monotonic() + 15.0
-        for process, _, _ in running.values():
-            try:
-                process.wait(timeout=max(0.0, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-        for task_id, (process, log_file, _) in running.items():
-            log_file.write(f"[{now_text()}] launcher stopped child: {reason}\n")
-            log_file.close()
-            state["tasks"][task_id].update(
-                status="pending",
-                pid=None,
-                gpu=None,
-                finished_at=now_text(),
-                returncode=process.returncode,
-                error=f"launcher stopped child: {reason}",
-            )
-        save_progress(state_path, state, all_rows, args.output_dir)
-
-    old_handlers = {}
-
-    def interrupt_handler(signum, _frame):
-        raise KeyboardInterrupt(f"received signal {signum}")
-
-    for signal_number in (signal.SIGINT, signal.SIGTERM):
-        old_handlers[signal_number] = signal.signal(signal_number, interrupt_handler)
-    try:
-        while pending or running:
-            while pending and len(running) < args.max_workers:
-                gpu = distance_launcher.choose_gpu(
-                    gpu_use, args.gpus, args.max_per_gpu
-                )
-                if gpu is None:
-                    break
-                task_id = pending.pop(0)
-                task = state["tasks"][task_id]
-                command = build_evaluation_command(task, args)
-                log_path = Path(task["log_path"])
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                log_file = log_path.open("a", encoding="utf-8", buffering=1)
-                log_file.write(
-                    f"\n[{now_text()}] launch physical cuda:{gpu}\n"
-                    f"command: {' '.join(command)}\n"
-                )
-                environment = os.environ.copy()
-                environment["CUDA_VISIBLE_DEVICES"] = str(gpu)
-                process = subprocess.Popen(
-                    command,
-                    cwd=str(PROJECT_ROOT),
-                    env=environment,
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                )
-                gpu_use[gpu] += 1
-                task.update(
-                    status="running",
-                    attempts=int(task.get("attempts", 0)) + 1,
-                    pid=process.pid,
-                    gpu=gpu,
-                    started_at=now_text(),
-                    finished_at=None,
-                    returncode=None,
-                    error=None,
-                )
-                running[task_id] = (process, log_file, gpu)
-                print(
-                    f"Started {task_id} pid={process.pid} physical_cuda={gpu} "
-                    f"({len(running)}/{args.max_workers} active)",
-                    flush=True,
-                )
-                save_progress(state_path, state, all_rows, args.output_dir)
-
-            for task_id, (process, log_file, gpu) in list(running.items()):
-                returncode = process.poll()
-                if returncode is None:
-                    continue
-                log_file.write(f"[{now_text()}] returncode={returncode}\n")
-                log_file.close()
-                gpu_use[gpu] -= 1
-                task = state["tasks"][task_id]
-                task.update(
-                    pid=None,
-                    gpu=None,
-                    finished_at=now_text(),
-                    returncode=int(returncode),
-                )
-                metrics = parse_completed_normal_report(task)
-                if returncode == 0 and metrics is not None:
-                    task.update(status="completed", metrics=metrics, error=None)
-                    print(f"Completed {task_id}: {task['report_path']}", flush=True)
-                else:
-                    task.update(
-                        status="failed",
-                        metrics=None,
-                        error=(
-                            f"evaluation returncode={returncode}; "
-                            f"valid exact report={'yes' if metrics else 'no'}"
-                        ),
-                    )
-                    print(
-                        f"FAILED {task_id}: {task['error']} (log={task['log_path']})",
-                        flush=True,
-                    )
-                del running[task_id]
-                save_progress(state_path, state, all_rows, args.output_dir)
-            if pending or running:
-                time.sleep(args.poll_seconds)
-    except BaseException as exc:
-        stop_children(str(exc))
-        raise
-    finally:
-        for signal_number, handler in old_handlers.items():
-            signal.signal(signal_number, handler)
-    counts = state_counts(state)
-    print(f"SD queue finished: {counts}", flush=True)
-    return 0 if counts.get("failed", 0) == 0 else 1
+    return analysis_execution.run_evaluation_jobs(
+        args=args,
+        state=state,
+        build_command=lambda task: build_evaluation_command(task, args),
+        resolve_result=lambda task: (
+            parse_completed_normal_report(task),
+            None,
+        ),
+        save_progress=lambda: save_progress(
+            state_path, state, all_rows, args.output_dir
+        ),
+        project_root=PROJECT_ROOT,
+        now=now_text,
+        queue_finished_label="SD queue finished",
+        valid_result_label="valid exact report",
+        popen=subprocess.Popen,
+        environment=os.environ,
+        signal_module=signal,
+        sleep=time.sleep,
+    )
 
 
 def main(argv=None):

@@ -14,6 +14,14 @@ configs/training.py → train.py → training_utils/runner.py
                                 ├─ models/factory.py → model1 … model16
                                 └─ training_utils/ → 损失、训练、检查点、队列
 configs/evaluation.py → evaluation.py → eval/workflow.py → eval/
+eval/reporting.py → 报告兼容 facade
+    ├─ report_paths.py → 输出目录、文件名及 plot/YAML/TXT 路径
+    ├─ result_serialization.py → TXT/YAML、历史 metadata 和数值格式
+    ├─ result_selection.py → 主指标及 group-best 确定性选择
+    ├─ report_plots.py → 评估图内容与渲染
+    ├─ tensorboard_reporting.py → writer、config text 和 scalar tags
+    ├─ domain_shift_summaries.py → source/target 配对、TD、天气及总汇总
+    └─ result_metadata.py → 数据划分框数量 metadata
 visualize_cfg.py → visualize.py
 training_utils/experiment_queue.py → training_utils/experiments/
     ├─ schema.py → 实验/任务数据结构与身份版本
@@ -21,6 +29,11 @@ training_utils/experiment_queue.py → training_utils/experiments/
     ├─ state.py → task key、JSON 状态、原子写、锁与中断恢复
     ├─ scheduling.py → 任务展开、进程保护、GPU 容量与选择
     └─ execution.py → 子配置/命令、subprocess、日志及结果收集
+scripts/evaluate_*_experiments.py → scripts/experiment_analysis/
+    ├─ discovery.py → 表行、完成检查点、source/target 成对任务发现
+    ├─ execution.py → evaluation.py 命令、CUDA 环境、subprocess 与 GPU 队列
+    ├─ results.py → 报告 metadata 匹配、候选发现与 freshness
+    └─ state.py → 分析状态原子写、launcher 锁及运行字段
 tools/ → 独立统计、论文图和维护工具
 ```
 
@@ -103,6 +116,8 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 - 数据输入改为 Cartesian-only，删除 Polar GT 专用分支/工具、集中路径、增加拒绝错误输入和数值回归测试。
 - 按单一职责整理数据模块：`dataset.py` 从 726 行降为 354 行；移动几何、标签选择、ignore 校验和 collate，并合并重复 MAT 读取逻辑。
 - 将域偏移实验队列按职责拆为 `schema`、`tables`、`state`、`scheduling` 和 `execution`；`experiment_queue.py` 保留高层循环及历史导入兼容面。任务身份版本、表顺序、恢复检查点、GPU 排序、worker 命令和失败状态写入规则均未改变。
+- 三个独立实验分析入口共享完成检查点发现、命令公共段、CUDA/subprocess 队列、锁/原子状态及报告 metadata/freshness 校验；距离区间、GT 四分位、相对 TD、受控正常域和 Source Drop 仍由各脚本定义。
+- 将 `eval/reporting.py` 改为兼容 facade；路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现。`domain_shift_tables.py` 继续负责域注册、模型配置身份、三张比较表和记录更新，避免反向依赖。
 
 “功能保持”指保留正式实现与计算行为，**不包括继续支持已明确删除的旧导入、旧工具命令及 Polar GT/检查点输入**。仓库外的 notebook 和脚本若使用下面的旧名，需要同步更新；未声称验证所有外部调用或历史完整对象 pickle。
 
@@ -139,8 +154,10 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | 1 | `configs/data.py`、`data/paths.py`、训练/评估/可视化配置 | RAD/RAE 与 Cartesian GT 默认根路径已集中；接下来统一原始传感器、旧配方的标定/输出设置。当前保留本机默认值，换机器前需设置环境变量或参数。 |
 | 已完成 | `visualize.py`、`eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py`、`checkpoint_predictor.py` | 检查点解释/模型重建集中在 `eval/checkpoints.py`，前向推理集中在 `eval/inference.py`，解码与 NMS 集中在 `eval/decoding.py`；可视化只保留绘图坐标转换和兼容转发。 |
 | 已完成（队列） | `training_utils/experiment_queue.py` 与 `training_utils/experiments/` | 队列内部职责已分离，根模块保留编排和兼容导出；三个独立重评脚本的任务模型与输出状态不同，本步骤未合并。 |
+| 已完成（分析脚本） | `scripts/evaluate_*_experiments.py` 与 `scripts/experiment_analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；三个 CLI、科学定义、输出 state schema 与表聚合保持独立。 |
+| 已完成（报告） | `eval/reporting.py` 与 `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | facade 保留旧导入；输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
 | 4 | `visualization_based_gt/generate_*.py` 等特定序列脚本 | 将序列、帧、epoch、标题等变为一套渲染入口的参数/预设；先保存参考图片与视频元数据，避免改变论文图。 |
-| 5 | `eval/reporting.py`、`training_utils/losses.py`、`data/splits.py` | 按真实职责整理函数与注释；只抽取多处复用的实现，不用更多小文件替代长文件。 |
+| 5 | `training_utils/losses.py`、`data/splits.py` | 按真实职责整理函数与注释；只抽取多处复用的实现，不用更多小文件替代长文件。 |
 | 6 | `legacy_module.py`、旧可视化器、原始 MAT 加载器 | 先确认历史模型和图像复现需求；无静态 import 不等于无功能，不自动删除。 |
 
 两个 MAT 接口现在都在 `loaders/kradar_dataset.py`。标准接口仍叫 `KRadarDataset`；需要旧可视化的 `rea`、`ra_map`、`re_map` 字段时使用 `KRadarSensorDataset`。项目内三处旧可视化调用已迁移，当前训练仍使用 `data.dataset.KRadarRADRAEDataset`。Model1–16 也不是重复备份，其结构/权重键需要分别保留。
@@ -153,7 +170,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 
 | 文件 | 行数 | 功能 | 处理建议 |
 | --- | ---: | --- | --- |
-| [domain_shift_tables.py](../domain_shift_tables.py) | 1136 | 创建、更新、导入和校验源域到目标域的 AP 比较表及 JSON 记录。 | 保留计算与接口；先按职责整理函数，再做有回归覆盖的提取。 |
+| [domain_shift_tables.py](../domain_shift_tables.py) | 1136 | 维护域注册、模型配置身份、best-BEV/best-3D/best-overall 比较表及 JSON 记录。 | 保留域表专属解释、原子更新、锁和旧表导入；不依赖报告 facade。 |
 | [evaluation.py](../evaluation.py) | 27 | 独立评估命令入口；评估工作流在 eval/workflow.py。 | 保留主要入口；不继续复制工作流。 |
 | [legacy_module.py](../legacy_module.py) | 373 | 历史 RAD/RAE 编码器、固定框检测器及卷积组件；未发现当前源码直接导入。 | 暂保留；确认不需历史模型/检查点后再归档。 |
 | [train.py](../train.py) | 13 | 训练命令入口，调用 training_utils/runner.py，并导出 worker 使用的接口。 | 保留主要入口；不继续复制工作流。 |
@@ -259,7 +276,14 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [eval/metrics_runner.py](../eval/metrics_runner.py) | 806 | 收集 GT/预测标注并运行 K-Radar、距离区间、四分位和训练期指标。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/nuscenes_style.py](../eval/nuscenes_style.py) | 425 | 实现适配后的 nuScenes 中心距离 AP 及平移、尺度、方向误差。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/polar_ap.py](../eval/polar_ap.py) | 273 | 对 Polar/RAE 轴对齐矩形计算 AP。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [eval/reporting.py](../eval/reporting.py) | 2480 | 负责终端文本、图、YAML、TXT 表、TensorBoard、最佳 epoch、天气汇总和划分统计。 | 保留报告格式；后续以黄金样例测试合并重复文本/表格格式化。 |
+| [eval/reporting.py](../eval/reporting.py) | — | 旧 `eval.reporting` 导入的兼容 facade。 | 只转发下列正式实现，不保留第二份逻辑。 |
+| [eval/report_paths.py](../eval/report_paths.py) | — | 构造 plot、YAML、TXT、weather/test/pair 目录和稳定文件名。 | 保持既有目录层级、日期/冲突后缀与 domain-shift 文件名。 |
+| [eval/result_serialization.py](../eval/result_serialization.py) | — | 格式化终端/TXT 表，写读 YAML，读取 TXT metadata。 | 保留字段顺序、四位小数、未知 YAML 字段和历史缺省值。 |
+| [eval/result_selection.py](../eval/result_selection.py) | — | 选择主指标结果与 group-best checkpoint。 | 分别保留首次最高值及同分最早 epoch 规则。 |
+| [eval/report_plots.py](../eval/report_plots.py) | — | 构建官方、COCO、自定义 IoU、nuScenes 图表并保存 PNG。 | 保留 section/row/legend 顺序、标签和 DPI。 |
+| [eval/tensorboard_reporting.py](../eval/tensorboard_reporting.py) | — | 创建独立评估 writer 并写 config/scalar。 | 保留 `run/config` 与 `*/metrics/*` tags。 |
+| [eval/domain_shift_summaries.py](../eval/domain_shift_summaries.py) | — | 解析 source/target TXT、按完整历史身份配对，写 weather 和 `total_result.txt`。 | 保留 TD=target-source、天气/seed 排序和 sample std。 |
+| [eval/result_metadata.py](../eval/result_metadata.py) | — | 计算训练/测试帧和 Sedan/Bus 框数量 metadata。 | 不计算 AP 或改变数据划分。 |
 | [eval/runner.py](../eval/runner.py) | 602 | 组织多个检查点的独立评估，以及图片、表格、TensorBoard、YAML 和域比较输出。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/workflow.py](../eval/workflow.py) | 496 | 实现根目录 `evaluation.py` 命令使用的独立检查点评估工作流。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 
@@ -274,9 +298,13 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [scripts/build_seq9_matched_control_override.py](../scripts/build_seq9_matched_control_override.py) | 989 | 通过窗口搜索、类别容量、最大流分配构造优化的序列 9 控制集及忽略清单。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
 | [scripts/build_seq9_simple_random_control.py](../scripts/build_seq9_simple_random_control.py) | 434 | 通过随机试验构造更简单的序列 9 类别匹配控制集。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
 | [scripts/disk_space_guard.py](../scripts/disk_space_guard.py) | 224 | 监控磁盘空间，低于阈值时安全停止本项目训练/评估进程。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
-| [scripts/evaluate_distance_experiments.py](../scripts/evaluate_distance_experiments.py) | 881 | 按物理距离区间重新评估雨/雨夹雪检查点并写入实验表和状态。 | 保留实验流程；后续抽取共同状态/命令处理，维持实验规则。 |
-| [scripts/evaluate_quartile_experiments.py](../scripts/evaluate_quartile_experiments.py) | 751 | 按 GT 距离四分位重新评估雨/雨夹雪检查点，并写 AP/下降表。 | 保留实验流程；后续抽取共同状态/命令处理，维持实验规则。 |
-| [scripts/evaluate_source_domain_experiments.py](../scripts/evaluate_source_domain_experiments.py) | 2149 | 在受控正常域测试集上评估源模型，并生成各天气和全天气汇总。 | 保留实验流程；后续抽取共同状态/命令处理，维持实验规则。 |
+| [scripts/evaluate_distance_experiments.py](../scripts/evaluate_distance_experiments.py) | — | 定义物理距离区间、距离 AP/TD 表和该 CLI；通过共享基础设施运行评估。 | 保留 0–30/30–60/60–90/90–120 m 语义。 |
+| [scripts/evaluate_quartile_experiments.py](../scripts/evaluate_quartile_experiments.py) | — | 定义 GT 距离四分位、相对 TD 和该 CLI；通过共享基础设施运行评估。 | 保留边界、计数和相对下降公式。 |
+| [scripts/evaluate_source_domain_experiments.py](../scripts/evaluate_source_domain_experiments.py) | — | 定义受控正常域选择、天气参考、Source Drop 和全天气汇总。 | 保留控制签名、严格报告验证和 SD 公式。 |
+| [scripts/experiment_analysis/discovery.py](../scripts/experiment_analysis/discovery.py) | — | 读取实验行、按现有 updated_at 规则选择完成检查点，并从同一行建立 source/target 任务。 | 不解释模型权重；检查点 payload 仍由 `eval/checkpoints.py` 负责。 |
+| [scripts/experiment_analysis/execution.py](../scripts/experiment_analysis/execution.py) | — | 构造 evaluation.py 公共参数、校验/分配 GPU、设置 CUDA 环境、管理子进程/日志/失败。 | 不包含距离、四分位或 Source Drop 计算。 |
+| [scripts/experiment_analysis/results.py](../scripts/experiment_analysis/results.py) | — | 校验 checkpoint/branch/weather/seed metadata，按原命名搜索报告并检查输入 freshness。 | metric 文本解析仍留在对应脚本。 |
+| [scripts/experiment_analysis/state.py](../scripts/experiment_analysis/state.py) | — | 原子写 TXT/JSON、非阻塞 launcher 锁、PID 命令确认、公共 runtime 字段。 | 各脚本继续定义自己的 state settings/version。 |
 | [scripts/generate_test_domain_controls.py](../scripts/generate_test_domain_controls.py) | 1415 | 为每个恶劣天气测试集生成确定性、无训练泄漏、距离四分位匹配的正常天气评估控制集。 | 保留独立的数据转换/维护能力；复用公共几何函数。 |
 | [scripts/sync_experiment_xlsx_to_txt.py](../scripts/sync_experiment_xlsx_to_txt.py) | 1052 | 无需 Excel 即可读取 XLSX 内部结构、统一布局/样式并同步成对齐 TXT，也支持监视模式。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
 
@@ -373,7 +401,9 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [tests/test_evaluate_distance_experiments.py](../tests/test_evaluate_distance_experiments.py) | 188 | 距离实验任务发现、命令、状态和表格；提供临时检查点/状态测试夹具。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_evaluate_quartile_experiments.py](../tests/test_evaluate_quartile_experiments.py) | 199 | 四分位启动器元数据、相对下降、状态和表格。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_evaluate_source_domain_experiments.py](../tests/test_evaluate_source_domain_experiments.py) | 406 | 受控源域任务、命令、报告和汇总。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
+| [tests/test_experiment_analysis_infrastructure.py](../tests/test_experiment_analysis_infrastructure.py) | — | 完成检查点/配对、命令公共段、CUDA 环境、报告 metadata/freshness、结果复用及失败状态。 | 保留 Step 5 的基础设施等价性覆盖。 |
 | [tests/test_evaluation_reporting_paths.py](../tests/test_evaluation_reporting_paths.py) | 381 | 评估目录命名、天气汇总、TensorBoard 路径和绘图选择。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
+| [tests/test_reporting_architecture.py](../tests/test_reporting_architecture.py) | — | 报告 facade、路径、TXT/YAML 历史兼容、配对/TD、tie-break 和 TensorBoard tags。 | Step 6 黄金行为回归；不运行数据集评估。 |
 | [tests/test_experiment_queue.py](../tests/test_experiment_queue.py) | 1072 | 实验表解析、校验、调度、恢复、worker 协调和结果更新。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_experiment_queue_modules.py](../tests/test_experiment_queue_modules.py) | — | 队列模块边界、固定 task key、状态原子性、GPU tie-break、resume worker 命令和失败状态。 | 保留 Step 4 的编排兼容性回归覆盖。 |
 | [tests/test_experiment_xlsx_sync.py](../tests/test_experiment_xlsx_sync.py) | 335 | XLSX 解析、布局、公式/样式、TXT 渲染和同步。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
