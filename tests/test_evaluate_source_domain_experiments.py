@@ -132,7 +132,7 @@ class SourceDomainLauncherTests(unittest.TestCase):
             (root / "quartile_evaluation_state.json").write_text(
                 json.dumps({"tasks": quartile_tasks}), encoding="utf-8"
             )
-            _, experiments3 = launcher._load_experiments3_state(root)
+            _, quartile_state = launcher._load_distance_quartile_state(root)
             controls = {}
             for weather, weather_rows in rows.items():
                 for row in weather_rows:
@@ -165,7 +165,7 @@ class SourceDomainLauncherTests(unittest.TestCase):
                 )
             combined = {
                 task_id: task
-                for task_id, task in experiments3["tasks"].items()
+                for task_id, task in quartile_state["tasks"].items()
                 if task.get("branch") == "source"
             }
             combined.update(references)
@@ -411,7 +411,7 @@ class SourceDomainLauncherTests(unittest.TestCase):
                 f"task{index}": {
                     "status": "failed" if index == 0 else "pending"
                 }
-                for index in range(launcher.EXPECTED_EXPERIMENTS3_TASKS)
+                for index in range(launcher.EXPECTED_DISTANCE_QUARTILE_TASKS)
             }
         }
         with tempfile.TemporaryDirectory() as temporary_dir:
@@ -420,7 +420,10 @@ class SourceDomainLauncherTests(unittest.TestCase):
                 json.dumps(state), encoding="utf-8"
             )
             with self.assertRaisesRegex(RuntimeError, "failed task"):
-                launcher.wait_for_experiments3(root, poll_seconds=0.001)
+                launcher.wait_for_distance_quartiles(
+                    root,
+                    poll_seconds=0.001,
+                )
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from training_utils.experiment_queue import _format_txt_experiment_matrix
+from configs.experiment_paths import TARGET_DROP_EXPERIMENT_DIR
 
 
 MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -58,7 +59,7 @@ RESULT_HEADERS = (
     "td_bev",
     "td_3d",
 )
-DEFAULT_EXPERIMENT_DIR = PROJECT_ROOT / "experiments"
+DEFAULT_EXPERIMENT_DIR = TARGET_DROP_EXPERIMENT_DIR
 DEFAULT_PATTERN = "*_experiments.xlsx"
 XML_SPACE = "http://www.w3.org/XML/1998/namespace"
 
@@ -1010,7 +1011,8 @@ def check(experiment_dir, pattern):
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Synchronize experiments/*_experiments.xlsx to same-name TXT files."
+            "Synchronize experiments/target_drop/*_experiments.xlsx to "
+            "same-name TXT files."
         )
     )
     parser.add_argument(

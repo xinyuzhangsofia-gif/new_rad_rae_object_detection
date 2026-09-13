@@ -88,7 +88,12 @@ def _parse_test_sequences(value):
 
 def find_best_experiment(weather):
     """Return the row with maximum target-domain BEV AP."""
-    experiment_path = PROJECT_ROOT / "experiments" / f"{weather}_experiments.txt"
+    experiment_path = (
+        PROJECT_ROOT
+        / "experiments"
+        / "target_drop"
+        / f"{weather}_experiments.txt"
+    )
     candidates = []
     for line in experiment_path.read_text().splitlines():
         fields = line.split()

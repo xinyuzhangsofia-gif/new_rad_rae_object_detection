@@ -4,8 +4,8 @@
 The launcher discovers the already-trained source/target checkpoint roots from
 the experiment queue state files.  Each child evaluates epochs 5--24 once and
 computes the full-range metric plus four distance bins from the same collected
-predictions.  Results are written to ``experiments2`` without modifying the
-original experiment tables or reports.
+predictions. Results are written to ``experiments/distance_ranges`` without
+modifying the original experiment tables or reports.
 """
 
 from __future__ import annotations
@@ -29,9 +29,13 @@ from scripts.experiment_analysis import discovery as analysis_discovery
 from scripts.experiment_analysis import execution as analysis_execution
 from scripts.experiment_analysis import results as analysis_results
 from scripts.experiment_analysis import state as analysis_state
+from configs.experiment_paths import (
+    DISTANCE_RANGE_EXPERIMENT_DIR,
+    TARGET_DROP_EXPERIMENT_DIR,
+)
 
 
-SOURCE_EXPERIMENT_DIR = PROJECT_ROOT / "experiments"
+SOURCE_EXPERIMENT_DIR = TARGET_DROP_EXPERIMENT_DIR
 SOURCE_REPORT_ROOT = PROJECT_ROOT / "evaluation_plots"
 WEATHERS = ("rain", "sleet")
 DISTANCE_BINS = (
@@ -60,7 +64,7 @@ def parse_args(argv=None):
     )
     parser.add_argument(
         "--output-dir",
-        default=str(PROJECT_ROOT / "experiments2"),
+        default=str(DISTANCE_RANGE_EXPERIMENT_DIR),
         help="Root for expanded tables, reports, logs, TensorBoard, and state.",
     )
     parser.add_argument("--gpus", default="0,1,2")

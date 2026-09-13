@@ -112,8 +112,18 @@ scripts/                 Data preparation and experiment launchers
 tools/                   Analysis, paper figures, and maintenance
 visualization_based_gt/  Sensor/GT rendering and reproducible figure recipes
 tests/                   Regression tests
-split/, experiments*/    Versioned split/control manifests and experiment definitions
+split/, experiments/     Versioned split/control manifests and experiment families
 docs/                    File inventory, cleanup guidance, and experiment rules
+```
+
+The experiment families use semantic directories:
+
+```text
+experiments/
+├── target_drop/         Primary weather Source-vs-Target / Target Drop tables
+├── distance_ranges/     Fixed 0–30/30–60/60–90/90–120 m evaluation
+├── distance_quartiles/  Equal-count GT-distance quartile analysis
+└── source_drop/         Controlled source-domain / Source Drop analysis
 ```
 
 Within `data/`, responsibilities are explicit: `labels.py` reads Cartesian GT,
@@ -149,6 +159,11 @@ python -m tools.maintenance.rebuild_domain_shift_tables --help
 Experiment definitions, sequence metadata, exact splits, and control manifests
 are versioned. Generated figures, reports, checkpoints, TensorBoard events,
 queue state, and locks are ignored; existing local outputs are retained.
+
+Runtime state or lock files stored beside an experiment table must move with
+that table into its semantic family directory. Historical recorded paths in
+state/control metadata are resolved at read time; no duplicate legacy
+experiment directories or symlinks are maintained.
 
 Distance, quartile, and source-domain re-evaluation still consume upstream state
 manifests containing completed checkpoint locations. Deleting these manifests

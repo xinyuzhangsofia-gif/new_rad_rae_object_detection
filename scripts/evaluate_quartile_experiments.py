@@ -2,8 +2,9 @@
 """Re-evaluate rain/sleet experiments by GT-box distance quartile.
 
 The already-trained canonical source/target checkpoints are discovered from
-the original experiment queue state.  Results, reports, logs, TensorBoard
-events, and restart state are isolated under ``experiments3`` by default.
+the original experiment queue state. Results, reports, logs, TensorBoard
+events, and restart state are isolated under
+``experiments/distance_quartiles`` by default.
 """
 
 from __future__ import annotations
@@ -30,10 +31,15 @@ from scripts.experiment_analysis import discovery as analysis_discovery
 from scripts.experiment_analysis import execution as analysis_execution
 from scripts.experiment_analysis import results as analysis_results
 from scripts.experiment_analysis import state as analysis_state
+from configs.experiment_paths import (
+    DISTANCE_QUARTILE_EXPERIMENT_DIR,
+    DISTANCE_RANGE_EXPERIMENT_DIR,
+    TARGET_DROP_EXPERIMENT_DIR,
+)
 
 
-SOURCE_EXPERIMENT_DIR = PROJECT_ROOT / "experiments"
-PROTECTED_DISTANCE_OUTPUT_DIR = PROJECT_ROOT / "experiments2"
+SOURCE_EXPERIMENT_DIR = TARGET_DROP_EXPERIMENT_DIR
+PROTECTED_DISTANCE_OUTPUT_DIR = DISTANCE_RANGE_EXPERIMENT_DIR
 SOURCE_REPORT_ROOT = PROJECT_ROOT / "evaluation_plots"
 WEATHERS = ("rain", "sleet")
 QUARTILES = ("q1", "q2", "q3", "q4")
@@ -55,7 +61,7 @@ def parse_args(argv=None):
     )
     parser.add_argument(
         "--output-dir",
-        default=str(PROJECT_ROOT / "experiments3"),
+        default=str(DISTANCE_QUARTILE_EXPERIMENT_DIR),
         help="Root for quartile tables, reports, logs, TensorBoard, and state.",
     )
     parser.add_argument("--gpus", default="0,1,2")
@@ -117,7 +123,7 @@ def row_identity(row):
 
 
 def discover_tasks(all_rows, output_dir):
-    """Discover the same 54 canonical branches, redirected to experiments3."""
+    """Discover the same 54 branches under the quartile output root."""
     return distance_launcher.discover_tasks(all_rows, output_dir)
 
 

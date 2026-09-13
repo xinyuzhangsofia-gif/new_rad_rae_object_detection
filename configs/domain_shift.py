@@ -1,16 +1,23 @@
 """Domain-shift experiment design and queue behavior."""
 
 from configs.data import EVALUATION_PLOTS_BASE_DIR
+from configs.experiment_paths import TARGET_DROP_EXPERIMENT_RELATIVE_DIR
+
+
+def _target_drop_table_path(weather):
+    return str(
+        TARGET_DROP_EXPERIMENT_RELATIVE_DIR / f"{weather}_experiments.txt"
+    )
 
 
 EXPERIMENT_QUEUE_CONFIG = {
     "experiment_queue_enabled": False,
     "experiment_sheet_paths": (
-        "experiments/heavy_snow_experiments.txt",
-        "experiments/light_snow_experiments.txt",
-        "experiments/overcast_experiments.txt",
-        "experiments/rain_experiments.txt",
-        "experiments/sleet_experiments.txt",
+        _target_drop_table_path("heavy_snow"),
+        _target_drop_table_path("light_snow"),
+        _target_drop_table_path("overcast"),
+        _target_drop_table_path("rain"),
+        _target_drop_table_path("sleet"),
     ),
     "experiment_queue_order": "seed_then_weather",
     "experiment_queue_seed_order": (42, 43, 44),

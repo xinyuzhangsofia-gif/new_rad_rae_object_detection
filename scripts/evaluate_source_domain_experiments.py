@@ -2,7 +2,7 @@
 """Evaluate source checkpoints on controlled normal-domain test sets.
 
 This launcher is intentionally isolated from the training queue and from the
-running ``experiments3`` quartile evaluation.  It pairs each canonical source
+running distance-quartile evaluation. It pairs each canonical source
 checkpoint's existing adverse-weather report with one new evaluation of the
 same checkpoint on a controlled normal test.  The reported source-domain
 difference is::
@@ -39,15 +39,22 @@ from scripts.experiment_analysis import discovery as analysis_discovery
 from scripts.experiment_analysis import execution as analysis_execution
 from scripts.experiment_analysis import results as analysis_results
 from scripts.experiment_analysis import state as analysis_state
+from configs.experiment_paths import (
+    DISTANCE_QUARTILE_EXPERIMENT_DIR,
+    DISTANCE_RANGE_EXPERIMENT_DIR,
+    SOURCE_DROP_EXPERIMENT_DIR,
+    TARGET_DROP_EXPERIMENT_DIR,
+    resolve_recorded_experiment_path,
+)
 
 
-SOURCE_EXPERIMENT_DIR = PROJECT_ROOT / "experiments"
-DEFAULT_EXPERIMENTS3_DIR = PROJECT_ROOT / "experiments3"
-DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "experiments4"
+SOURCE_EXPERIMENT_DIR = TARGET_DROP_EXPERIMENT_DIR
+DEFAULT_DISTANCE_QUARTILES_DIR = DISTANCE_QUARTILE_EXPERIMENT_DIR
+DEFAULT_OUTPUT_DIR = SOURCE_DROP_EXPERIMENT_DIR
 WEATHERS = ("heavy_snow", "light_snow", "overcast", "rain", "sleet")
 QUARTILES = ("q1", "q2", "q3", "q4")
 METADATA_HEADERS = distance_launcher.METADATA_HEADERS
-EXPECTED_EXPERIMENTS3_TASKS = 54
+EXPECTED_DISTANCE_QUARTILE_TASKS = 54
 EXPECTED_SD_TASKS = 80
 EXPECTED_SD_TASKS_BY_WEATHER = {
     "heavy_snow": 11,
@@ -79,8 +86,10 @@ def parse_args(argv=None):
         help="Root for SD tables, reports, logs, TensorBoard, controls, and state.",
     )
     parser.add_argument(
+        "--distance-quartiles-dir",
         "--experiments3-dir",
-        default=str(DEFAULT_EXPERIMENTS3_DIR),
+        dest="distance_quartiles_dir",
+        default=str(DEFAULT_DISTANCE_QUARTILES_DIR),
         help="Completed target-weather quartile experiment root.",
     )
     parser.add_argument(
@@ -97,9 +106,9 @@ def parse_args(argv=None):
         "--wait-for-quartile-completion",
         action="store_true",
         help=(
-            "Before doing any GPU work, poll experiments3 until exactly "
-            "54/54 tasks are completed. A failed experiments3 task aborts "
-            "the wait; retry it with the experiments3 launcher first."
+            "Before doing any GPU work, poll the distance-quartile state until "
+            "exactly 54/54 tasks are completed. A failed quartile task aborts "
+            "the wait; retry it with the quartile launcher first."
         ),
     )
     parser.add_argument(
@@ -112,7 +121,9 @@ def parse_args(argv=None):
     )
     args = parser.parse_args(argv)
     args.output_dir = Path(args.output_dir).expanduser().resolve()
-    args.experiments3_dir = Path(args.experiments3_dir).expanduser().resolve()
+    args.distance_quartiles_dir = (
+        Path(args.distance_quartiles_dir).expanduser().resolve()
+    )
     args.control_spec_index = Path(
         args.control_spec_index
         or args.output_dir / "control_specs" / "index.json"
@@ -120,8 +131,8 @@ def parse_args(argv=None):
 
     protected = {
         SOURCE_EXPERIMENT_DIR.resolve(),
-        (PROJECT_ROOT / "experiments2").resolve(),
-        args.experiments3_dir,
+        DISTANCE_RANGE_EXPERIMENT_DIR.resolve(),
+        args.distance_quartiles_dir,
     }
     if args.output_dir in protected:
         raise ValueError(
@@ -226,8 +237,8 @@ def _resolve_input_path(value, index_path):
         return None
     path = Path(str(value)).expanduser()
     if path.is_absolute():
-        return path.resolve()
-    project_candidate = (PROJECT_ROOT / path).resolve()
+        return resolve_recorded_experiment_path(path)
+    project_candidate = resolve_recorded_experiment_path(path)
     index_candidate = (Path(index_path).parent / path).resolve()
     if project_candidate.exists() or not index_candidate.exists():
         return project_candidate
@@ -677,30 +688,42 @@ def _epoch_checkpoint_identity(checkpoint_root):
     return _stable_hash({"root": str(root.resolve()), "epochs": rows}), []
 
 
-def _load_experiments3_state(experiments3_dir):
-    state_path = Path(experiments3_dir) / "quartile_evaluation_state.json"
+def _load_distance_quartile_state(distance_quartiles_dir):
+    state_path = Path(distance_quartiles_dir) / "quartile_evaluation_state.json"
     if not state_path.is_file():
-        raise FileNotFoundError(f"Missing experiments3 state: {state_path}")
+        raise FileNotFoundError(f"Missing distance-quartile state: {state_path}")
     payload = _load_json(state_path)
     tasks = payload.get("tasks", {})
-    if not isinstance(tasks, dict) or len(tasks) != EXPECTED_EXPERIMENTS3_TASKS:
+    if not isinstance(tasks, dict) or len(tasks) != EXPECTED_DISTANCE_QUARTILE_TASKS:
         raise RuntimeError(
-            f"Expected {EXPECTED_EXPERIMENTS3_TASKS} experiments3 tasks, "
+            f"Expected {EXPECTED_DISTANCE_QUARTILE_TASKS} distance-quartile tasks, "
             f"found {len(tasks) if isinstance(tasks, dict) else 'invalid state'}."
         )
+    for task in tasks.values():
+        if not isinstance(task, dict):
+            continue
+        for field in ("report_path", "log_path"):
+            if task.get(field) not in (None, ""):
+                task[field] = str(
+                    resolve_recorded_experiment_path(task[field])
+                )
     return state_path, payload
 
 
-def experiments3_completion_errors(experiments3_state):
+def distance_quartile_completion_errors(distance_quartile_state):
     errors = []
-    tasks = experiments3_state.get("tasks", {})
+    tasks = distance_quartile_state.get("tasks", {})
     completed = sum(
         str(task.get("status", "")).lower() == "completed"
         for task in tasks.values()
     )
-    if len(tasks) != EXPECTED_EXPERIMENTS3_TASKS or completed != EXPECTED_EXPERIMENTS3_TASKS:
+    if (
+        len(tasks) != EXPECTED_DISTANCE_QUARTILE_TASKS
+        or completed != EXPECTED_DISTANCE_QUARTILE_TASKS
+    ):
         errors.append(
-            f"experiments3 is incomplete: {completed}/{EXPECTED_EXPERIMENTS3_TASKS} completed"
+            "distance-quartile evaluation is incomplete: "
+            f"{completed}/{EXPECTED_DISTANCE_QUARTILE_TASKS} completed"
         )
     for task_id, task in tasks.items():
         if str(task.get("status", "")).lower() != "completed":
@@ -709,25 +732,25 @@ def experiments3_completion_errors(experiments3_state):
         if report_path is None or not quartile_launcher.report_matches_task(
             report_path, task
         ):
-            errors.append(f"invalid completed experiments3 report: {task_id}")
+            errors.append(f"invalid completed distance-quartile report: {task_id}")
     return errors
 
 
-def experiments3_progress(experiments3_state):
+def distance_quartile_progress(distance_quartile_state):
     counts = {}
-    tasks = experiments3_state.get("tasks", {})
+    tasks = distance_quartile_state.get("tasks", {})
     for task in tasks.values():
         status = str(task.get("status", "unknown")).lower()
         counts[status] = counts.get(status, 0) + 1
     return counts
 
 
-def wait_for_experiments3(experiments3_dir, poll_seconds):
+def wait_for_distance_quartiles(distance_quartiles_dir, poll_seconds):
     """Wait without launching children until quartile evaluation is complete."""
     last_summary = None
     while True:
-        _, state = _load_experiments3_state(experiments3_dir)
-        counts = experiments3_progress(state)
+        _, state = _load_distance_quartile_state(distance_quartiles_dir)
+        counts = distance_quartile_progress(state)
         failed = counts.get("failed", 0)
         if failed:
             failed_ids = [
@@ -736,19 +759,20 @@ def wait_for_experiments3(experiments3_dir, poll_seconds):
                 if str(task.get("status", "")).lower() == "failed"
             ]
             raise RuntimeError(
-                "experiments3 has failed task(s); retry them with the quartile "
+                "Distance-quartile evaluation has failed task(s); retry them with the quartile "
                 f"launcher before SD evaluation: {failed_ids!r}"
             )
         completed = counts.get("completed", 0)
-        if completed == EXPECTED_EXPERIMENTS3_TASKS:
-            errors = experiments3_completion_errors(state)
+        if completed == EXPECTED_DISTANCE_QUARTILE_TASKS:
+            errors = distance_quartile_completion_errors(state)
             if errors:
                 raise RuntimeError(
-                    "experiments3 reports failed final validation: "
+                    "Distance-quartile reports failed final validation: "
                     + "; ".join(errors[:10])
                 )
             print(
-                f"experiments3 gate ready: {completed}/{EXPECTED_EXPERIMENTS3_TASKS} completed",
+                "Distance-quartile gate ready: "
+                f"{completed}/{EXPECTED_DISTANCE_QUARTILE_TASKS} completed",
                 flush=True,
             )
             return state
@@ -757,7 +781,7 @@ def wait_for_experiments3(experiments3_dir, poll_seconds):
         )
         if summary != last_summary:
             print(
-                f"Waiting for experiments3 ({summary}); no SD GPU work started.",
+                f"Waiting for distance quartiles ({summary}); no SD GPU work started.",
                 flush=True,
             )
             last_summary = summary
@@ -966,9 +990,9 @@ def run_weather_reference_queue(args, state_path, state):
     )
 
 
-def _weather_task_index(experiments3_state):
+def _weather_task_index(distance_quartile_state):
     result = {}
-    for task_id, task in experiments3_state.get("tasks", {}).items():
+    for task_id, task in distance_quartile_state.get("tasks", {}).items():
         try:
             key = (
                 str(task["weather"]),
@@ -979,15 +1003,20 @@ def _weather_task_index(experiments3_state):
         except (KeyError, TypeError, ValueError):
             continue
         if key in result:
-            raise RuntimeError(f"Duplicate experiments3 task identity: {key!r}")
+            raise RuntimeError(
+                f"Duplicate distance-quartile task identity: {key!r}"
+            )
         result[key] = dict(task, task_id=task_id)
     return result
 
 
-def build_all_weather_reference_state(experiments3_state, new_reference_state):
+def build_all_weather_reference_state(
+        distance_quartile_state,
+        new_reference_state,
+    ):
     """Combine reusable Rain/Sleet reports with newly evaluated weather reports."""
     combined = {}
-    for task_id, task in experiments3_state.get("tasks", {}).items():
+    for task_id, task in distance_quartile_state.get("tasks", {}).items():
         if (
             task.get("weather") in {"rain", "sleet"}
             and task.get("branch") == "source"
@@ -1013,9 +1042,9 @@ def build_all_weather_reference_state(experiments3_state, new_reference_state):
     return {"tasks": combined}
 
 
-def discover_tasks(all_rows, output_dir, experiments3_state, controls):
+def discover_tasks(all_rows, output_dir, distance_quartile_state, controls):
     """Build all 80 source tasks, retaining readiness errors for dry-run."""
-    weather_index = _weather_task_index(experiments3_state)
+    weather_index = _weather_task_index(distance_quartile_state)
     tasks = {}
     for weather in WEATHERS:
         for row in all_rows[weather]:
@@ -1025,7 +1054,9 @@ def discover_tasks(all_rows, output_dir, experiments3_state, controls):
             group, seed = identity
             key = (weather, group, seed, "source")
             if key not in weather_index:
-                raise RuntimeError(f"Missing experiments3 source task: {key!r}")
+                raise RuntimeError(
+                    f"Missing distance-quartile source task: {key!r}"
+                )
             weather_task = weather_index[key]
             checkpoint_root = Path(
                 str(weather_task.get("checkpoint_root", ""))
@@ -1036,7 +1067,8 @@ def discover_tasks(all_rows, output_dir, experiments3_state, controls):
             readiness = []
             if str(weather_task.get("status", "")).lower() != "completed":
                 readiness.append(
-                    f"experiments3 source task is {weather_task.get('status', 'unknown')}"
+                    "distance-quartile source task is "
+                    f"{weather_task.get('status', 'unknown')}"
                 )
 
             checkpoint_identity, checkpoint_errors = _epoch_checkpoint_identity(
@@ -1103,7 +1135,7 @@ def discover_tasks(all_rows, output_dir, experiments3_state, controls):
                 and int(control_weather_count) != weather_bbox_count
             ):
                 readiness.append(
-                    "control target bbox count does not match experiments3 report: "
+                    "control target bbox count does not match quartile report: "
                     f"{control_weather_count} != {weather_bbox_count}"
                 )
             if weather_bbox_count is not None:
@@ -1130,7 +1162,7 @@ def discover_tasks(all_rows, output_dir, experiments3_state, controls):
                 "source_sequences": control.get("source_sequences"),
                 "fixed_bins": fixed_bins,
                 "epochs": [5, 24],
-                # Match the existing experiments3 target-weather evaluation
+                # Match the existing distance-quartile target-weather evaluation
                 # exactly.  AP@0.3 is the quantity used by the SD table, but
                 # keeping ``all`` and the detection summaries enabled avoids
                 # a hidden configuration difference between the two domains.
@@ -1675,7 +1707,9 @@ def main(argv=None):
         all_rows = {
             weather: read_experiment_rows(weather) for weather in WEATHERS
         }
-        _, experiments3_state = _load_experiments3_state(args.experiments3_dir)
+        _, distance_quartile_state = _load_distance_quartile_state(
+            args.distance_quartiles_dir
+        )
         controls, control_index_errors = load_control_specs(args.control_spec_index)
         if control_index_errors:
             raise RuntimeError(
@@ -1696,12 +1730,16 @@ def main(argv=None):
         reference_state = initialize_weather_reference_state(
             reference_state_path, reference_discovered
         )
-        completion_errors = experiments3_completion_errors(experiments3_state)
+        completion_errors = distance_quartile_completion_errors(
+            distance_quartile_state
+        )
 
         if args.dry_run:
             combined_tasks = {
                 task_id: dict(task, task_id=task_id)
-                for task_id, task in experiments3_state.get("tasks", {}).items()
+                for task_id, task in distance_quartile_state.get(
+                    "tasks", {}
+                ).items()
                 if task.get("weather") in {"rain", "sleet"}
                 and task.get("branch") == "source"
             }
@@ -1751,20 +1789,23 @@ def main(argv=None):
                 )
             print(
                 "Dry run complete; no evaluation processes were launched. "
-                f"experiments3 gate: {'ready' if not completion_errors else completion_errors[0]}",
+                "distance-quartile gate: "
+                f"{'ready' if not completion_errors else completion_errors[0]}",
                 flush=True,
             )
             return 0
 
         if args.wait_for_quartile_completion:
-            experiments3_state = wait_for_experiments3(
-                args.experiments3_dir,
+            distance_quartile_state = wait_for_distance_quartiles(
+                args.distance_quartiles_dir,
                 args.poll_seconds,
             )
-            completion_errors = experiments3_completion_errors(experiments3_state)
+            completion_errors = distance_quartile_completion_errors(
+                distance_quartile_state
+            )
         if completion_errors:
             raise RuntimeError(
-                "Refusing to launch before experiments3 is fully complete: "
+                "Refusing to launch before distance quartiles are fully complete: "
                 + "; ".join(completion_errors[:10])
             )
 
@@ -1773,11 +1814,11 @@ def main(argv=None):
             args, reference_state_path, reference_state
         ):
             raise RuntimeError(
-                "Weather-reference stage failed; see experiments4/logs and "
+                "Weather-reference stage failed; see the source-drop logs and "
                 "resume this launcher after fixing the failed evaluator."
             )
         combined_reference_state = build_all_weather_reference_state(
-            experiments3_state, reference_state
+            distance_quartile_state, reference_state
         )
         discovered = discover_tasks(
             all_rows,

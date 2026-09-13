@@ -143,7 +143,9 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 
 ### 实验状态的边界
 
-实验定义表、`split/` 与 `experiments4/control_specs/` 是复现输入，保留版本管理。队列状态/锁是运行状态，不随源代码提交；锁只应在 worker 已停止时删除。
+实验定义表、`split/` 与 `experiments/source_drop/control_specs/` 是复现输入，保留版本管理。队列状态/锁是运行状态，不随源代码提交；锁只应在 worker 已停止时删除。若本机存在与表同目录的未跟踪 state/lock，迁移仓库时也须随对应表移动。
+
+实验族统一位于一个语义目录：`experiments/target_drop/` 保存主天气 Target Drop 表，`experiments/distance_ranges/` 保存固定物理距离分析，`experiments/distance_quartiles/` 保存等数量 GT 距离四分位/相对 TD，`experiments/source_drop/` 保存受控正常域 Source Drop。旧结果或 state 内记录的历史绝对/相对路径只在读取时映射，不保留旧目录副本。
 
 已删除状态不会让磁盘检查点自动重新登记为完成。距离、四分位和源域评估脚本仍依赖上游状态中的检查点记录，重评历史实验前需要恢复或准备正确状态清单；不要为了生成状态而盲目重跑训练。单元测试现在自行创建状态，不需要私人运行记录。
 
@@ -156,6 +158,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | 已完成（队列） | `training_utils/experiment_queue.py` 与 `training_utils/experiments/` | 队列内部职责已分离，根模块保留编排和兼容导出；三个独立重评脚本的任务模型与输出状态不同，本步骤未合并。 |
 | 已完成（分析脚本） | `scripts/evaluate_*_experiments.py` 与 `scripts/experiment_analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；三个 CLI、科学定义、输出 state schema 与表聚合保持独立。 |
 | 已完成（报告） | `eval/reporting.py` 与 `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | facade 保留旧导入；输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
+| 已完成（实验目录） | `experiments/{target_drop,distance_ranges,distance_quartiles,source_drop}/` | 四类实验资产移入唯一语义路径；文件内容、task/state identity、脚本默认值及内部结果布局不变。 |
 | 4 | `visualization_based_gt/generate_*.py` 等特定序列脚本 | 将序列、帧、epoch、标题等变为一套渲染入口的参数/预设；先保存参考图片与视频元数据，避免改变论文图。 |
 | 5 | `training_utils/losses.py`、`data/splits.py` | 按真实职责整理函数与注释；只抽取多处复用的实现，不用更多小文件替代长文件。 |
 | 6 | `legacy_module.py`、旧可视化器、原始 MAT 加载器 | 先确认历史模型和图像复现需求；无静态 import 不等于无功能，不自动删除。 |
@@ -186,6 +189,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [configs/coordinates.py](../configs/coordinates.py) | 101 | Cartesian 数据入口校验；内部几何及辅助指标模式解析。 | 保留明确配置入口；后续统一机器路径，保持原默认值。 |
 | [configs/data.py](../configs/data.py) | — | 数据集、原始传感器、校准及共享输出路径；本机数据路径支持环境变量覆盖。 | 机器路径的统一配置入口。 |
 | [configs/domain_shift.py](../configs/domain_shift.py) | — | 域偏移序列、实验表、受控划分和队列行为。 | 与普通训练超参数分离。 |
+| [configs/experiment_paths.py](../configs/experiment_paths.py) | — | 四类实验目录的唯一常量及历史 metadata/state 路径读取映射。 | 不创建旧目录或修改历史结果文件。 |
 | [configs/evaluation.py](../configs/evaluation.py) | 82 | 可编辑独立评估配置。 | 保留明确配置入口；后续统一机器路径，保持原默认值。 |
 | [configs/historical_overrides.py](../configs/historical_overrides.py) | — | 中断的历史队列任务所需检查点覆盖项。 | 与稳定默认值隔离但保留信息。 |
 | [configs/resume.py](../configs/resume.py) | — | 当前断点续训任务的覆盖项。 | 基于训练默认值合并；兼容导出仍在 `configs/training.py`。 |
@@ -317,7 +321,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [tools/analysis/analyze_highway_sequence_stats.py](../tools/analysis/analyze_highway_sequence_stats.py) | 398 | 汇总高速/非高速序列的目标与忽略统计，并绘制比较图表。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
 | [tools/analysis/generate_experiment_data_summary.py](../tools/analysis/generate_experiment_data_summary.py) | 200 | 从天气实验表和受控划分统计中计算源训练、目标训练和测试的帧数与有效 Sedan BBox 数。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
 | [tools/analysis/generate_group1_domain_shift_summary.py](../tools/analysis/generate_group1_domain_shift_summary.py) | 373 | 生成 Group1 的源/目标/测试帧数与类别统计，可读取精确划分清单。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
-| [tools/analysis/grafic_visualization.py](../tools/analysis/grafic_visualization.py) | 446 | 绘制 Experiment 3 在距离四分位上的 BEV/3D AP 相对和绝对下降曲线。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
+| [tools/analysis/grafic_visualization.py](../tools/analysis/grafic_visualization.py) | 446 | 绘制距离四分位实验的 BEV/3D AP 相对和绝对下降曲线。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
 | [tools/analysis/plot_weather_road_frames.py](../tools/analysis/plot_weather_road_frames.py) | 459 | 按天气与道路类型统计真实雷达帧，输出 CSV、文本表和分布图。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
 | [tools/figures/__init__.py](../tools/figures/__init__.py) | 1 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
 | [tools/figures/model7/__init__.py](../tools/figures/model7/__init__.py) | 1 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
@@ -404,6 +408,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [tests/test_experiment_analysis_infrastructure.py](../tests/test_experiment_analysis_infrastructure.py) | — | 完成检查点/配对、命令公共段、CUDA 环境、报告 metadata/freshness、结果复用及失败状态。 | 保留 Step 5 的基础设施等价性覆盖。 |
 | [tests/test_evaluation_reporting_paths.py](../tests/test_evaluation_reporting_paths.py) | 381 | 评估目录命名、天气汇总、TensorBoard 路径和绘图选择。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_reporting_architecture.py](../tests/test_reporting_architecture.py) | — | 报告 facade、路径、TXT/YAML 历史兼容、配对/TD、tie-break 和 TensorBoard tags。 | Step 6 黄金行为回归；不运行数据集评估。 |
+| [tests/test_experiment_path_layout.py](../tests/test_experiment_path_layout.py) | — | 四类实验目录、默认脚本路径、表顺序、历史记录路径映射和旧路径扫描。 | Step 7 路径迁移回归；不运行训练或评估。 |
 | [tests/test_experiment_queue.py](../tests/test_experiment_queue.py) | 1072 | 实验表解析、校验、调度、恢复、worker 协调和结果更新。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_experiment_queue_modules.py](../tests/test_experiment_queue_modules.py) | — | 队列模块边界、固定 task key、状态原子性、GPU tie-break、resume worker 命令和失败状态。 | 保留 Step 4 的编排兼容性回归覆盖。 |
 | [tests/test_experiment_xlsx_sync.py](../tests/test_experiment_xlsx_sync.py) | 335 | XLSX 解析、布局、公式/样式、TXT 渲染和同步。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
@@ -429,10 +434,10 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | `Rotated_IoU/LICENSE`、`eval/kitti_eval/LICENSE` | 随第三方源码保留；不擅自重新许可。 |
 | `lidar2radar_calib.yml`、`visualization_based_gt/lidar2radar_calib.yml` | 标定输入；不同入口有各自默认路径，未直接删副本。 |
 | `sequence_information.csv` | 58 个序列的统计与天气/道路等元数据；帧/目标数来自当前 Cartesian-radar 标签，环境标签保留原注释。 |
-| `experiments*/` 中实验 TXT/XLSX、README | 实验定义/汇总格式与说明，是调度和论文复现上下文；不因包含历史 AP 就整目录删除。 |
+| `experiments/{target_drop,distance_ranges,distance_quartiles,source_drop}/` 中实验 TXT/XLSX、README | 实验定义/汇总格式与说明，是调度和论文复现上下文；不因包含历史 AP 就整目录删除。 |
 | `split/**/{train,test,discard}.txt` | 精确帧划分；合并或重生成会影响样本归属，保留。 |
 | `split/**/{control_config,object_ignore_override,stats}.json` 等 | 控制划分、对象忽略与复用统计，保留；可能需要和实验定义一起发布。 |
-| `experiments4/control_specs/**` | 正常天气控制测试集及索引/统计，保留。这些不是可随意删除的缓存。 |
+| `experiments/source_drop/control_specs/**` | 正常天气控制测试集及索引/统计，保留。这些不是可随意删除的缓存。 |
 | `evaluation_plots/`、`evaluation_results/`、`figures/`、`analysis_plots/` 的结果 | 生成产物；本地保留，不跟踪。历史结果分析需要自行准备相应结果文件。 |
 | `checkpoints/`、`runs*/`、TensorBoard、缓存、编译产物 | 运行生成或本机内容；不纳入源码。第三方 CUDA 扩展需按当前环境构建。 |
 | `README.md`、`requirements.txt`、`.gitignore`、`docs/` | 分别负责上手、依赖、仓库边界与详细规则；不再维护多份重复目录指南。 |

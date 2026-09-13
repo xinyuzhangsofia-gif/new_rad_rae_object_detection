@@ -50,14 +50,21 @@ from data.geometry import (
 )
 from eval.distance_quartiles import derive_gt_distance_quartile_bins
 from data.paths import get_rad_rae_npy_root_dir
+from configs.experiment_paths import (
+    DISTANCE_QUARTILE_EXPERIMENT_DIR,
+    SOURCE_DROP_EXPERIMENT_DIR,
+    TARGET_DROP_EXPERIMENT_DIR,
+)
 
 
 SCHEMA_VERSION = 2
 DEFAULT_SEED = 42
 DEFAULT_CARTESIAN_GT_ROOT = Path(CARTESIAN_GT_ROOT)
-DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "experiments4" / "control_specs"
+DEFAULT_OUTPUT_DIR = SOURCE_DROP_EXPERIMENT_DIR / "control_specs"
 DEFAULT_SEQUENCE_CSV = PROJECT_ROOT / "sequence_information.csv"
-DEFAULT_QUARTILE_REPORT_ROOT = PROJECT_ROOT / "experiments3" / "evaluation_reports"
+DEFAULT_QUARTILE_REPORT_ROOT = (
+    DISTANCE_QUARTILE_EXPERIMENT_DIR / "evaluation_reports"
+)
 
 WEATHERS = ("heavy_snow", "light_snow", "overcast", "rain", "sleet")
 CSV_WEATHER_BY_GROUP = {
@@ -301,7 +308,7 @@ def crosscheck_quartile_bins(derived, reported, target_sequences):
             and int(expected["bbox_count"]) == int(actual["bbox_count"])
         ):
             raise RuntimeError(
-                f"Derived and experiments3 quartiles differ for target "
+                f"Derived and recorded quartiles differ for target "
                 f"test set {target_tag}: derived={derived}, reported={reported}"
             )
 
@@ -672,7 +679,7 @@ def verify_no_training_overlap(weather_group, target_sequences, source_sequence,
                                source_frame_names):
     """Audit candidate frames against every source-trained row for the target."""
     rows = _parse_experiment_rows(
-        PROJECT_ROOT / "experiments" / f"{weather_group}_experiments.txt"
+        TARGET_DROP_EXPERIMENT_DIR / f"{weather_group}_experiments.txt"
     )
     target_sequences = _sequence_tuple(target_sequences)
     relevant = [row for row in rows if row["test"] == target_sequences]
@@ -739,7 +746,7 @@ def _continuous_available_runs(frame_names, blocked_names):
 
 def _weather_source_training_tokens(weather_group):
     rows = _parse_experiment_rows(
-        PROJECT_ROOT / "experiments" / f"{weather_group}_experiments.txt"
+        TARGET_DROP_EXPERIMENT_DIR / f"{weather_group}_experiments.txt"
     )
     tokens_by_sequence = {}
     for row in rows:
@@ -1003,7 +1010,7 @@ def discover_control_definitions():
     definitions = []
     for weather_group in WEATHERS:
         rows = _parse_experiment_rows(
-            PROJECT_ROOT / "experiments" / f"{weather_group}_experiments.txt"
+            TARGET_DROP_EXPERIMENT_DIR / f"{weather_group}_experiments.txt"
         )
         seen = set()
         for row in rows:
