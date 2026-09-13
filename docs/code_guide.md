@@ -15,6 +15,12 @@ configs/training.py → train.py → training_utils/runner.py
                                 └─ training_utils/ → 损失、训练、检查点、队列
 configs/evaluation.py → evaluation.py → eval/workflow.py → eval/
 visualize_cfg.py → visualize.py
+training_utils/experiment_queue.py → training_utils/experiments/
+    ├─ schema.py → 实验/任务数据结构与身份版本
+    ├─ tables.py → 表发现、解析、校验、结果写回及 TXT/XLSX 同步接口
+    ├─ state.py → task key、JSON 状态、原子写、锁与中断恢复
+    ├─ scheduling.py → 任务展开、进程保护、GPU 容量与选择
+    └─ execution.py → 子配置/命令、subprocess、日志及结果收集
 tools/ → 独立统计、论文图和维护工具
 ```
 
@@ -96,6 +102,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 - 合并重复的结构说明；保留实验表生成规则、数据划分和控制清单。
 - 数据输入改为 Cartesian-only，删除 Polar GT 专用分支/工具、集中路径、增加拒绝错误输入和数值回归测试。
 - 按单一职责整理数据模块：`dataset.py` 从 726 行降为 354 行；移动几何、标签选择、ignore 校验和 collate，并合并重复 MAT 读取逻辑。
+- 将域偏移实验队列按职责拆为 `schema`、`tables`、`state`、`scheduling` 和 `execution`；`experiment_queue.py` 保留高层循环及历史导入兼容面。任务身份版本、表顺序、恢复检查点、GPU 排序、worker 命令和失败状态写入规则均未改变。
 
 “功能保持”指保留正式实现与计算行为，**不包括继续支持已明确删除的旧导入、旧工具命令及 Polar GT/检查点输入**。仓库外的 notebook 和脚本若使用下面的旧名，需要同步更新；未声称验证所有外部调用或历史完整对象 pickle。
 
@@ -131,7 +138,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | --- | --- | --- |
 | 1 | `configs/data.py`、`data/paths.py`、训练/评估/可视化配置 | RAD/RAE 与 Cartesian GT 默认根路径已集中；接下来统一原始传感器、旧配方的标定/输出设置。当前保留本机默认值，换机器前需设置环境变量或参数。 |
 | 已完成 | `visualize.py`、`eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py`、`checkpoint_predictor.py` | 检查点解释/模型重建集中在 `eval/checkpoints.py`，前向推理集中在 `eval/inference.py`，解码与 NMS 集中在 `eval/decoding.py`；可视化只保留绘图坐标转换和兼容转发。 |
-| 3 | 三个 `scripts/evaluate_*_experiments.py` 与 `training_utils/experiment_queue.py` | 共享状态读写、日志和命令拼装，保留调度、最新完成记录选择、恢复及失败语义。 |
+| 已完成（队列） | `training_utils/experiment_queue.py` 与 `training_utils/experiments/` | 队列内部职责已分离，根模块保留编排和兼容导出；三个独立重评脚本的任务模型与输出状态不同，本步骤未合并。 |
 | 4 | `visualization_based_gt/generate_*.py` 等特定序列脚本 | 将序列、帧、epoch、标题等变为一套渲染入口的参数/预设；先保存参考图片与视频元数据，避免改变论文图。 |
 | 5 | `eval/reporting.py`、`training_utils/losses.py`、`data/splits.py` | 按真实职责整理函数与注释；只抽取多处复用的实现，不用更多小文件替代长文件。 |
 | 6 | `legacy_module.py`、旧可视化器、原始 MAT 加载器 | 先确认历史模型和图像复现需求；无静态 import 不等于无功能，不自动删除。 |
@@ -213,7 +220,12 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [training_utils/checkpoint_init.py](../training_utils/checkpoint_init.py) | 88 | 将兼容的双类别检查点头适配为仅 Sedan 初始化，并报告加载情况。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [training_utils/checkpoints.py](../training_utils/checkpoints.py) | 820 | 创建运行目录、格式化文件名、构建 payload 并保存 epoch、候选和全局最佳检查点。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [training_utils/configuration.py](../training_utils/configuration.py) | 713 | 处理任务类别、域偏移、坐标/损失模式、受控划分、Model15 学习率和检查点初始化。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [training_utils/experiment_queue.py](../training_utils/experiment_queue.py) | 2640 | 表驱动的多天气源/目标实验队列：解析、校验、锁、恢复、GPU 调度、评估和表格更新。 | 保留队列语义；可分清解析/调度/落盘职责，避免散成小包装器。 |
+| [training_utils/experiment_queue.py](../training_utils/experiment_queue.py) | — | 高层多天气/分 seed 队列循环及历史导入兼容 facade。 | 编排下列职责模块；保留 `train.py` 调度入口和旧 helper import。 |
+| [training_utils/experiments/schema.py](../training_utils/experiments/schema.py) | — | `DomainShiftExperiment`、`ExperimentQueueTask`、分支和身份版本。 | 不执行 I/O 或调度。 |
+| [training_utils/experiments/tables.py](../training_utils/experiments/tables.py) | — | 实验表发现、历史表头/序列 token 解析、结果查找、TXT 写回与 XLSX 同步接口。 | 保持表值、排序和写回格式。 |
+| [training_utils/experiments/state.py](../training_utils/experiments/state.py) | — | task slug/key、queue JSON、原子替换、`fcntl` 锁和中断任务恢复分类。 | 保持 identity version 5 和并发安全。 |
+| [training_utils/experiments/scheduling.py](../training_utils/experiments/scheduling.py) | — | 分支/任务展开、设计重复校验、GPU slot/容量选择和顶层训练进程保护。 | 保持低 GPU ID tie-break、保留内存扣减和并发上限。 |
+| [training_utils/experiments/execution.py](../training_utils/experiments/execution.py) | — | 训练 child config、历史 resume 覆盖、worker/评估命令、subprocess 日志和结果收集。 | 继续调用 `experiment_worker.py` 与 Step 2 共享训练工作流。 |
 | [training_utils/experiment_worker.py](../training_utils/experiment_worker.py) | 92 | 私有子进程入口；运行一个序列化实验训练任务并原子写入结果。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [training_utils/logging_utils.py](../training_utils/logging_utils.py) | 331 | 打印 epoch 历史，并向 TensorBoard 写入配置和指标。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [training_utils/losses.py](../training_utils/losses.py) | 1379 | 实现 RADE-Net、CenterPoint、QFL、质量、GWD、忽略区域和 YOLOX 的目标生成与损失。 | 保留计算与接口；先按职责整理函数，再做有回归覆盖的提取。 |
@@ -363,6 +375,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [tests/test_evaluate_source_domain_experiments.py](../tests/test_evaluate_source_domain_experiments.py) | 406 | 受控源域任务、命令、报告和汇总。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_evaluation_reporting_paths.py](../tests/test_evaluation_reporting_paths.py) | 381 | 评估目录命名、天气汇总、TensorBoard 路径和绘图选择。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_experiment_queue.py](../tests/test_experiment_queue.py) | 1072 | 实验表解析、校验、调度、恢复、worker 协调和结果更新。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
+| [tests/test_experiment_queue_modules.py](../tests/test_experiment_queue_modules.py) | — | 队列模块边界、固定 task key、状态原子性、GPU tie-break、resume worker 命令和失败状态。 | 保留 Step 4 的编排兼容性回归覆盖。 |
 | [tests/test_experiment_xlsx_sync.py](../tests/test_experiment_xlsx_sync.py) | 335 | XLSX 解析、布局、公式/样式、TXT 渲染和同步。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_generate_test_domain_controls.py](../tests/test_generate_test_domain_controls.py) | 152 | 控制分配、窗口选择、直方图和目标选择数学。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_inference_refactor.py](../tests/test_inference_refactor.py) | — | 检查点元数据/历史回退、共享前向、CenterPoint/RADE-Net/YOLOX 跨工作流等价、阈值和旋转 NMS。 | 保留 Step 3 的数值与兼容性回归覆盖。 |

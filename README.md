@@ -17,9 +17,6 @@ Run commands from the repository root after configuring local data and checkpoin
 Training and resume are configuration-driven: do not use `--help` as a dry run.
 Check the configured queue, GPU, sequences, and output locations before starting.
 Both commands execute the shared workflow in `training_utils/runner.py`;
-`training_utils/resume.py` adds only interrupted-run restoration and directory
-reuse policies.
-Both commands execute the shared workflow in `training_utils/runner.py`;
 `training_utils/resume.py` only supplies checkpoint restoration, resume epochs,
 and existing-run directory policies.
 
