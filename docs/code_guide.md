@@ -130,7 +130,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | 优先级 | 涉及文件 | 建议与不变条件 |
 | --- | --- | --- |
 | 1 | `configs/data.py`、`data/paths.py`、训练/评估/可视化配置 | RAD/RAE 与 Cartesian GT 默认根路径已集中；接下来统一原始传感器、旧配方的标定/输出设置。当前保留本机默认值，换机器前需设置环境变量或参数。 |
-| 2 | `visualize.py`、`eval/checkpoints.py`、`eval/decoding.py`、`checkpoint_predictor.py` | 统一重复的检查点推断与解码；用同一检查点比较框、分数、NMS 顺序，不能只看“能运行”。 |
+| 已完成 | `visualize.py`、`eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py`、`checkpoint_predictor.py` | 检查点解释/模型重建集中在 `eval/checkpoints.py`，前向推理集中在 `eval/inference.py`，解码与 NMS 集中在 `eval/decoding.py`；可视化只保留绘图坐标转换和兼容转发。 |
 | 3 | 三个 `scripts/evaluate_*_experiments.py` 与 `training_utils/experiment_queue.py` | 共享状态读写、日志和命令拼装，保留调度、最新完成记录选择、恢复及失败语义。 |
 | 4 | `visualization_based_gt/generate_*.py` 等特定序列脚本 | 将序列、帧、epoch、标题等变为一套渲染入口的参数/预设；先保存参考图片与视频元数据，避免改变论文图。 |
 | 5 | `eval/reporting.py`、`training_utils/losses.py`、`data/splits.py` | 按真实职责整理函数与注释；只抽取多处复用的实现，不用更多小文件替代长文件。 |
@@ -151,7 +151,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [legacy_module.py](../legacy_module.py) | 373 | 历史 RAD/RAE 编码器、固定框检测器及卷积组件；未发现当前源码直接导入。 | 暂保留；确认不需历史模型/检查点后再归档。 |
 | [train.py](../train.py) | 13 | 训练命令入口，调用 training_utils/runner.py，并导出 worker 使用的接口。 | 保留主要入口；不继续复制工作流。 |
 | [train_resume.py](../train_resume.py) | — | 断点续训兼容入口；转发到 `training_utils/resume.py`。 | 保留现有命令和公开辅助函数。 |
-| [visualize.py](../visualize.py) | 1717 | 主检查点可视化器；重建 Cartesian 模型、解码预测，在 Polar/Cartesian 视图绘制 GT 与预测框，并显示或保存帧。 | 保留；后续和 eval 统一检查点解析/解码，先做输出对照。 |
+| [visualize.py](../visualize.py) | — | 主检查点可视化器；消费共享 canonical detections，在 Polar/Cartesian 视图绘制 GT 与预测框，并显示或保存帧。 | 保留绘图、布局和可视化坐标转换；检查点/推理/解码由 `eval/` 共享层负责。 |
 | [visualize_cfg.py](../visualize_cfg.py) | 40 | `visualize.py` 的配置，包括检查点、序列、阈值、坐标/视图模式和输出目录。 | 保留明确配置入口；后续统一机器路径，保持原默认值。 |
 
 ### configs
@@ -239,6 +239,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [eval/distance_quartiles.py](../eval/distance_quartiles.py) | 335 | 从 GT 推导保留并列值的距离四分位，并过滤评估状态。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/distance_ranges.py](../eval/distance_ranges.py) | 196 | 标准化米制距离区间，并按距离过滤项目/官方标注。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/evaluation_config.py](../eval/evaluation_config.py) | 707 | 解析评估参数、继承检查点配置、选择设备、标准化阈值并解析类别映射。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
+| [eval/inference.py](../eval/inference.py) | — | 统一准备批次输入、执行 `model.eval()`/无梯度前向，并把原始输出交给 canonical decoder。 | 评估、主可视化和多传感器检查点预测共同使用。 |
 | [eval/kitti_eval/axis_aligned_iou.py](../eval/kitti_eval/axis_aligned_iou.py) | 71 | 与旋转 IoU 接口兼容的轴对齐 BEV 重叠后端。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/kitti_eval/eval_revised.py](../eval/kitti_eval/eval_revised.py) | 834 | 修订版官方 KITTI/K-Radar AP：重叠计算、匹配、难度过滤和结果格式化。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/kitti_eval/nms_gpu.py](../eval/kitti_eval/nms_gpu.py) | 639 | 官方评估使用的 Numba/CUDA 旋转 IoU 与 NMS。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
@@ -294,7 +295,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 
 | 文件 | 行数 | 功能 | 处理建议 |
 | --- | ---: | --- | --- |
-| [visualization_based_gt/checkpoint_predictor.py](../visualization_based_gt/checkpoint_predictor.py) | 234 | 加载训练检查点和模型，为多传感器可视化提供预测接口。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
+| [visualization_based_gt/checkpoint_predictor.py](../visualization_based_gt/checkpoint_predictor.py) | — | 活跃的多传感器预测适配器；调用 `eval/checkpoints.py`、`eval/inference.py` 和 `eval/decoding.py`，再输出渲染所需米制雷达框。 | 保留公开预测接口；不再独立重建或解码模型。 |
 | [visualization_based_gt/create_sleet_normal_comparison.py](../visualization_based_gt/create_sleet_normal_comparison.py) | 62 | 生成选定的雨夹雪与正常天气双面板对比图。 | 保留论文图/视频配方；后续用参数替代写死序列与 epoch。 |
 | [visualization_based_gt/generate_sequence11_clean_overlay.py](../visualization_based_gt/generate_sequence11_clean_overlay.py) | 160 | 重新生成序列 11 指定帧的简洁细线雷达叠加图。 | 保留论文图/视频配方；后续用参数替代写死序列与 epoch。 |
 | [visualization_based_gt/generate_sequence11_epoch9_multisensor_video.py](../visualization_based_gt/generate_sequence11_epoch9_multisensor_video.py) | 131 | 生成序列 11 相机、LiDAR、Cartesian 雷达和 epoch-9 预测视频。 | 保留论文图/视频配方；后续用参数替代写死序列与 epoch。 |
@@ -364,6 +365,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [tests/test_experiment_queue.py](../tests/test_experiment_queue.py) | 1072 | 实验表解析、校验、调度、恢复、worker 协调和结果更新。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_experiment_xlsx_sync.py](../tests/test_experiment_xlsx_sync.py) | 335 | XLSX 解析、布局、公式/样式、TXT 渲染和同步。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_generate_test_domain_controls.py](../tests/test_generate_test_domain_controls.py) | 152 | 控制分配、窗口选择、直方图和目标选择数学。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
+| [tests/test_inference_refactor.py](../tests/test_inference_refactor.py) | — | 检查点元数据/历史回退、共享前向、CenterPoint/RADE-Net/YOLOX 跨工作流等价、阈值和旋转 NMS。 | 保留 Step 3 的数值与兼容性回归覆盖。 |
 | [tests/test_model7_loss_semantics.py](../tests/test_model7_loss_semantics.py) | 59 | Model7 在 Cartesian CenterPoint 与 RADE-Net 模式下的损失/头语义。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_post_training_evaluation.py](../tests/test_post_training_evaluation.py) | 134 | GPU 选择和训练后评估启动。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_tool_paths.py](../tests/test_tool_paths.py) | 69 | 验证工具迁移后的项目根目录、输入文件和原输出目录。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |

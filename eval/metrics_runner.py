@@ -37,10 +37,10 @@ from eval.polar_ap import compute_polar_ap_metrics
 from data.geometry import metric_boxes_to_raw_local_rae
 
 from eval.decoding import (
-    decode_batch_predictions,
     filter_predictions_to_scope,
     normalized_rae_boxes_to_cartesian_metric_boxes,
 )
+from eval.inference import predict_batch as predict_detection_batch
 
 __all__ = [
     'init_kradar_eval_state',
@@ -353,19 +353,18 @@ def collect_kradar_annos(
                 "Evaluation coordinate mode does not match the dataset: "
                 f"requested={box_coordinate_mode!r}, batch={sorted(batch_modes)}"
             )
-        rad, rae = prepare_model_inputs(batch, device)
-        outputs = model(rad, rae)
-        batch_predictions = decode_batch_predictions(
-            outputs=outputs,
+        batch_predictions = predict_detection_batch(
+            model=model,
+            batch=batch,
+            device=device,
             num_classes=num_classes,
             max_detections=max_detections,
             heatmap_nms_kernel=heatmap_nms_kernel,
             heatmap_score_mode=heatmap_score_mode,
             yolox_nms_iou=yolox_nms_iou,
             score_thresh=ap_score_thresh,
-            scope_modes=batch["scope_mode"],
-            full_rae_shapes=batch["full_rae_shape"],
             box_coordinate_mode=box_coordinate_mode,
+            prepare_model_inputs=prepare_model_inputs,
         )
 
         for batch_index, frame_predictions in enumerate(batch_predictions):

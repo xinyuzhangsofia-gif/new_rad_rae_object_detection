@@ -124,6 +124,13 @@ Within `data/`, responsibilities are explicit: `labels.py` reads Cartesian GT,
 `dataloader.py` collates samples and builds loaders. Raw MAT sensor projections
 live separately in `loaders/kradar_dataset.py`.
 
+Checkpoint prediction also has one shared path. `eval/checkpoints.py` interprets
+checkpoint metadata, reconstructs models, and loads state dictionaries;
+`eval/inference.py` owns model forward inference; and `eval/decoding.py` owns
+CenterPoint, RADE-Net, and YOLOX decoding plus filtering/NMS. Evaluation passes
+the resulting canonical detections to metrics, while `visualize.py` and the
+active multi-sensor checkpoint predictor only convert them for drawing.
+
 Small main entry points `train.py` and `evaluation.py` remain supported.
 Removed root configuration aliases must be replaced with imports from
 `configs/` and `data/`; see the migration map in the

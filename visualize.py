@@ -4,26 +4,21 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn.functional as F
 from matplotlib.patches import Rectangle
 
 from data.coordinates import (
     AZIMUTH_AXIS,
     ELEVATION_AXIS,
     RANGE_AXIS,
-    RDR_SP_CUBE,
     SCOPE_CHOICES,
     SCOPE_FULL,
-    SCOPE_NARROW,
     denormalize_rae_boxes_to_local_scope,
     get_rae_scope_start_and_shape,
-    normalized_rae_box_centers_in_cartesian_roi,
 )
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     BOX_COORDINATE_POLAR,
     require_cartesian_data,
-    validate_box_coordinate_mode,
 )
 from data.dataloader import (
     build_detection_dataset_for_sequence,
@@ -35,22 +30,38 @@ from data.dataset import (
     CLASS_NAMES,
 )
 from data.dataloader import detection_collate
-from models import *
 from training_utils.configuration import (
     normalize_bool_flag,
     normalize_optional_path,
-    resolve_loss_mode,
     resolve_gt_object_ignore_override_path,
 )
 from data.geometry import (
     metric_boxes_to_raw_local_rae,
     raw_local_rae_boxes_to_metric_boxes,
-    regression_cell_to_metric_box,
-    regression_cell_to_normalized_rae_box,
 )
 from training_utils.torch_load import load_torch_checkpoint
-from training_utils.yolox_utils import yolox_outputs_to_detections
 from configs.data import CARTESIAN_GT_ROOT, DataConfig
+from eval.checkpoints import (
+    build_model_for_checkpoint,
+    infer_checkpoint_box_coordinate_mode,
+    infer_checkpoint_decoder_overrides,
+    infer_checkpoint_loss_mode,
+    infer_checkpoint_num_classes,
+    infer_model_type_from_checkpoint,
+    load_model_checkpoint,
+)
+from eval.decoding import (
+    apply_quality_score as _apply_quality_score,
+    build_heatmap_candidate_scores as _build_heatmap_candidate_scores,
+    centerpoint_heatmap_nms as _centerpoint_heatmap_nms,
+    centerpoint_local_heatmap_mean as _centerpoint_local_heatmap_mean,
+    decode_batch_predictions,
+    gather_dense_feature as _gather_dense_feature,
+    official_radenet_outputs_to_detections as _decode_official_radenet,
+    outputs_to_detections as _decode_centerpoint,
+    topk_heatmap_candidates as _topk_heatmap_candidates,
+)
+from eval.inference import predict_batch as predict_detection_batch
 
 try:
     from visualize_cfg import VISUALIZE_CONFIG
@@ -59,8 +70,6 @@ except ImportError:
 
 
 HEATMAP_SCORE_MODES = ("peak_times_local_mean", "peak_only")
-HEATMAP_PEAK_WEIGHT = 0.85
-HEATMAP_LOCAL_MEAN_WEIGHT = 0.15
 DEFAULT_SEDAN_ONLY_IGNORE_CLASS_NAMES = (
     "Bus or Truck",
     "Pedestrian",
@@ -149,75 +158,17 @@ def parse_args():
 
 
 def load_checkpoint(model, checkpoint_path=None, device=None, checkpoint=None):
-    if checkpoint is None:
-        if checkpoint_path is None or device is None:
-            raise ValueError("checkpoint_path and device are required when checkpoint is not provided.")
-        checkpoint = load_torch_checkpoint(checkpoint_path, map_location=device)
-    if "model_state_dict" in checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"])
-    else:
-        model.load_state_dict(checkpoint)
-    model.eval()
-    return model
-
-
-def get_checkpoint_state_dict(checkpoint):
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        return checkpoint["model_state_dict"]
-    return checkpoint
-
-
-def infer_model_type_from_checkpoint(checkpoint):
-    if isinstance(checkpoint, dict):
-        model_type = checkpoint.get("config", {}).get("model_type")
-        if model_type:
-            return model_type
-
-    state_dict = get_checkpoint_state_dict(checkpoint)
-    if "_qfl_model_marker" in state_dict:
-        return "model11"
-    if "_model14_swin_yolox_marker" in state_dict:
-        return "model14"
-    if "_model16_swin_radenet_official_marker" in state_dict:
-        return "model16"
-    if "_model15_radenet_official_marker" in state_dict:
-        return "model15"
-    if "_model13_radenet_marker" in state_dict:
-        return "model13"
-    if "_model12_yolox_marker" in state_dict:
-        return "model12"
-
-    if any(".cls_feature_mixer." in key or ".reg_feature_mixer." in key for key in state_dict.keys()):
-        return "model10"
-
-    has_bifpn = any(".bifpn_blocks." in key for key in state_dict.keys())
-    has_cfe = any(".cfe1." in key or ".cfe2." in key or ".cfe3." in key for key in state_dict.keys())
-    if has_bifpn and has_cfe:
-        return "model9"
-    if has_bifpn:
-        return "model2"
-    if has_cfe:
-        return "model8"
-    if any(".attn.relative_position_bias_table" in key for key in state_dict.keys()):
-        return "model7"
-    if any(".quality_decoder." in key for key in state_dict.keys()):
-        return "model6"
-    has_fpn_lateral = any(
-        key.startswith("backbone.encoder.rad_encoder.lateral")
-        for key in state_dict.keys()
+    if checkpoint is None and (checkpoint_path is None or device is None):
+        raise ValueError(
+            "checkpoint_path and device are required when checkpoint is not provided."
+        )
+    return load_model_checkpoint(
+        model=model,
+        checkpoint_path=checkpoint_path,
+        device="cpu" if device is None else device,
+        checkpoint=checkpoint,
+        strict=True,
     )
-    has_deform_conv = any(
-        ".offset_conv." in key or ".deform_conv." in key
-        for key in state_dict.keys()
-    )
-    if has_fpn_lateral:
-        return "model5" if has_deform_conv else "model3"
-    if has_deform_conv:
-        return "model4"
-    if any(key.startswith("backbone.encoder.") for key in state_dict.keys()):
-        return "model1"
-
-    raise ValueError("Unsupported old model checkpoint: expected model1, model2, model3, model4, model5, model6, model7, model8, model9, model10, model11, model12, model13, model14, model15, or model16.")
 
 
 def resolve_model_type(args, checkpoint):
@@ -274,63 +225,6 @@ def _normalize_name_tuple(values):
     return tuple(str(value) for value in values)
 
 
-def _list_matching_conv_weights(state_dict, prefixes):
-    matches = []
-    for key, value in state_dict.items():
-        if not torch.is_tensor(value) or value.ndim != 4:
-            continue
-        if not key.endswith(".weight"):
-            continue
-        if any(key.startswith(prefix) for prefix in prefixes):
-            matches.append((key, tuple(value.shape)))
-    matches.sort(key=lambda item: item[0])
-    return matches
-
-
-def infer_checkpoint_decoder_overrides(checkpoint):
-    state_dict = get_checkpoint_state_dict(checkpoint)
-    if not isinstance(state_dict, dict):
-        return {}
-
-    decoder_prefixes = (
-        "decoder.cls_decoder.decoder",
-        "decoder.box_decoder.shared",
-        "decoder.stem",
-        "decoder.cls_head.head",
-        "decoder.reg_head.head",
-        "decoder.heatmap_head.head",
-        "decoder.regression_head.head",
-    )
-    class_output_prefixes = (
-        "decoder.cls_decoder.decoder",
-        "decoder.cls_head",
-        "decoder.heatmap_head.head",
-    )
-
-    decoder_convs = _list_matching_conv_weights(state_dict, decoder_prefixes)
-    class_output_convs = _list_matching_conv_weights(state_dict, class_output_prefixes)
-
-    overrides = {}
-
-    if decoder_convs:
-        first_key, first_shape = decoder_convs[0]
-        overrides["decoder_hidden_channels"] = int(first_shape[0])
-        overrides["feature_channels"] = int(first_shape[1])
-        overrides["decoder_channels_key"] = first_key
-
-    class_output_1x1 = [
-        (key, shape)
-        for key, shape in class_output_convs
-        if shape[2:] == (1, 1)
-    ]
-    if class_output_1x1:
-        class_key, class_shape = class_output_1x1[-1]
-        overrides["num_classes"] = int(class_shape[0])
-        overrides["num_classes_key"] = class_key
-
-    return overrides
-
-
 def resolve_visualization_classes(checkpoint_config, inferred_num_classes=None):
     class_names = _normalize_class_names(checkpoint_config.get("class_names"))
     config_num_classes = checkpoint_config.get("num_classes")
@@ -370,20 +264,14 @@ def build_visualization_model(
         box_coordinate_mode=BOX_COORDINATE_POLAR,
         loss_mode="auto",
     ):
-    overrides = infer_checkpoint_decoder_overrides(checkpoint)
-    build_kwargs = {
-        "device": device,
-        "model_type": model_type,
-        "num_classes": num_classes,
-        "box_coordinate_mode": box_coordinate_mode,
-        "loss_mode": loss_mode,
-    }
-    if "decoder_hidden_channels" in overrides:
-        build_kwargs["decoder_hidden_channels"] = overrides["decoder_hidden_channels"]
-    if "feature_channels" in overrides:
-        build_kwargs["feature_channels"] = overrides["feature_channels"]
-
-    model = build_model(**build_kwargs)
+    model, overrides = build_model_for_checkpoint(
+        model_type=model_type,
+        device=device,
+        num_classes=num_classes,
+        checkpoint=checkpoint,
+        box_coordinate_mode=box_coordinate_mode,
+        loss_mode=loss_mode,
+    )
 
     if overrides:
         details = []
@@ -424,35 +312,16 @@ def normalized_boxes_to_raw_rae(boxes, scope_mode, full_rae_shape):
 
 
 def centerpoint_heatmap_nms(heatmap, kernel_size=3):
-    if kernel_size <= 1:
-        return heatmap
-    if kernel_size % 2 == 0:
-        raise ValueError(f"Heatmap NMS kernel must be odd, got {kernel_size}")
-
-    pad = (kernel_size - 1) // 2
-    pooled = F.max_pool2d(
+    return _centerpoint_heatmap_nms(
         heatmap,
-        kernel_size=kernel_size,
-        stride=1,
-        padding=pad,
+        kernel_size,
     )
-    keep = pooled == heatmap
-    return heatmap * keep.to(heatmap.dtype)
 
 
 def centerpoint_local_heatmap_mean(heatmap, kernel_size=3):
-    if kernel_size <= 1:
-        return heatmap
-    if kernel_size % 2 == 0:
-        raise ValueError(f"Heatmap local-mean kernel must be odd, got {kernel_size}")
-
-    pad = (kernel_size - 1) // 2
-    return F.avg_pool2d(
+    return _centerpoint_local_heatmap_mean(
         heatmap,
-        kernel_size=kernel_size,
-        stride=1,
-        padding=pad,
-        count_include_pad=False,
+        kernel_size,
     )
 
 
@@ -462,69 +331,28 @@ def build_heatmap_candidate_scores(
         heatmap_score_mode="peak_times_local_mean",
         peak_scores=None,
     ):
-    if peak_scores is None:
-        peak_scores = centerpoint_heatmap_nms(
-            heatmap=heatmap_scores,
-            kernel_size=heatmap_nms_kernel,
-        )
-
-    if heatmap_score_mode == "peak_only":
-        return peak_scores
-    if heatmap_score_mode == "peak_times_local_mean":
-        local_mean_scores = centerpoint_local_heatmap_mean(
-            heatmap=heatmap_scores,
-            kernel_size=heatmap_nms_kernel,
-        )
-        return (
-            (HEATMAP_PEAK_WEIGHT * peak_scores)
-            + (HEATMAP_LOCAL_MEAN_WEIGHT * local_mean_scores)
-        )
-    raise ValueError(
-        f"Unknown heatmap_score_mode={heatmap_score_mode!r}. "
-        f"Expected one of {HEATMAP_SCORE_MODES}."
+    return _build_heatmap_candidate_scores(
+        heatmap_scores=heatmap_scores,
+        heatmap_nms_kernel=heatmap_nms_kernel,
+        heatmap_score_mode=heatmap_score_mode,
+        peak_scores=peak_scores,
     )
 
 
 def gather_dense_feature(feature_map, indices):
-    flat = feature_map.flatten(start_dim=2).transpose(1, 2)
-    gather_index = indices.unsqueeze(-1).expand(-1, -1, flat.shape[-1])
-    return flat.gather(dim=1, index=gather_index)
+    return _gather_dense_feature(feature_map, indices)
 
 
 def topk_heatmap_candidates(candidate_scores, max_detections, score_thresh=None):
-    flat_scores = candidate_scores.flatten(start_dim=1)
-    topk_count = min(max_detections, flat_scores.shape[1])
-    scores, flat_indices = flat_scores.topk(topk_count, dim=1)
-    keep = scores > 0.0
-    if score_thresh is not None:
-        keep = keep & (scores > float(score_thresh))
-    return scores, flat_indices, keep
+    return _topk_heatmap_candidates(
+        candidate_scores,
+        max_detections,
+        score_thresh,
+    )
 
 
 def apply_quality_score(heatmap_scores, outputs):
-    if "quality_logits" not in outputs:
-        if "objectness_logits" not in outputs:
-            return heatmap_scores
-
-        objectness_scores = outputs["objectness_logits"].sigmoid()
-        if objectness_scores.shape[-2:] != heatmap_scores.shape[-2:]:
-            objectness_scores = F.interpolate(
-                objectness_scores,
-                size=heatmap_scores.shape[-2:],
-                mode="bilinear",
-                align_corners=False,
-            )
-        return heatmap_scores * objectness_scores
-
-    quality_scores = outputs["quality_logits"].sigmoid()
-    if quality_scores.shape[-2:] != heatmap_scores.shape[-2:]:
-        quality_scores = F.interpolate(
-            quality_scores,
-            size=heatmap_scores.shape[-2:],
-            mode="bilinear",
-            align_corners=False,
-        )
-    return heatmap_scores * quality_scores
+    return _apply_quality_score(heatmap_scores, outputs)
 
 
 def dense_centerpoint_outputs_to_detections(
@@ -539,139 +367,27 @@ def dense_centerpoint_outputs_to_detections(
         full_rae_shape=None,
         box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
-    dense_keys = {"cls_logits", "center_offset", "center_height", "size", "yaw"}
-    missing_keys = sorted(dense_keys - set(outputs.keys()))
-    if len(missing_keys) > 0:
-        raise KeyError(
-            "Dense CenterPoint visualization requires output keys "
-            f"{sorted(dense_keys)}, missing {missing_keys}."
-        )
+    batch_size = outputs["cls_logits"].shape[0]
+    if batch_size != 1:
+        raise ValueError(f"Visualization expects batch size 1, got {batch_size}")
 
-    cls_logits = outputs["cls_logits"][:, :num_classes]
-    B, _, H, W = cls_logits.shape
-    if B != 1:
-        raise ValueError(f"Visualization expects batch size 1, got {B}")
-
-    heatmap_scores = apply_quality_score(cls_logits.sigmoid(), outputs)
-    if pred_mode == "final":
-        peak_scores = centerpoint_heatmap_nms(
-            heatmap=heatmap_scores,
-            kernel_size=heatmap_nms_kernel,
-        )
-    elif pred_mode != "raw":
-        raise ValueError(f"Unknown prediction mode: {pred_mode}")
-    else:
-        peak_scores = heatmap_scores
-
-    rescored_heatmap = build_heatmap_candidate_scores(
-        heatmap_scores=heatmap_scores,
+    boxes, scores, labels, keep = _decode_centerpoint(
+        outputs=outputs,
+        num_classes=num_classes,
+        max_detections=max_detections,
         heatmap_nms_kernel=heatmap_nms_kernel,
         heatmap_score_mode=heatmap_score_mode,
-        peak_scores=peak_scores,
-    )
-    pred_scores, flat_indices, keep = topk_heatmap_candidates(
-        candidate_scores=rescored_heatmap,
-        max_detections=max_detections,
         score_thresh=score_thresh,
+        box_coordinate_mode=box_coordinate_mode,
+        scope_modes=[scope_mode],
+        full_rae_shapes=[full_rae_shape],
+        prediction_mode=pred_mode,
     )
-
-    spatial_size = H * W
-    pred_labels = flat_indices // spatial_size
-    spatial_indices = flat_indices % spatial_size
-
-    heatmap_y_idx = spatial_indices // W
-    heatmap_x_idx = spatial_indices % W
-    _, _, box_h, box_w = outputs["center_offset"].shape
-    box_y_idx_long = torch.div(
-        heatmap_y_idx * box_h,
-        max(H, 1),
-        rounding_mode="floor",
-    ).clamp(max=box_h - 1)
-    box_x_idx_long = torch.div(
-        heatmap_x_idx * box_w,
-        max(W, 1),
-        rounding_mode="floor",
-    ).clamp(max=box_w - 1)
-    box_indices = box_y_idx_long * box_w + box_x_idx_long
-    y_idx = box_y_idx_long.to(cls_logits.dtype)
-    x_idx = box_x_idx_long.to(cls_logits.dtype)
-
-    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-        if full_rae_shape is None:
-            raise ValueError(
-                "Cartesian CenterPoint visualization requires full_rae_shape."
-            )
-
-        # Cartesian CenterPoint predicts metric regression directly.  Do not
-        # apply sigmoid here: the training loss compares the raw branches as
-        # [dx, dy, dz, length, width, height, sin(yaw), cos(yaw)].
-        pred_reg = gather_dense_feature(
-            torch.cat(
-                [
-                    outputs["center_offset"],
-                    outputs["center_height"],
-                    outputs["size"],
-                    outputs["yaw"],
-                ],
-                dim=1,
-            ),
-            box_indices,
-        )
-        pred_boxes_metric = regression_cell_to_metric_box(
-            pred_reg=pred_reg[0],
-            y_idx=y_idx[0].to(pred_reg.dtype),
-            x_idx=x_idx[0].to(pred_reg.dtype),
-            feature_shape=(box_h, box_w),
-            scope_mode=scope_mode,
-            full_rae_shape=full_rae_shape,
-            absolute_dimensions=True,
-        )
-        keep = keep.squeeze(0)
-        return (
-            pred_boxes_metric[keep],
-            pred_labels.squeeze(0)[keep],
-            pred_scores.squeeze(0)[keep],
-        )
-
-    center_offset = gather_dense_feature(
-        outputs["center_offset"],
-        box_indices
-    ).sigmoid()
-    center_height = gather_dense_feature(
-        outputs["center_height"],
-        box_indices
-    ).sigmoid()
-    size = gather_dense_feature(
-        outputs["size"],
-        box_indices
-    ).sigmoid()
-    yaw = gather_dense_feature(outputs["yaw"], box_indices)
-
-    r_center = (y_idx + center_offset[..., 0]) / max(box_h, 1)
-    a_center = (x_idx + center_offset[..., 1]) / max(box_w, 1)
-    e_center = center_height[..., 0]
-    yaw_angle = torch.atan2(yaw[..., 0], yaw[..., 1])
-    yaw_norm = (yaw_angle + torch.pi) / (2.0 * torch.pi)
-
-    pred_boxes_norm = torch.stack(
-        [
-            r_center,
-            a_center,
-            e_center,
-            size[..., 0],
-            size[..., 1],
-            size[..., 2],
-            yaw_norm,
-        ],
-        dim=-1,
-    ).clamp(min=1e-4, max=1.0 - 1e-4)
-
     keep = keep.squeeze(0)
     return (
-        pred_boxes_norm.squeeze(0)[keep],
-        pred_labels.squeeze(0)[keep],
-        pred_scores.squeeze(0)[keep],
+        boxes.squeeze(0)[keep],
+        labels.squeeze(0)[keep],
+        scores.squeeze(0)[keep],
     )
 
 
@@ -687,64 +403,62 @@ def official_radenet_outputs_to_detections(
         score_thresh=None,
         box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
-    heatmap = outputs["heatmap"][:, :num_classes]
-    batch_size, _, heatmap_h, heatmap_w = heatmap.shape
+    batch_size = outputs["heatmap"].shape[0]
     if batch_size != 1:
         raise ValueError(f"Visualization expects batch size 1, got {batch_size}")
 
-    heatmap_scores = heatmap
-    if pred_mode == "final":
-        peak_scores = centerpoint_heatmap_nms(
-            heatmap=heatmap_scores,
-            kernel_size=heatmap_nms_kernel,
-        )
-    elif pred_mode != "raw":
-        raise ValueError(f"Unknown prediction mode: {pred_mode}")
-    else:
-        peak_scores = heatmap_scores
-
-    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-        heatmap_score_mode = "peak_only"
-    rescored_heatmap = build_heatmap_candidate_scores(
-        heatmap_scores=heatmap_scores,
+    boxes, scores, labels, keep = _decode_official_radenet(
+        outputs=outputs,
+        num_classes=num_classes,
+        scope_modes=[scope_mode],
+        full_rae_shapes=[full_rae_shape],
+        max_detections=max_detections,
         heatmap_nms_kernel=heatmap_nms_kernel,
         heatmap_score_mode=heatmap_score_mode,
-        peak_scores=peak_scores,
-    )
-    pred_scores, flat_indices, keep = topk_heatmap_candidates(
-        candidate_scores=rescored_heatmap,
-        max_detections=max_detections,
         score_thresh=score_thresh,
-    )
-
-    spatial_size = heatmap_h * heatmap_w
-    pred_labels = flat_indices // spatial_size
-    spatial_indices = flat_indices % spatial_size
-    y_idx = spatial_indices // heatmap_w
-    x_idx = spatial_indices % heatmap_w
-    pred_reg = gather_dense_feature(outputs["regression"], spatial_indices)
-
-    decode_function = (
-        regression_cell_to_metric_box
-        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
-        else regression_cell_to_normalized_rae_box
-    )
-    pred_boxes = decode_function(
-        pred_reg=pred_reg[0],
-        y_idx=y_idx[0].to(pred_reg.dtype),
-        x_idx=x_idx[0].to(pred_reg.dtype),
-        feature_shape=(heatmap_h, heatmap_w),
-        scope_mode=scope_mode,
-        full_rae_shape=full_rae_shape,
-        **(
-            {"absolute_dimensions": False}
-            if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
-            else {}
-        ),
+        box_coordinate_mode=box_coordinate_mode,
+        prediction_mode=pred_mode,
     )
     keep = keep.squeeze(0)
-    return pred_boxes[keep], pred_labels.squeeze(0)[keep], pred_scores.squeeze(0)[keep]
+    return (
+        boxes.squeeze(0)[keep],
+        labels.squeeze(0)[keep],
+        scores.squeeze(0)[keep],
+    )
+
+
+def format_visualization_predictions(
+        frame_predictions,
+        scope_mode,
+        full_rae_shape,
+        box_coordinate_mode=BOX_COORDINATE_POLAR,
+    ):
+    """Convert canonical detections into the plotting coordinate formats."""
+    pred_boxes = frame_predictions["boxes"]
+    pred_labels = frame_predictions["labels"]
+    pred_scores = frame_predictions["scores"]
+
+    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        pred_boxes_metric = pred_boxes.clone()
+        pred_boxes_raw = metric_boxes_to_raw_local_rae(
+            metric_boxes=pred_boxes,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+            use_planar_center_range=True,
+        )
+    else:
+        pred_boxes_metric = None
+        pred_boxes_raw = normalized_boxes_to_raw_rae(
+            pred_boxes,
+            scope_mode=scope_mode,
+            full_rae_shape=full_rae_shape,
+        )
+    return (
+        pred_boxes_raw.cpu(),
+        pred_labels.cpu(),
+        pred_scores.cpu(),
+        None if pred_boxes_metric is None else pred_boxes_metric.cpu(),
+    )
 
 
 def filter_predictions(
@@ -760,110 +474,25 @@ def filter_predictions(
         yolox_nms_iou,
         box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
-    pred_boxes_metric = None
-    if "objectness_logits" in outputs:
-        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-            raise ValueError(
-                "Cartesian visualization is not implemented for YOLOX outputs."
-            )
-        detections = yolox_outputs_to_detections(
-            outputs=outputs,
-            num_classes=num_classes,
-            score_thresh=score_thresh,
-            max_detections=max_detections,
-            nms_iou_thresh=yolox_nms_iou,
-        )
-        pred_boxes_norm = detections[0]["boxes"]
-        pred_labels = detections[0]["labels"]
-        pred_scores = detections[0]["scores"]
-    elif "heatmap" in outputs and "regression" in outputs:
-        pred_boxes_norm, pred_labels, pred_scores = official_radenet_outputs_to_detections(
-            outputs=outputs,
-            num_classes=num_classes,
-            max_detections=max_detections,
-            pred_mode=pred_mode,
-            heatmap_nms_kernel=heatmap_nms_kernel,
-            heatmap_score_mode=heatmap_score_mode,
-            scope_mode=scope_mode,
-            full_rae_shape=full_rae_shape,
-            score_thresh=score_thresh,
-            box_coordinate_mode=box_coordinate_mode,
-        )
-    else:
-        pred_boxes_norm, pred_labels, pred_scores = dense_centerpoint_outputs_to_detections(
-            outputs=outputs,
-            num_classes=num_classes,
-            max_detections=max_detections,
-            pred_mode=pred_mode,
-            heatmap_nms_kernel=heatmap_nms_kernel,
-            heatmap_score_mode=heatmap_score_mode,
-            score_thresh=score_thresh,
-            scope_mode=scope_mode,
-            full_rae_shape=full_rae_shape,
-            box_coordinate_mode=box_coordinate_mode,
-        )
-
-    if "objectness_logits" in outputs:
-        keep = torch.ones_like(pred_scores, dtype=torch.bool)
-    else:
-        keep = pred_scores > score_thresh
-    if scope_mode == SCOPE_NARROW:
-        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-            roi = RDR_SP_CUBE["ROI"]
-            keep = keep & (
-                (pred_boxes_norm[:, 0] >= float(roi["x"][0]))
-                & (pred_boxes_norm[:, 0] <= float(roi["x"][1]))
-                & (pred_boxes_norm[:, 1] >= float(roi["y"][0]))
-                & (pred_boxes_norm[:, 1] <= float(roi["y"][1]))
-                & (pred_boxes_norm[:, 2] >= float(roi["z"][0]))
-                & (pred_boxes_norm[:, 2] <= float(roi["z"][1]))
-            )
-        else:
-            keep = keep & normalized_rae_box_centers_in_cartesian_roi(
-                pred_boxes_norm,
-                scope_mode=scope_mode,
-                rae_shape=full_rae_shape,
-            )
-    pred_boxes_norm = pred_boxes_norm[keep]
-    pred_labels = pred_labels[keep]
-    pred_scores = pred_scores[keep]
-    if (
-        box_coordinate_mode == BOX_COORDINATE_CARTESIAN
-        and pred_mode == "final"
-    ):
-        from eval.decoding import cartesian_rotated_nms_indices
-
-        nms_keep = cartesian_rotated_nms_indices(
-            boxes=pred_boxes_norm,
-            scores=pred_scores,
-        )
-        pred_boxes_norm = pred_boxes_norm[nms_keep]
-        pred_labels = pred_labels[nms_keep]
-        pred_scores = pred_scores[nms_keep]
-
-    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-        # Both Cartesian CenterPoint and Cartesian RADE-Net branches return
-        # metric Cartesian boxes at this point.  Keep this copy for precise
-        # Cartesian->RAE corner projection during visualization.
-        pred_boxes_metric = pred_boxes_norm.clone()
-        pred_boxes_raw = metric_boxes_to_raw_local_rae(
-            metric_boxes=pred_boxes_norm,
-            scope_mode=scope_mode,
-            full_rae_shape=full_rae_shape,
-            use_planar_center_range=True,
-        )
-    else:
-        pred_boxes_raw = normalized_boxes_to_raw_rae(
-            pred_boxes_norm,
-            scope_mode=scope_mode,
-            full_rae_shape=full_rae_shape,
-        )
-    return (
-        pred_boxes_raw.cpu(),
-        pred_labels.cpu(),
-        pred_scores.cpu(),
-        None if pred_boxes_metric is None else pred_boxes_metric.cpu(),
+    frame_predictions = decode_batch_predictions(
+        outputs=outputs,
+        num_classes=num_classes,
+        max_detections=max_detections,
+        heatmap_nms_kernel=heatmap_nms_kernel,
+        heatmap_score_mode=heatmap_score_mode,
+        yolox_nms_iou=yolox_nms_iou,
+        score_thresh=score_thresh,
+        scope_modes=[scope_mode],
+        full_rae_shapes=[full_rae_shape],
+        box_coordinate_mode=box_coordinate_mode,
+        prediction_mode=pred_mode,
+        filter_to_scope_before_nms=True,
+    )[0]
+    return format_visualization_predictions(
+        frame_predictions=frame_predictions,
+        scope_mode=scope_mode,
+        full_rae_shape=full_rae_shape,
+        box_coordinate_mode=box_coordinate_mode,
     )
 
 
@@ -1222,27 +851,32 @@ def get_frame_prediction(
     ):
     item = dataset[file_idx]
     batch = detection_collate([item])
-
-    rad, rae = prepare_model_inputs(batch, device)
-    outputs = model(rad, rae)
-
     rae_shape = tuple(item["rae"].shape)
+
+    frame_predictions = predict_detection_batch(
+        model=model,
+        batch=batch,
+        device=device,
+        num_classes=num_classes,
+        max_detections=max_detections,
+        heatmap_nms_kernel=heatmap_nms_kernel,
+        heatmap_score_mode=heatmap_score_mode,
+        yolox_nms_iou=yolox_nms_iou,
+        score_thresh=score_thresh,
+        box_coordinate_mode=box_coordinate_mode,
+        prediction_mode=pred_mode,
+        filter_to_scope_before_nms=True,
+        prepare_model_inputs=prepare_model_inputs,
+    )[0]
     (
         pred_boxes,
         pred_labels,
         pred_scores,
         pred_boxes_metric,
-    ) = filter_predictions(
-        outputs=outputs,
-        num_classes=num_classes,
+    ) = format_visualization_predictions(
+        frame_predictions=frame_predictions,
         scope_mode=scope_mode,
         full_rae_shape=item["full_rae_shape"],
-        score_thresh=score_thresh,
-        max_detections=max_detections,
-        pred_mode=pred_mode,
-        heatmap_nms_kernel=heatmap_nms_kernel,
-        heatmap_score_mode=heatmap_score_mode,
-        yolox_nms_iou=yolox_nms_iou,
         box_coordinate_mode=box_coordinate_mode,
     )
 
@@ -1459,20 +1093,8 @@ def main():
 
     checkpoint = load_torch_checkpoint(checkpoint_path, map_location=device)
     checkpoint_config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
-    checkpoint_state_dict = get_checkpoint_state_dict(checkpoint)
-    default_box_coordinate_mode = (
-        BOX_COORDINATE_CARTESIAN
-        if (
-            "_model7_cartesian_radenet_marker" in checkpoint_state_dict
-            or "_model7_cartesian_centerpoint_marker" in checkpoint_state_dict
-        )
-        else BOX_COORDINATE_POLAR
-    )
-    checkpoint_box_coordinate_mode = require_cartesian_data(
-        checkpoint_config.get(
-            "box_coordinate_mode",
-            default_box_coordinate_mode,
-        )
+    checkpoint_box_coordinate_mode = infer_checkpoint_box_coordinate_mode(
+        checkpoint
     )
     if args.box_coordinate_mode == "auto":
         box_coordinate_mode = checkpoint_box_coordinate_mode
@@ -1522,21 +1144,13 @@ def main():
         )
     )
     model_type = resolve_model_type(args, checkpoint)
-    configured_loss_mode = checkpoint_config.get("loss_mode")
-    if configured_loss_mode is None:
-        if "_model7_cartesian_radenet_marker" in checkpoint_state_dict:
-            configured_loss_mode = "radenet"
-        elif "_model7_cartesian_centerpoint_marker" in checkpoint_state_dict:
-            configured_loss_mode = "centerpoint"
-        else:
-            configured_loss_mode = "auto"
-    loss_mode = resolve_loss_mode(
-        model_type,
+    loss_mode = infer_checkpoint_loss_mode(
+        checkpoint=checkpoint,
+        model_type=model_type,
         box_coordinate_mode=box_coordinate_mode,
-        loss_mode=configured_loss_mode,
     )
     checkpoint_overrides = infer_checkpoint_decoder_overrides(checkpoint)
-    inferred_num_classes = checkpoint_overrides.get("num_classes")
+    inferred_num_classes = infer_checkpoint_num_classes(checkpoint)
     config_num_classes = checkpoint_config.get("num_classes")
     if (
         inferred_num_classes is not None

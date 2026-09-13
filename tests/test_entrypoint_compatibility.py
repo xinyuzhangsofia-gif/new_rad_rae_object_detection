@@ -12,6 +12,7 @@ from eval.evaluation_config import (
     resolve_official_eval_class_name_map,
 )
 from eval.metrics_runner import evaluate_train_val_iou
+from eval.inference import infer_and_decode
 from eval.reporting import attach_evaluation_main_metric
 from eval.workflow import main as evaluation_workflow_main
 from training_utils.runner import (
@@ -53,6 +54,7 @@ class EntrypointCompatibilityTests(unittest.TestCase):
             infer_checkpoint_decoder_overrides,
         )
         self.assertIs(evaluation.load_torch_checkpoint, load_torch_checkpoint)
+        self.assertIs(evaluation.infer_and_decode, infer_and_decode)
 
     def test_resume_root_facade_exports_the_shared_workflow(self):
         self.assertIs(train_resume.main, resume_training_workflow_main)

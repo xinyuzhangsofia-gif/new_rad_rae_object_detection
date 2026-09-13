@@ -30,12 +30,12 @@ from eval.checkpoints import (
     find_epoch_checkpoints,
     infer_checkpoint_decoder_overrides,
     infer_model_variant_name,
+    load_model_checkpoint,
     resolve_model_type,
     resolve_domain_shift_checkpoint_metadata,
 )
 from eval.evaluation_config import (
     apply_standalone_evaluation_coordinate_mode,
-    load_model_checkpoint,
     load_torch_checkpoint,
     parse_args,
     resolve_official_eval_class_name_map,

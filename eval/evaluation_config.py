@@ -22,7 +22,7 @@ from eval.distance_ranges import (
 )
 from eval.distance_quartiles import normalize_distance_quartile_bins
 from models import MODEL_TYPES
-from training_utils.configuration import initialize_model_from_checkpoint
+from training_utils.torch_load import load_torch_checkpoint
 
 try:
     from configs.evaluation import EVAL_CONFIG
@@ -69,28 +69,16 @@ def should_inherit_from_checkpoint(key):
     return False
 
 
-def load_torch_checkpoint(checkpoint_path, map_location="cpu"):
-    # PyTorch 2.6 changed torch.load default weights_only to True.
-    # Our local training checkpoints store config/history objects too.
-    try:
-        return torch.load(
-            checkpoint_path,
-            map_location=map_location,
-            weights_only=False,
-        )
-    except TypeError:
-        return torch.load(checkpoint_path, map_location=map_location)
-
-
 def load_model_checkpoint(model, checkpoint_path, device, include_bus_as_target=True):
-    checkpoint = initialize_model_from_checkpoint(
+    # Keep this historical import path as a compatibility facade.
+    from eval.checkpoints import load_model_checkpoint as _load_model_checkpoint
+
+    return _load_model_checkpoint(
         model=model,
         checkpoint_path=checkpoint_path,
-        map_location=device,
+        device=device,
         include_bus_as_target=include_bus_as_target,
     )
-    model.eval()
-    return model
 
 
 def parse_gpu_ids(gpu_ids_text):

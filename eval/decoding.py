@@ -28,6 +28,7 @@ from data.geometry import (
 from training_utils.yolox_utils import yolox_outputs_to_detections
 
 HEATMAP_SCORE_MODES = ("peak_times_local_mean", "peak_only")
+PREDICTION_MODES = ("raw", "final")
 HEATMAP_PEAK_WEIGHT = 0.85
 HEATMAP_LOCAL_MEAN_WEIGHT = 0.15
 RADENET_ROTATED_NMS_IOU_THRESHOLD = 0.3
@@ -47,6 +48,20 @@ __all__ = [
     'decode_batch_predictions',
     'filter_predictions_to_scope'
 ]
+
+
+def _heatmap_peaks(heatmap_scores, heatmap_nms_kernel, prediction_mode):
+    if prediction_mode == "final":
+        return centerpoint_heatmap_nms(
+            heatmap=heatmap_scores,
+            kernel_size=heatmap_nms_kernel,
+        )
+    if prediction_mode == "raw":
+        return heatmap_scores
+    raise ValueError(
+        f"Unknown prediction_mode={prediction_mode!r}. "
+        f"Expected one of {PREDICTION_MODES}."
+    )
 
 
 def normalized_rae_boxes_to_cartesian_metric_boxes(boxes, scope_mode, rae_shape):
@@ -243,6 +258,7 @@ def outputs_to_detections(
         box_coordinate_mode=BOX_COORDINATE_POLAR,
         scope_modes=None,
         full_rae_shapes=None,
+        prediction_mode="final",
     ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     dense_keys = {"cls_logits", "center_offset", "center_height", "size", "yaw"}
@@ -258,10 +274,16 @@ def outputs_to_detections(
     dtype = cls_logits.dtype
 
     heatmap_scores = apply_quality_score(cls_logits.sigmoid(), outputs)
+    peak_scores = _heatmap_peaks(
+        heatmap_scores=heatmap_scores,
+        heatmap_nms_kernel=heatmap_nms_kernel,
+        prediction_mode=prediction_mode,
+    )
     rescored_heatmap = build_heatmap_candidate_scores(
         heatmap_scores=heatmap_scores,
         heatmap_nms_kernel=heatmap_nms_kernel,
         heatmap_score_mode=heatmap_score_mode,
+        peak_scores=peak_scores,
     )
 
     scores, flat_indices, keep = topk_heatmap_candidates(
@@ -356,12 +378,18 @@ def official_radenet_outputs_to_detections(
         heatmap_score_mode="peak_times_local_mean",
         score_thresh=None,
         box_coordinate_mode=BOX_COORDINATE_POLAR,
+        prediction_mode="final",
     ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     if scope_modes is None or full_rae_shapes is None:
         raise ValueError("Official RADE-Net decoding requires scope_modes and full_rae_shapes.")
 
     heatmap_scores = outputs["heatmap"][:, :num_classes]
+    peak_scores = _heatmap_peaks(
+        heatmap_scores=heatmap_scores,
+        heatmap_nms_kernel=heatmap_nms_kernel,
+        prediction_mode=prediction_mode,
+    )
     if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
         # Original RADE-Net ranks detections by the heatmap peak itself.
         # The local-mean re-scoring option belongs to this project's
@@ -371,6 +399,7 @@ def official_radenet_outputs_to_detections(
         heatmap_scores=heatmap_scores,
         heatmap_nms_kernel=heatmap_nms_kernel,
         heatmap_score_mode=heatmap_score_mode,
+        peak_scores=peak_scores,
     )
     regression = outputs["regression"]
     batch_size, _, heatmap_h, heatmap_w = heatmap_scores.shape
@@ -424,6 +453,8 @@ def decode_batch_predictions(
         scope_modes=None,
         full_rae_shapes=None,
         box_coordinate_mode=BOX_COORDINATE_POLAR,
+        prediction_mode="final",
+        filter_to_scope_before_nms=False,
     ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     if "objectness_logits" in outputs:
@@ -431,18 +462,14 @@ def decode_batch_predictions(
             raise ValueError(
                 "Cartesian box mode is not implemented for YOLOX outputs."
             )
-        return yolox_outputs_to_detections(
+        batch_predictions = yolox_outputs_to_detections(
             outputs=outputs,
             num_classes=num_classes,
             score_thresh=score_thresh,
             max_detections=max_detections,
             nms_iou_thresh=yolox_nms_iou,
         )
-
-    is_official_radenet_output = (
-        "heatmap" in outputs and "regression" in outputs
-    )
-    if is_official_radenet_output:
+    elif "heatmap" in outputs and "regression" in outputs:
         pred_boxes, pred_scores, pred_labels, pred_keep = official_radenet_outputs_to_detections(
             outputs=outputs,
             num_classes=num_classes,
@@ -453,7 +480,9 @@ def decode_batch_predictions(
             heatmap_score_mode=heatmap_score_mode,
             score_thresh=score_thresh,
             box_coordinate_mode=box_coordinate_mode,
+            prediction_mode=prediction_mode,
         )
+        batch_predictions = None
     else:
         pred_boxes, pred_scores, pred_labels, pred_keep = outputs_to_detections(
             outputs=outputs,
@@ -465,29 +494,58 @@ def decode_batch_predictions(
             box_coordinate_mode=box_coordinate_mode,
             scope_modes=scope_modes,
             full_rae_shapes=full_rae_shapes,
+            prediction_mode=prediction_mode,
         )
+        batch_predictions = None
 
-    batch_predictions = []
-    for batch_index in range(pred_boxes.shape[0]):
-        keep = pred_keep[batch_index]
-        boxes = pred_boxes[batch_index][keep]
-        scores = pred_scores[batch_index][keep]
-        labels = pred_labels[batch_index][keep]
-        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-            nms_keep = cartesian_rotated_nms_indices(
-                boxes=boxes,
-                scores=scores,
+    if batch_predictions is None:
+        batch_predictions = []
+        for batch_index in range(pred_boxes.shape[0]):
+            keep = pred_keep[batch_index]
+            batch_predictions.append({
+                "boxes": pred_boxes[batch_index][keep],
+                "scores": pred_scores[batch_index][keep],
+                "labels": pred_labels[batch_index][keep],
+            })
+
+    decoded_predictions = []
+    for batch_index, frame_predictions in enumerate(batch_predictions):
+        frame_predictions = {
+            "boxes": frame_predictions["boxes"],
+            "scores": frame_predictions["scores"],
+            "labels": frame_predictions["labels"],
+            "box_coordinate_mode": box_coordinate_mode,
+        }
+        if filter_to_scope_before_nms:
+            if scope_modes is None or full_rae_shapes is None:
+                raise ValueError(
+                    "Scope filtering requires scope_modes and full_rae_shapes."
+                )
+            frame_predictions = filter_predictions_to_scope(
+                frame_predictions=frame_predictions,
+                scope_mode=scope_modes[batch_index],
+                full_rae_shape=full_rae_shapes[batch_index],
+                box_coordinate_mode=box_coordinate_mode,
             )
-            boxes = boxes[nms_keep]
-            scores = scores[nms_keep]
-            labels = labels[nms_keep]
-        batch_predictions.append({
+        boxes = frame_predictions["boxes"]
+        scores = frame_predictions["scores"]
+        labels = frame_predictions["labels"]
+        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            if prediction_mode == "final":
+                nms_keep = cartesian_rotated_nms_indices(
+                    boxes=boxes,
+                    scores=scores,
+                )
+                boxes = boxes[nms_keep]
+                scores = scores[nms_keep]
+                labels = labels[nms_keep]
+        decoded_predictions.append({
             "boxes": boxes,
             "scores": scores,
             "labels": labels,
             "box_coordinate_mode": box_coordinate_mode,
         })
-    return batch_predictions
+    return decoded_predictions
 
 
 def filter_predictions_to_scope(

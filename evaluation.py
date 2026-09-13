@@ -17,6 +17,7 @@ import tqdm
 from eval.checkpoints import *  # noqa: F401,F403
 from eval.decoding import *  # noqa: F401,F403
 from eval.evaluation_config import *  # noqa: F401,F403
+from eval.inference import *  # noqa: F401,F403
 from eval.metrics_runner import *  # noqa: F401,F403
 from eval.reporting import *  # noqa: F401,F403
 from eval.runner import *  # noqa: F401,F403

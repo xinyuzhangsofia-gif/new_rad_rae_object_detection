@@ -6,17 +6,19 @@ import numpy as np
 import torch
 
 from data.coordinates import SCOPE_FULL, crop_rad_rae_to_scope
-from configs.coordinates import BOX_COORDINATE_CARTESIAN, require_cartesian_data
 from data.geometry import raw_local_rae_boxes_to_metric_boxes
 from training_utils.torch_load import load_torch_checkpoint
-from training_utils.configuration import resolve_loss_mode
-from visualize import (
-    build_visualization_model,
-    filter_predictions,
-    get_checkpoint_state_dict,
-    infer_checkpoint_decoder_overrides,
+from eval.checkpoints import (
+    build_model_for_checkpoint,
+    infer_checkpoint_box_coordinate_mode,
+    infer_checkpoint_loss_mode,
+    infer_checkpoint_num_classes,
     infer_model_type_from_checkpoint,
-    load_checkpoint,
+    load_model_checkpoint,
+)
+from eval.inference import infer_and_decode
+from visualize import (
+    format_visualization_predictions,
     resolve_visualization_classes,
 )
 
@@ -34,35 +36,9 @@ def _select_device(device_name):
 
 
 def _checkpoint_coordinate_mode(checkpoint, checkpoint_config):
-    state_dict = get_checkpoint_state_dict(checkpoint)
-    default_mode = (
-        BOX_COORDINATE_CARTESIAN
-        if (
-            "_model7_cartesian_radenet_marker" in state_dict
-            or "_model7_cartesian_centerpoint_marker" in state_dict
-        )
-        else "polar"
-    )
-    return require_cartesian_data(
-        checkpoint_config.get("box_coordinate_mode", default_mode)
-    )
-
-
-def _checkpoint_loss_mode(checkpoint, checkpoint_config, model_type, box_mode):
-    state_dict = get_checkpoint_state_dict(checkpoint)
-    configured = checkpoint_config.get("loss_mode")
-    if configured is None:
-        if "_model7_cartesian_radenet_marker" in state_dict:
-            configured = "radenet"
-        elif "_model7_cartesian_centerpoint_marker" in state_dict:
-            configured = "centerpoint"
-        else:
-            configured = "auto"
-    return resolve_loss_mode(
-        model_type,
-        box_coordinate_mode=box_mode,
-        loss_mode=configured,
-    )
+    """Compatibility facade for the canonical checkpoint parser."""
+    del checkpoint_config
+    return infer_checkpoint_box_coordinate_mode(checkpoint)
 
 
 class CheckpointPredictor:
@@ -87,26 +63,23 @@ class CheckpointPredictor:
             else {}
         )
 
-        self.box_coordinate_mode = _checkpoint_coordinate_mode(
-            checkpoint,
-            checkpoint_config,
+        self.box_coordinate_mode = infer_checkpoint_box_coordinate_mode(
+            checkpoint
         )
         self.scope_mode = checkpoint_config.get("train_scope", SCOPE_FULL)
         self.model_type = (
             checkpoint_config.get("model_type")
             or infer_model_type_from_checkpoint(checkpoint)
         )
-        loss_mode = _checkpoint_loss_mode(
-            checkpoint,
-            checkpoint_config,
-            self.model_type,
-            self.box_coordinate_mode,
+        loss_mode = infer_checkpoint_loss_mode(
+            checkpoint=checkpoint,
+            model_type=self.model_type,
+            box_coordinate_mode=self.box_coordinate_mode,
         )
 
-        overrides = infer_checkpoint_decoder_overrides(checkpoint)
         self.num_classes, self.class_names, _ = resolve_visualization_classes(
             checkpoint_config,
-            inferred_num_classes=overrides.get("num_classes"),
+            inferred_num_classes=infer_checkpoint_num_classes(checkpoint),
         )
         checkpoint_max_detections = checkpoint_config.get(
             "max_detections",
@@ -123,7 +96,7 @@ class CheckpointPredictor:
         self.heatmap_score_mode = str(cfg.prediction_heatmap_score_mode)
         self.yolox_nms_iou = float(cfg.prediction_yolox_nms_iou)
 
-        model, _ = build_visualization_model(
+        model, _ = build_model_for_checkpoint(
             model_type=self.model_type,
             device=self.device,
             checkpoint=checkpoint,
@@ -131,7 +104,12 @@ class CheckpointPredictor:
             box_coordinate_mode=self.box_coordinate_mode,
             loss_mode=loss_mode,
         )
-        self.model = load_checkpoint(model, checkpoint=checkpoint)
+        self.model = load_model_checkpoint(
+            model=model,
+            checkpoint=checkpoint,
+            device=self.device,
+            strict=True,
+        )
 
         print(
             "Loaded prediction checkpoint: "
@@ -168,23 +146,31 @@ class CheckpointPredictor:
             .unsqueeze(0)
             .contiguous()
         )
-        outputs = self.model(rad_tensor, rae_tensor)
+        frame_predictions = infer_and_decode(
+            model=self.model,
+            rad=rad_tensor,
+            rae=rae_tensor,
+            num_classes=self.num_classes,
+            max_detections=self.max_detections,
+            heatmap_nms_kernel=self.heatmap_nms_kernel,
+            heatmap_score_mode=self.heatmap_score_mode,
+            yolox_nms_iou=self.yolox_nms_iou,
+            score_thresh=self.score_thresh,
+            scope_modes=[self.scope_mode],
+            full_rae_shapes=[full_rae_shape],
+            box_coordinate_mode=self.box_coordinate_mode,
+            prediction_mode=self.pred_mode,
+            filter_to_scope_before_nms=True,
+        )[0]
         (
             pred_boxes_raw,
             pred_labels,
             pred_scores,
             pred_boxes_metric,
-        ) = filter_predictions(
-            outputs=outputs,
-            num_classes=self.num_classes,
+        ) = format_visualization_predictions(
+            frame_predictions=frame_predictions,
             scope_mode=self.scope_mode,
             full_rae_shape=full_rae_shape,
-            score_thresh=self.score_thresh,
-            max_detections=self.max_detections,
-            pred_mode=self.pred_mode,
-            heatmap_nms_kernel=self.heatmap_nms_kernel,
-            heatmap_score_mode=self.heatmap_score_mode,
-            yolox_nms_iou=self.yolox_nms_iou,
             box_coordinate_mode=self.box_coordinate_mode,
         )
 

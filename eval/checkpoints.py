@@ -17,13 +17,15 @@ from models import build_model
 from training_utils.configuration import (
     infer_include_bus_as_target_from_checkpoint_config,
     format_train_sequence_half_label,
+    initialize_model_from_checkpoint,
     normalize_optional_path,
     normalize_train_sequence_half_ratio,
     normalize_train_sequence_half_selection,
+    resolve_loss_mode,
 )
+from training_utils.torch_load import load_torch_checkpoint
 
 from eval.evaluation_config import (
-    load_torch_checkpoint,
     normalize_float_thresholds,
     should_inherit_from_checkpoint,
 )
@@ -32,8 +34,12 @@ __all__ = [
     'checkpoint_epoch',
     'find_epoch_checkpoints',
     'get_checkpoint_state_dict',
+    'load_model_checkpoint',
     '_list_matching_conv_weights',
     'infer_checkpoint_decoder_overrides',
+    'infer_checkpoint_num_classes',
+    'infer_checkpoint_box_coordinate_mode',
+    'infer_checkpoint_loss_mode',
     'print_checkpoint_override_summary',
     'format_sequence_label',
     'normalize_checkpoint_sequences',
@@ -130,6 +136,52 @@ def get_checkpoint_state_dict(checkpoint):
     return checkpoint
 
 
+def _has_state_marker(state_dict, marker):
+    return any(
+        key == marker or key.endswith(f".{marker}")
+        for key in state_dict.keys()
+    )
+
+
+def load_model_checkpoint(
+        model,
+        checkpoint_path=None,
+        device="cpu",
+        include_bus_as_target=True,
+        checkpoint=None,
+        strict=False,
+    ):
+    """Load checkpoint weights with the repository's historical policies."""
+    if checkpoint is None and not include_bus_as_target:
+        checkpoint = initialize_model_from_checkpoint(
+            model=model,
+            checkpoint_path=checkpoint_path,
+            map_location=device,
+            include_bus_as_target=False,
+        )
+        model.eval()
+        return model
+
+    if checkpoint is None:
+        if checkpoint_path in (None, ""):
+            raise ValueError(
+                "checkpoint_path is required when checkpoint is not provided."
+            )
+        checkpoint = load_torch_checkpoint(checkpoint_path, map_location=device)
+
+    state_dict = get_checkpoint_state_dict(checkpoint)
+    load_result = model.load_state_dict(state_dict, strict=strict)
+    model.eval()
+
+    if not strict and checkpoint_path not in (None, ""):
+        print(f"Initialized model from: {checkpoint_path}")
+        if load_result.missing_keys:
+            print(f"  missing keys after load: {list(load_result.missing_keys)}")
+        if load_result.unexpected_keys:
+            print(f"  unexpected keys after load: {list(load_result.unexpected_keys)}")
+    return model
+
+
 def _list_matching_conv_weights(state_dict, prefixes):
     matches = []
     for key, value in state_dict.items():
@@ -151,11 +203,15 @@ def infer_checkpoint_decoder_overrides(checkpoint):
     decoder_prefixes = (
         "decoder.cls_decoder.decoder",
         "decoder.box_decoder.shared",
+        "decoder.stem",
+        "decoder.cls_head.head",
+        "decoder.reg_head.head",
         "decoder.heatmap_head.head",
         "decoder.regression_head.head",
     )
     class_output_prefixes = (
         "decoder.cls_decoder.decoder",
+        "decoder.cls_head",
         "decoder.heatmap_head.head",
     )
 
@@ -180,6 +236,71 @@ def infer_checkpoint_decoder_overrides(checkpoint):
         overrides["num_classes_key"] = class_key
 
     return overrides
+
+
+def infer_checkpoint_num_classes(checkpoint, default=None):
+    """Infer class count with state-dict shape taking precedence over config."""
+    overrides = infer_checkpoint_decoder_overrides(checkpoint)
+    if overrides.get("num_classes") is not None:
+        return int(overrides["num_classes"])
+
+    config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+    if config.get("num_classes") is not None:
+        return int(config["num_classes"])
+    if config.get("class_names"):
+        return len(config["class_names"])
+    return default
+
+
+def infer_checkpoint_box_coordinate_mode(checkpoint):
+    """Recover the stored coordinate mode, including legacy marker fallback."""
+    config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+    state_dict = get_checkpoint_state_dict(checkpoint)
+    checkpoint_model_type = str(config.get("model_type", "")).strip().lower()
+    inferred_mode = (
+        BOX_COORDINATE_CARTESIAN
+        if (
+            _has_state_marker(state_dict, "_model7_cartesian_radenet_marker")
+            or _has_state_marker(
+                state_dict,
+                "_model7_cartesian_centerpoint_marker",
+            )
+            or _has_state_marker(state_dict, "_model15_radenet_official_marker")
+            or _has_state_marker(
+                state_dict,
+                "_model16_swin_radenet_official_marker",
+            )
+            or checkpoint_model_type in {"model15", "model16"}
+        )
+        else BOX_COORDINATE_POLAR
+    )
+    return require_cartesian_data(
+        config.get("box_coordinate_mode", inferred_mode)
+    )
+
+
+def infer_checkpoint_loss_mode(checkpoint, model_type, box_coordinate_mode):
+    """Recover detector-head/loss mode from config or historical markers."""
+    config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+    state_dict = get_checkpoint_state_dict(checkpoint)
+    configured_loss_mode = config.get("loss_mode")
+    if configured_loss_mode in (None, "", "auto"):
+        if _has_state_marker(state_dict, "_model7_cartesian_radenet_marker"):
+            configured_loss_mode = "radenet"
+        elif _has_state_marker(
+            state_dict,
+            "_model7_cartesian_centerpoint_marker",
+        ):
+            configured_loss_mode = "centerpoint"
+        elif box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            configured_loss_mode = "radenet"
+        else:
+            configured_loss_mode = "auto"
+    return resolve_loss_mode(
+        model_type,
+        box_coordinate_mode=box_coordinate_mode,
+        loss_mode=configured_loss_mode,
+    )
 
 
 def print_checkpoint_override_summary(checkpoint_path, overrides):
@@ -521,11 +642,17 @@ def build_model_for_checkpoint(
         model_type,
         device,
         num_classes,
-        checkpoint_path,
+        checkpoint_path=None,
         box_coordinate_mode=BOX_COORDINATE_POLAR,
         loss_mode="auto",
+        checkpoint=None,
     ):
-    checkpoint = load_torch_checkpoint(checkpoint_path, map_location="cpu")
+    if checkpoint is None:
+        if checkpoint_path in (None, ""):
+            raise ValueError(
+                "checkpoint_path is required when checkpoint is not provided."
+            )
+        checkpoint = load_torch_checkpoint(checkpoint_path, map_location="cpu")
     overrides = infer_checkpoint_decoder_overrides(checkpoint)
     build_kwargs = {
         "model_type": model_type,
@@ -539,13 +666,19 @@ def build_model_for_checkpoint(
     if "feature_channels" in overrides:
         build_kwargs["feature_channels"] = overrides["feature_channels"]
 
-    print_checkpoint_override_summary(checkpoint_path, overrides)
+    if checkpoint_path not in (None, ""):
+        print_checkpoint_override_summary(checkpoint_path, overrides)
     model = build_model(**build_kwargs)
     return model, overrides
 
 
-def infer_model_type_from_checkpoint(checkpoint_path):
-    checkpoint = load_torch_checkpoint(checkpoint_path, map_location="cpu")
+def infer_model_type_from_checkpoint(checkpoint_or_path):
+    if isinstance(checkpoint_or_path, (str, os.PathLike)):
+        checkpoint_path = checkpoint_or_path
+        checkpoint = load_torch_checkpoint(checkpoint_path, map_location="cpu")
+    else:
+        checkpoint_path = None
+        checkpoint = checkpoint_or_path
     state_dict = get_checkpoint_state_dict(checkpoint)
     if isinstance(checkpoint, dict):
         model_type = checkpoint.get("config", {}).get("model_type")
@@ -597,7 +730,8 @@ def infer_model_type_from_checkpoint(checkpoint_path):
     if any(key.startswith("backbone.encoder.") for key in state_dict.keys()):
         return "model1"
 
-    raise ValueError(f"Unsupported old model checkpoint: {checkpoint_path}")
+    source = checkpoint_path if checkpoint_path is not None else "in-memory checkpoint"
+    raise ValueError(f"Unsupported old model checkpoint: {source}")
 
 
 def resolve_model_type(args, checkpoint_paths):
@@ -617,40 +751,11 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         return
 
     config = checkpoint.get("config", {})
-    state_dict = get_checkpoint_state_dict(checkpoint)
-    def has_state_marker(marker):
-        return any(
-            key == marker or key.endswith(f".{marker}")
-            for key in state_dict.keys()
-        )
-
-    has_model7_cartesian_radenet = has_state_marker(
-        "_model7_cartesian_radenet_marker"
-    )
-    has_model7_cartesian_centerpoint = has_state_marker(
-        "_model7_cartesian_centerpoint_marker"
-    )
-    has_model15_cartesian = has_state_marker(
-        "_model15_radenet_official_marker"
-    )
-    has_model16_cartesian = has_state_marker(
-        "_model16_swin_radenet_official_marker"
-    )
-    checkpoint_model_type = str(config.get("model_type", "")).strip().lower()
-    inferred_box_coordinate_mode = (
-        BOX_COORDINATE_CARTESIAN
-        if (
-            has_model7_cartesian_radenet
-            or has_model7_cartesian_centerpoint
-            or has_model15_cartesian
-            or has_model16_cartesian
-            or checkpoint_model_type in {"model15", "model16"}
-        )
-        else BOX_COORDINATE_POLAR
-    )
     # Validate the checkpoint itself before considering a CLI override. Merely
     # relabeling a Polar checkpoint as Cartesian does not convert its weights.
-    require_cartesian_data(config.get("box_coordinate_mode", inferred_box_coordinate_mode))
+    inferred_box_coordinate_mode = infer_checkpoint_box_coordinate_mode(
+        checkpoint
+    )
     inferred_include_bus_as_target = infer_include_bus_as_target_from_checkpoint_config(
         config
     )
@@ -695,23 +800,16 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         and config.get("ignore_mask_expand_ratio") is not None
     ):
         args.ignore_mask_expand_ratio = float(config["ignore_mask_expand_ratio"])
-    checkpoint_loss_mode = config.get("loss_mode")
-    if (
-        should_inherit_from_checkpoint("loss_mode")
-        and checkpoint_loss_mode not in (None, "", "auto")
-    ):
-        args.loss_mode = checkpoint_loss_mode
-    elif should_inherit_from_checkpoint("loss_mode"):
-        if has_model7_cartesian_centerpoint:
-            args.loss_mode = "centerpoint"
-        elif has_model7_cartesian_radenet:
-            args.loss_mode = "radenet"
-        elif inferred_box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-            # Older Cartesian RADE-Net checkpoints did not always save the
-            # loss mode or decoder marker.
-            args.loss_mode = "radenet"
-        else:
-            args.loss_mode = "auto"
+    if should_inherit_from_checkpoint("loss_mode"):
+        checkpoint_model_type = config.get("model_type")
+        if checkpoint_model_type in (None, ""):
+            checkpoint_model_type = infer_model_type_from_checkpoint(checkpoint)
+        checkpoint_model_type = str(checkpoint_model_type).strip().lower()
+        args.loss_mode = infer_checkpoint_loss_mode(
+            checkpoint=checkpoint,
+            model_type=checkpoint_model_type,
+            box_coordinate_mode=inferred_box_coordinate_mode,
+        )
     if (
         should_inherit_from_checkpoint("custom_iou_range_eval_enabled")
         and config.get("custom_iou_range_eval_enabled") is not None
