@@ -41,6 +41,24 @@ WEATHER_GROUP_NAMES = {
     "heavysnow": "heavy_snow",
     "lightsnow": "light_snow",
 }
+# ``order`` remains a low-level DataLoader mode but was never accepted by the
+# normal training entry point, so it is intentionally not enabled here.
+SUPPORTED_TRAINING_SPLIT_MODES = (
+    "random",
+    "file",
+    "sequence",
+    "sequence_tail",
+)
+
+
+def validate_training_split_mode(split_mode):
+    """Validate the split modes supported by both training entry points."""
+    if split_mode not in SUPPORTED_TRAINING_SPLIT_MODES:
+        choices = ", ".join(repr(choice) for choice in SUPPORTED_TRAINING_SPLIT_MODES)
+        raise ValueError(
+            f"split_mode must be one of {choices}, got {split_mode!r}"
+        )
+    return split_mode
 
 
 def normalize_bool_flag(value, name):

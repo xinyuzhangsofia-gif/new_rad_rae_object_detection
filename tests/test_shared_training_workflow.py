@@ -1,0 +1,455 @@
+"""Focused invariants for the shared normal/resume training workflow."""
+
+from pathlib import Path
+from types import SimpleNamespace
+import tempfile
+import unittest
+from unittest import mock
+
+import torch
+
+from configs.training import RESUME_CONFIG, TRAIN_CONFIG
+from training_utils import resume, runner
+from training_utils.checkpoints import build_checkpoint_payload
+from training_utils.configuration import SUPPORTED_TRAINING_SPLIT_MODES
+from training_utils.other_helping_functions import BestCheckpointState
+
+
+class SharedTrainingConfigurationTests(unittest.TestCase):
+    def test_normal_and_resume_use_the_canonical_split_modes(self):
+        self.assertEqual(
+            SUPPORTED_TRAINING_SPLIT_MODES,
+            ("random", "file", "sequence", "sequence_tail"),
+        )
+        for split_mode in SUPPORTED_TRAINING_SPLIT_MODES:
+            with self.subTest(split_mode=split_mode):
+                normal = dict(TRAIN_CONFIG, split_mode=split_mode)
+                resumed = dict(RESUME_CONFIG, split_mode=split_mode)
+                self.assertEqual(runner.build_train_args(normal).split_mode, split_mode)
+                self.assertEqual(resume.build_resume_args(resumed).split_mode, split_mode)
+
+        for builder, config in (
+            (runner.build_train_args, dict(TRAIN_CONFIG, split_mode="order")),
+            (resume.build_resume_args, dict(RESUME_CONFIG, split_mode="order")),
+        ):
+            with self.assertRaisesRegex(ValueError, "split_mode must be one of"):
+                builder(config)
+
+    def test_normal_and_resume_build_the_same_optimizer_and_scheduler(self):
+        args = SimpleNamespace(
+            model_type="model7",
+            num_classes=2,
+            model7_decoder_hidden_channels="64",
+            box_coordinate_mode="cartesian",
+            include_bus_as_target=True,
+            init_from_checkpoint="init.pth",
+            lr=5e-5,
+        )
+        dataset = [object(), object()]
+        schedulers = [object(), object()]
+
+        with (
+            mock.patch.object(
+                runner,
+                "build_model",
+                side_effect=[torch.nn.Linear(2, 1), torch.nn.Linear(2, 1)],
+            ) as build_model,
+            mock.patch.object(runner, "initialize_model_from_checkpoint") as init,
+            mock.patch.object(
+                runner,
+                "build_model15_lr_scheduler",
+                side_effect=schedulers,
+            ),
+        ):
+            normal = runner.build_training_components(
+                args,
+                torch.device("cpu"),
+                [],
+                dataset,
+                "centerpoint",
+                initialize_from_checkpoint=True,
+            )
+            resumed = runner.build_training_components(
+                args,
+                torch.device("cpu"),
+                [],
+                dataset,
+                "centerpoint",
+                initialize_from_checkpoint=False,
+            )
+
+        normal_optimizer = normal[1]
+        resumed_optimizer = resumed[1]
+        for key in ("lr", "betas", "eps", "weight_decay", "amsgrad"):
+            self.assertEqual(
+                normal_optimizer.defaults[key],
+                resumed_optimizer.defaults[key],
+            )
+        self.assertIs(normal[2], schedulers[0])
+        self.assertIs(resumed[2], schedulers[1])
+        init.assert_called_once()
+        self.assertEqual(
+            build_model.call_args_list[0].kwargs,
+            build_model.call_args_list[1].kwargs,
+        )
+
+    def test_both_entrypoints_delegate_to_shared_training(self):
+        with mock.patch.object(runner, "run_training", return_value="normal") as run:
+            result = runner.main(train_config=dict(TRAIN_CONFIG))
+        self.assertEqual(result, "normal")
+        run.assert_called_once()
+
+        with mock.patch.object(resume, "run_training", return_value="resumed") as run:
+            result = resume.main(resume_config=dict(RESUME_CONFIG))
+        self.assertEqual(result, "resumed")
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0].epochs, RESUME_CONFIG["end_epoch"])
+        self.assertIs(
+            run.call_args.kwargs["restore_training_state"],
+            resume.restore_resume_training_state,
+        )
+
+
+class ResumeRestorationTests(unittest.TestCase):
+    def _checkpoint_fixture(self, directory):
+        model = torch.nn.Linear(2, 1)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
+        loss = model(torch.ones(1, 2)).sum()
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        path = Path(directory) / "epoch_007.pth"
+        torch.save(
+            {
+                "epoch": 7,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "config": {
+                    "model_type": "model7",
+                    "num_classes": 2,
+                    "include_bus_as_target": True,
+                    "box_coordinate_mode": "cartesian",
+                },
+            },
+            path,
+        )
+        return path, model, optimizer, scheduler
+
+    def test_model_optimizer_scheduler_and_epoch_are_restored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path, saved_model, saved_optimizer, saved_scheduler = (
+                self._checkpoint_fixture(directory)
+            )
+            model = torch.nn.Linear(2, 1)
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.5)
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3)
+
+            result = resume.load_resume_checkpoint(
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                checkpoint_path=str(path),
+                device=torch.device("cpu"),
+                expected_model_type="model7",
+                expected_num_classes=2,
+                expected_include_bus_as_target=True,
+                expected_box_coordinate_mode="cartesian",
+            )
+
+        self.assertEqual(result[:4], (7, "model7", True, True))
+        for actual, expected in zip(model.parameters(), saved_model.parameters()):
+            torch.testing.assert_close(actual, expected)
+        actual_optimizer = optimizer.state_dict()
+        expected_optimizer = saved_optimizer.state_dict()
+        self.assertEqual(
+            actual_optimizer["param_groups"],
+            expected_optimizer["param_groups"],
+        )
+        for parameter_id, expected_state in expected_optimizer["state"].items():
+            actual_state = actual_optimizer["state"][parameter_id]
+            for key, expected_value in expected_state.items():
+                actual_value = actual_state[key]
+                if torch.is_tensor(expected_value):
+                    torch.testing.assert_close(actual_value, expected_value)
+                else:
+                    self.assertEqual(actual_value, expected_value)
+        self.assertEqual(scheduler.state_dict(), saved_scheduler.state_dict())
+        self.assertTrue(
+            all(
+                value.device.type == "cpu"
+                for state in optimizer.state.values()
+                for value in state.values()
+                if torch.is_tensor(value)
+            )
+        )
+
+    def test_optimizer_restore_can_be_disabled_without_disabling_scheduler(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path, _model, _optimizer, saved_scheduler = self._checkpoint_fixture(
+                directory
+            )
+            model = torch.nn.Linear(2, 1)
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.5)
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3)
+            result = resume.load_resume_checkpoint(
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                checkpoint_path=str(path),
+                device=torch.device("cpu"),
+                load_optimizer=False,
+            )
+
+        self.assertFalse(result[2])
+        self.assertTrue(result[3])
+        self.assertEqual(scheduler.state_dict(), saved_scheduler.state_dict())
+
+    def test_resume_epoch_resolution_is_one_based_and_inclusive(self):
+        self.assertEqual(resume.resolve_resume_start_epoch(None, 7), 8)
+        self.assertEqual(resume.resolve_resume_start_epoch(11, 7), 11)
+        with self.assertRaisesRegex(ValueError, "does not store an epoch"):
+            resume.resolve_resume_start_epoch(None, None)
+
+    def test_incompatible_checkpoint_metadata_is_rejected(self):
+        cases = (
+            ({"model_type": "model15"}, {"expected_model_type": "model7"}),
+            ({"num_classes": 1}, {"expected_num_classes": 2}),
+            (
+                {"include_bus_as_target": False},
+                {"expected_include_bus_as_target": True},
+            ),
+            (
+                {"box_coordinate_mode": "polar"},
+                {"expected_box_coordinate_mode": "cartesian"},
+            ),
+        )
+        for checkpoint_config, expectations in cases:
+            with self.subTest(checkpoint_config=checkpoint_config):
+                with tempfile.TemporaryDirectory() as directory:
+                    model = torch.nn.Linear(2, 1)
+                    path = Path(directory) / "checkpoint.pth"
+                    torch.save(
+                        {
+                            "model_state_dict": model.state_dict(),
+                            "config": checkpoint_config,
+                        },
+                        path,
+                    )
+                    optimizer = torch.optim.Adam(model.parameters())
+                    with self.assertRaises(ValueError):
+                        resume.load_resume_checkpoint(
+                            model=model,
+                            optimizer=optimizer,
+                            scheduler=None,
+                            checkpoint_path=str(path),
+                            device=torch.device("cpu"),
+                            **expectations,
+                        )
+
+    def test_existing_checkpoint_directory_is_reused_and_protected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint_path = Path(directory) / "epoch_007.pth"
+            checkpoint_path.touch()
+            args = SimpleNamespace(
+                resume_save_in_checkpoint_dir=True,
+                resume_checkpoint=str(checkpoint_path),
+                start_epoch=8,
+                end_epoch=9,
+            )
+            directories, key, selected = (
+                resume.resolve_resume_checkpoint_directories(args, (1, 2))
+            )
+            self.assertEqual(key, (1, 2))
+            self.assertEqual(selected, str(Path(directory).resolve()))
+            self.assertEqual(directories, {(1, 2): selected})
+
+            (Path(directory) / "copy_epoch_008.pth").touch()
+            with self.assertRaisesRegex(FileExistsError, "Refusing to overwrite"):
+                resume.resolve_resume_checkpoint_directories(args, (1, 2))
+
+    def test_initial_best_metadata_is_restored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint_path = Path(directory) / "best.pth"
+            torch.save(
+                {
+                    "epoch": 5,
+                    "selection_metric_key": "official_bev_mAP_0.3",
+                    "selection_metric_value": 0.42,
+                },
+                checkpoint_path,
+            )
+            state = BestCheckpointState()
+            with mock.patch.object(
+                resume,
+                "save_replacing_named_checkpoint_copy",
+                return_value="copied.pth",
+            ):
+                copied = resume.initialize_best_state(
+                    best_state=state,
+                    initial_best_checkpoint=str(checkpoint_path),
+                    checkpoint_dir=directory,
+                )
+
+        self.assertEqual(copied, "copied.pth")
+        self.assertEqual(state.epoch, 5)
+        self.assertEqual(state.metric_key, "official_bev_mAP_0.3")
+        self.assertEqual(state.map_score, 0.42)
+        self.assertEqual(state.global_best_path, "copied.pth")
+
+
+class SharedEpochWorkflowTests(unittest.TestCase):
+    def test_epoch_operation_order_and_numbering_are_shared(self):
+        events = []
+        args = SimpleNamespace(
+            heatmap_radius=3,
+            centerpoint_gwd_loss_weight=2.0,
+            quality_loss_weight=0.25,
+            ignore_mask_margin=1.0,
+            ignore_mask_expand_ratio=1.5,
+            num_classes=2,
+            box_coordinate_mode="cartesian",
+            training_eval_enabled=False,
+            best_metric_key="auto",
+            official_eval_enabled=False,
+            official_eval_iou_mode="easy",
+            checkpoint_epoch_step=1,
+        )
+        optimizer = SimpleNamespace(param_groups=[{"lr": 5e-5}])
+
+        def record(name, value):
+            events.append((name, value))
+
+        with (
+            mock.patch.object(
+                runner,
+                "train_one_epoch",
+                side_effect=lambda **kw: (
+                    record("train", kw["epoch"])
+                    or {"train_loss": 1.0}
+                ),
+            ),
+            mock.patch.object(
+                runner,
+                "validate_loss",
+                side_effect=lambda **_kw: (
+                    record("validate", None) or {"val_loss": 2.0}
+                ),
+            ),
+            mock.patch.object(
+                runner,
+                "build_epoch_eval_metrics",
+                side_effect=lambda **_kw: (
+                    record("metrics", None) or ({"val_loss": 2.0}, 0.0)
+                ),
+            ),
+            mock.patch.object(
+                runner,
+                "print_epoch_evaluation_summary",
+                side_effect=lambda **kw: record("summary", kw["epoch"]),
+            ),
+            mock.patch.object(
+                runner,
+                "write_tensorboard_metrics",
+                side_effect=lambda **kw: record("tensorboard", kw["epoch"]),
+            ),
+            mock.patch.object(
+                runner,
+                "save_epoch_and_update_best_checkpoint",
+                side_effect=lambda **kw: record("checkpoint", kw["epoch"]),
+            ),
+            mock.patch.object(
+                runner,
+                "append_training_history",
+                side_effect=lambda **kw: record("history", kw["epoch"]),
+            ),
+        ):
+            runner.run_training_epochs(
+                args=args,
+                cfg=object(),
+                model=object(),
+                optimizer=optimizer,
+                scheduler=object(),
+                train_loader=object(),
+                val_loader=object(),
+                device=torch.device("cpu"),
+                writer=object(),
+                best_state=object(),
+                checkpoint_dir="unused",
+                start_epoch=8,
+                end_epoch=8,
+                loss_mode="centerpoint",
+            )
+
+        self.assertEqual(
+            events,
+            [
+                ("train", 7),
+                ("validate", None),
+                ("metrics", None),
+                ("summary", 8),
+                ("tensorboard", 8),
+                ("checkpoint", 8),
+                ("history", 8),
+            ],
+        )
+
+    def test_checkpoint_payload_top_level_contract_is_unchanged(self):
+        model = torch.nn.Linear(2, 1)
+        optimizer = torch.optim.Adam(model.parameters(), lr=5e-5)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
+        args = SimpleNamespace(
+            epochs=2,
+            batch_size=1,
+            lr=5e-5,
+            max_detections=64,
+            num_classes=2,
+            model_type="model7",
+            train_ratio=0.7,
+            seed=42,
+            limit_samples=None,
+        )
+        payload = build_checkpoint_payload(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            args=args,
+            cfg=SimpleNamespace(sequence=1, sequences=(1,)),
+            epoch=1,
+            train_metrics={"train_loss": 1.0},
+            val_metrics={
+                "val_loss": 2.0,
+                "selection_metric_key": "mAP",
+                "selection_metric_value": 0.25,
+                "mAP": 0.25,
+            },
+            f1=0.0,
+            learning_rate=5e-5,
+            saved_at="20260913_120000",
+            is_best=True,
+        )
+        self.assertEqual(
+            set(payload),
+            {
+                "epoch",
+                "saved_at",
+                "weather_group",
+                "model_state_dict",
+                "optimizer_state_dict",
+                "scheduler_state_dict",
+                "train_metrics",
+                "val_metrics",
+                "f1",
+                "learning_rate",
+                "is_best",
+                "config",
+                "selection_metric_key",
+                "selection_metric_value",
+                "mAP",
+            },
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

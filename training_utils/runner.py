@@ -1,8 +1,8 @@
-"""Training workflow orchestration.
+"""Shared training workflow and normal-training orchestration.
 
-The root ``train.py`` module remains a backwards-compatible command-line
-facade.  Keeping the orchestration beside the other training modules makes the
-runtime dependency direction explicit without changing existing commands.
+The root ``train.py`` module remains a compatibility facade. Resume training
+injects checkpoint restoration and run-directory policies into ``run_training``
+instead of maintaining a second epoch pipeline.
 """
 
 import sys
@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 import torch
 
+from configs.data import DataConfig
+from configs.training import TRAIN_CONFIG
 from data.coordinates import SCOPE_CHOICES
 from data.dataloader import (
     build_train_val_dataloaders,
@@ -19,10 +21,23 @@ from data.dataloader import (
 from eval.evaluation_config import resolve_official_eval_class_name_map
 from eval.metrics_runner import evaluate_train_val_iou
 from models import MODEL_TYPES, build_model
-from training_utils.checkpoints import (
-    create_checkpoint_run_dirs,
-    EXPERIMENT_NAME,
+from training_utils.checkpoints import create_checkpoint_run_dirs, EXPERIMENT_NAME
+from training_utils.configuration import (
+    apply_domain_shift_training_configuration,
+    apply_model15_lr_defaults,
+    apply_task_configuration,
+    apply_test_sequence_weather_configuration,
+    apply_training_coordinate_mode,
+    build_model15_lr_scheduler,
+    initialize_model_from_checkpoint,
+    model_uses_separate_quality_loss,
+    prepare_controlled_train_data,
+    resolve_loss_mode,
+    resolve_run_model_type,
+    use_official_model15_lr_mode,
+    validate_training_split_mode,
 )
+from training_utils.experiment_queue import run_domain_shift_experiment_queue
 from training_utils.logging_utils import (
     create_tensorboard_writer,
     print_epoch_evaluation_summary,
@@ -37,73 +52,39 @@ from training_utils.other_helping_functions import (
     save_global_best_checkpoint,
     set_seed,
 )
+from training_utils.post_training_evaluation import run_post_training_evaluation
 from training_utils.runtime import select_device_and_gpus
-from training_utils.post_training_evaluation import (
-    run_post_training_evaluation,
-)
-from training_utils.experiment_queue import (
-    run_domain_shift_experiment_queue,
-)
-from training_utils.training_loop import (
-    train_one_epoch,
-    validate_loss,
-)
-from configs.training import TRAIN_CONFIG
-from training_utils.configuration import (
-    apply_domain_shift_training_configuration,
-    apply_test_sequence_weather_configuration,
-    apply_training_coordinate_mode,
-    apply_task_configuration,
-    apply_model15_lr_defaults,
-    build_model15_lr_scheduler,
-    initialize_model_from_checkpoint,
-    prepare_controlled_train_data,
-    resolve_loss_mode,
-    resolve_run_model_type,
-    model_uses_separate_quality_loss,
-    use_official_model15_lr_mode,
-)
-from configs.data import DataConfig
+from training_utils.training_loop import train_one_epoch, validate_loss
 
 
-def build_train_args(train_config=None):
-    config = TRAIN_CONFIG if train_config is None else train_config
-    args = SimpleNamespace(**config)
-    args = apply_domain_shift_training_configuration(args)
-    args = apply_test_sequence_weather_configuration(args)
+def validate_training_args(args):
+    """Validate settings shared by normal and resume training."""
     if args.train_scope not in SCOPE_CHOICES:
-        raise ValueError(f"train_scope must be one of {SCOPE_CHOICES}, got {args.train_scope!r}")
-    if args.split_mode not in ("random", "file", "sequence", "sequence_tail"):
         raise ValueError(
-            "split_mode must be 'random', 'file', 'sequence', or "
-            f"'sequence_tail', got {args.split_mode!r}"
+            f"train_scope must be one of {SCOPE_CHOICES}, "
+            f"got {args.train_scope!r}"
         )
+    validate_training_split_mode(args.split_mode)
     if args.model_type not in MODEL_TYPES:
         raise ValueError(f"Unknown or unsupported model_type: {args.model_type}")
     return args
 
 
-def main(train_config=None, _experiment_queue_child=False):
-    if train_config is None and len(sys.argv) > 1:
-        raise ValueError(
-            "Training reads settings from configs/training.py; "
-            "edit that configuration file instead of passing command-line arguments."
-        )
+def build_training_args(config):
+    """Resolve and validate the common flat training configuration."""
+    args = SimpleNamespace(**config)
+    args = apply_domain_shift_training_configuration(args)
+    args = apply_test_sequence_weather_configuration(args)
+    return validate_training_args(args)
 
+
+def build_train_args(train_config=None):
     config = TRAIN_CONFIG if train_config is None else train_config
-    if (
-        not _experiment_queue_child
-        and bool(config.get("experiment_queue_enabled", False))
-    ):
-        return run_domain_shift_experiment_queue(
-            base_config=config,
-            train_function=lambda child_config: main(
-                child_config,
-                _experiment_queue_child=True,
-            ),
-        )
+    return build_training_args(config)
 
-    args = build_train_args(train_config=train_config)
+
+def prepare_training_configuration(args):
+    """Apply common pre-runtime configuration checks."""
     args = apply_training_coordinate_mode(args)
     if args.checkpoint_epoch_step <= 0:
         raise ValueError("checkpoint_epoch_step must be greater than 0")
@@ -114,14 +95,11 @@ def main(train_config=None, _experiment_queue_child=False):
     ):
         args.official_eval_iou_backend = "cpu"
 
-    set_seed(args.seed)
-    cfg = DataConfig()
-    configured_sequences = get_dataset_sequences_for_split(
-        cfg=cfg,
-        split_mode=args.split_mode,
-        train_sequences=args.train_sequences,
-        val_sequences=args.val_sequences,
-    )
+    return args
+
+
+def prepare_training_task_configuration(args):
+    """Derive class, controlled-split, scheduler, and model run settings."""
     args = apply_task_configuration(args)
     args = prepare_controlled_train_data(args)
     args = apply_model15_lr_defaults(args)
@@ -132,7 +110,11 @@ def main(train_config=None, _experiment_queue_child=False):
         model_type=args.model_type,
         include_bus_as_target=args.include_bus_as_target,
     )
+    return args
 
+
+def print_training_configuration(args, loss_mode):
+    """Print the common effective configuration for either workflow."""
     print(f"Training classes: {args.class_names}")
     print(
         "Test weather group: "
@@ -177,22 +159,12 @@ def main(train_config=None, _experiment_queue_child=False):
         )
     )
     print(f"Bus target enabled: {args.include_bus_as_target}")
-    print(
-        "Ignore object_label=-1: "
-        f"{args.ignore_object_label_minus_one}"
-    )
-    print(
-        "Ignore out-of-scope GT: "
-        f"{args.ignore_out_of_scope_gt}"
-    )
+    print(f"Ignore object_label=-1: {args.ignore_object_label_minus_one}")
+    print(f"Ignore out-of-scope GT: {args.ignore_out_of_scope_gt}")
     print(f"Ignore-mask classes: {args.ignore_class_names}")
     print(
-        f"Ignore-mask region: GT box * {args.ignore_mask_expand_ratio} + margin {args.ignore_mask_margin}"
-    )
-    loss_mode = resolve_loss_mode(
-        args.model_type,
-        box_coordinate_mode=args.box_coordinate_mode,
-        loss_mode=args.loss_mode,
+        f"Ignore-mask region: GT box * {args.ignore_mask_expand_ratio} "
+        f"+ margin {args.ignore_mask_margin}"
     )
     print(f"Loss mode: {loss_mode} (configured: {args.loss_mode})")
     if loss_mode == "centerpoint":
@@ -201,7 +173,10 @@ def main(train_config=None, _experiment_queue_child=False):
             f"{args.centerpoint_gwd_loss_weight:g} * GWD"
         )
         if model_uses_separate_quality_loss(args.model_type):
-            print(f"Separate quality loss: enabled, weight={args.quality_loss_weight:g}")
+            print(
+                "Separate quality loss: enabled, "
+                f"weight={args.quality_loss_weight:g}"
+            )
         else:
             print("Separate quality loss: inactive for this model")
     if not getattr(args, "training_eval_enabled", True):
@@ -215,19 +190,24 @@ def main(train_config=None, _experiment_queue_child=False):
             f"ratio={args.train_sequence_half_ratio:g}"
         )
     if args.split_mode == "sequence_tail":
+        tail_ratio = getattr(args, "sequence_tail_val_ratio", 0.1)
+        boundary_frames = getattr(
+            args, "sequence_tail_boundary_drop_frames", 0
+        )
         print(
             "Chronological internal validation: "
-            f"last {args.sequence_tail_val_ratio:.1%} per train sequence, "
-            f"drop {args.sequence_tail_boundary_drop_frames} boundary frame(s)"
+            f"last {tail_ratio:.1%} per train sequence, "
+            f"drop {boundary_frames} boundary frame(s)"
         )
     if args.gt_object_ignore_override_path is not None:
         print(f"GT object ignore override: {args.gt_object_ignore_override_path}")
     if use_official_model15_lr_mode(args.model_type):
         print("Model15 LR mode: official RADE-Net CosineAnnealingLR")
 
-    device, gpu_ids = select_device_and_gpus(args.gpu_ids)
 
-    (train_dataset, val_dataset, train_loader, val_loader) = build_train_val_dataloaders(
+def build_training_data(args, cfg):
+    """Build the datasets and loaders used by both training workflows."""
+    result = build_train_val_dataloaders(
         cfg=cfg,
         batch_size=args.batch_size,
         train_ratio=args.train_ratio,
@@ -235,14 +215,10 @@ def main(train_config=None, _experiment_queue_child=False):
         num_workers=args.num_workers,
         limit_samples=args.limit_samples,
         train_sequence_half_selection=getattr(
-            args,
-            "train_sequence_half_selection",
-            None,
+            args, "train_sequence_half_selection", None
         ),
         train_sequence_half_ratio=getattr(
-            args,
-            "train_sequence_half_ratio",
-            0.5,
+            args, "train_sequence_half_ratio", 0.5
         ),
         class_to_idx=args.class_to_idx,
         ignore_class_names=args.ignore_class_names,
@@ -256,18 +232,27 @@ def main(train_config=None, _experiment_queue_child=False):
         train_control_split_dir=args.train_control_split_dir,
         sequence_tail_val_ratio=getattr(args, "sequence_tail_val_ratio", 0.1),
         sequence_tail_boundary_drop_frames=getattr(
-            args,
-            "sequence_tail_boundary_drop_frames",
-            0,
+            args, "sequence_tail_boundary_drop_frames", 0
         ),
         box_coordinate_mode=args.box_coordinate_mode,
         cartesian_gt_root=args.cartesian_gt_root,
         ignore_object_label_minus_one=args.ignore_object_label_minus_one,
         ignore_out_of_scope_gt=args.ignore_out_of_scope_gt,
     )
-    if len(val_dataset) == 0:
+    if len(result[1]) == 0:
         raise ValueError("Validation split is empty.")
+    return result
 
+
+def build_training_components(
+    args,
+    device,
+    gpu_ids,
+    train_dataset,
+    loss_mode,
+    initialize_from_checkpoint=True,
+):
+    """Build model, DataParallel wrapper, optimizer, and scheduler in order."""
     model = build_model(
         model_type=args.model_type,
         device=device,
@@ -280,18 +265,19 @@ def main(train_config=None, _experiment_queue_child=False):
         box_coordinate_mode=args.box_coordinate_mode,
         loss_mode=loss_mode,
     )
-    initialize_model_from_checkpoint(
-        model=model,
-        checkpoint_path=getattr(args, "init_from_checkpoint", ""),
-        map_location=device,
-        include_bus_as_target=args.include_bus_as_target,
-    )
+    if initialize_from_checkpoint:
+        initialize_model_from_checkpoint(
+            model=model,
+            checkpoint_path=getattr(args, "init_from_checkpoint", ""),
+            map_location=device,
+            include_bus_as_target=args.include_bus_as_target,
+        )
 
     if len(gpu_ids) > 1:
         model = torch.nn.DataParallel(
             model,
             device_ids=gpu_ids,
-            output_device=gpu_ids[0]
+            output_device=gpu_ids[0],
         )
         print(f"Using DataParallel on GPUs: {gpu_ids}")
     else:
@@ -303,23 +289,21 @@ def main(train_config=None, _experiment_queue_child=False):
         optimizer=optimizer,
         num_train_samples=len(train_dataset),
     )
-    history = []
-    best_state = BestCheckpointState()
+    return model, optimizer, scheduler
 
+
+def create_training_checkpoint_directories(args, configured_sequences):
+    """Create the standard checkpoint directory layout."""
     checkpoint_dirs = create_checkpoint_run_dirs(
         base_dir=args.checkpoint_base_dir,
         experiment_name=EXPERIMENT_NAME,
         sequences=configured_sequences,
         model_type=args.run_model_type,
         train_sequence_half_selection=getattr(
-            args,
-            "train_sequence_half_selection",
-            None,
+            args, "train_sequence_half_selection", None
         ),
         train_sequence_half_ratio=getattr(
-            args,
-            "train_sequence_half_ratio",
-            None,
+            args, "train_sequence_half_ratio", None
         ),
         checkpoint_layout=getattr(args, "checkpoint_layout", "legacy"),
         weather_group=getattr(args, "weather_group", None),
@@ -327,15 +311,18 @@ def main(train_config=None, _experiment_queue_child=False):
         test_sequences=args.val_sequences,
     )
     checkpoint_key = next(iter(checkpoint_dirs))
-    checkpoint_dir = checkpoint_dirs[checkpoint_key]
+    return checkpoint_dirs, checkpoint_key, checkpoint_dirs[checkpoint_key]
 
-    writer = create_tensorboard_writer(
-        base_dir=args.log_base_dir,
-        experiment_name=EXPERIMENT_NAME,
-        sequence=configured_sequences,
-        model_type=args.run_model_type,
-    )
-    
+
+def write_training_run_config(
+    writer,
+    cfg,
+    args,
+    train_dataset,
+    val_dataset,
+    loss_mode,
+):
+    """Write the shared TensorBoard run metadata without changing tag names."""
     write_tensorboard_run_config(
         writer=writer,
         cfg=cfg,
@@ -356,23 +343,17 @@ def main(train_config=None, _experiment_queue_child=False):
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
         domain_shift_train_branch=getattr(
-            args,
-            "domain_shift_train_branch",
-            None,
+            args, "domain_shift_train_branch", None
         ),
         shared_train_sequences=getattr(args, "shared_train_sequences", None),
         source_train_sequences=getattr(args, "source_train_sequences", None),
         target_train_sequences=getattr(args, "target_train_sequences", None),
         target_test_sequences=getattr(args, "target_test_sequences", None),
         train_sequence_half_selection=getattr(
-            args,
-            "train_sequence_half_selection",
-            None,
+            args, "train_sequence_half_selection", None
         ),
         train_sequence_half_ratio=getattr(
-            args,
-            "train_sequence_half_ratio",
-            None,
+            args, "train_sequence_half_ratio", None
         ),
         training_eval_enabled=getattr(args, "training_eval_enabled", True),
         best_metric_key=(
@@ -382,20 +363,28 @@ def main(train_config=None, _experiment_queue_child=False):
         ),
         official_eval_enabled=getattr(args, "official_eval_enabled", False),
         official_eval_version=getattr(args, "official_eval_version", "revised"),
-        official_eval_iou_backend=getattr(args, "official_eval_iou_backend", "auto"),
+        official_eval_iou_backend=getattr(
+            args, "official_eval_iou_backend", "auto"
+        ),
         official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
         polar_eval_enabled=getattr(args, "polar_eval_enabled", False),
         polar_iou_thresholds=getattr(args, "polar_iou_thresholds", None),
-        coco_style_eval_enabled=getattr(args, "coco_style_eval_enabled", False),
-        nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
-        gt_object_ignore_override_path=getattr(args, "gt_object_ignore_override_path", None),
-        train_control_split_enabled=getattr(args, "train_control_split_enabled", False),
+        coco_style_eval_enabled=getattr(
+            args, "coco_style_eval_enabled", False
+        ),
+        nuscenes_style_eval_enabled=getattr(
+            args, "nuscenes_style_eval_enabled", False
+        ),
+        gt_object_ignore_override_path=getattr(
+            args, "gt_object_ignore_override_path", None
+        ),
+        train_control_split_enabled=getattr(
+            args, "train_control_split_enabled", False
+        ),
         train_control_split_dir=getattr(args, "train_control_split_dir", None),
         sequence_tail_val_ratio=getattr(args, "sequence_tail_val_ratio", None),
         sequence_tail_boundary_drop_frames=getattr(
-            args,
-            "sequence_tail_boundary_drop_frames",
-            None,
+            args, "sequence_tail_boundary_drop_frames", None
         ),
         centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
         quality_loss_weight=args.quality_loss_weight,
@@ -406,22 +395,77 @@ def main(train_config=None, _experiment_queue_child=False):
         weather_group=getattr(args, "weather_group", None),
         weather_group_source=getattr(args, "weather_group_source", None),
         sequence_information_path=getattr(
-            args,
-            "sequence_information_path",
-            None,
+            args, "sequence_information_path", None
         ),
         test_sequence_weather=getattr(args, "test_sequence_weather", None),
     )
 
-    for epoch in range(args.epochs):
+
+def _training_evaluation_kwargs(args, include_detection_metrics_setting):
+    kwargs = {
+        "num_classes": args.num_classes,
+        "official_class_name_map": args.official_class_name_map,
+        "prepare_model_inputs": prepare_model_inputs,
+        "max_detections": args.max_detections,
+        "scope_mode": args.train_scope,
+        "evaluate_train": args.eval_train,
+        "official_eval_enabled": getattr(args, "official_eval_enabled", False),
+        "official_eval_version": getattr(args, "official_eval_version", "revised"),
+        "official_eval_iou_backend": getattr(
+            args, "official_eval_iou_backend", "auto"
+        ),
+        "official_eval_iou_mode": getattr(args, "official_eval_iou_mode", "easy"),
+        "coco_style_eval_enabled": getattr(
+            args, "coco_style_eval_enabled", False
+        ),
+        "nuscenes_style_eval_enabled": getattr(
+            args, "nuscenes_style_eval_enabled", False
+        ),
+        "ap_score_thresh": getattr(args, "ap_score_thresh", 0.01),
+        "detection_score_thresh": getattr(args, "score_thresh", 0.3),
+        "polar_eval_enabled": getattr(args, "polar_eval_enabled", False),
+        "polar_iou_thresholds": getattr(args, "polar_iou_thresholds", (0.3, 0.5)),
+        "box_coordinate_mode": args.box_coordinate_mode,
+    }
+    if include_detection_metrics_setting:
+        kwargs["official_detection_metrics_enabled"] = getattr(
+            args,
+            "official_detection_metrics_enabled",
+            True,
+        )
+    return kwargs
+
+
+def run_training_epochs(
+    *,
+    args,
+    cfg,
+    model,
+    optimizer,
+    scheduler,
+    train_loader,
+    val_loader,
+    device,
+    writer,
+    best_state,
+    checkpoint_dir,
+    start_epoch,
+    end_epoch,
+    loss_mode,
+    include_detection_metrics_setting=True,
+    print_saved_checkpoints=False,
+):
+    """Run the common ordered train/validate/evaluate/save epoch sequence."""
+    history = []
+    for epoch_number in range(start_epoch, end_epoch + 1):
         train_metrics = train_one_epoch(
             model=model,
             dataloader=train_loader,
             optimizer=optimizer,
             scheduler=scheduler,
             device=device,
-            epoch=epoch,
-            num_epochs=args.epochs,
+            epoch=epoch_number - 1,
+            num_epochs=end_epoch,
             box_loss_weight=1.0,
             cls_loss_weight=1.0,
             heatmap_radius=args.heatmap_radius,
@@ -433,7 +477,6 @@ def main(train_config=None, _experiment_queue_child=False):
             num_classes=args.num_classes,
             box_coordinate_mode=args.box_coordinate_mode,
         )
-        
         val_loss_metrics = validate_loss(
             model=model,
             dataloader=val_loader,
@@ -452,37 +495,16 @@ def main(train_config=None, _experiment_queue_child=False):
 
         eval_metrics = None
         if getattr(args, "training_eval_enabled", True):
+            evaluation_kwargs = _training_evaluation_kwargs(
+                args,
+                include_detection_metrics_setting,
+            )
             eval_metrics = evaluate_train_val_iou(
                 model=model,
                 train_dataloader=train_loader,
                 val_dataloader=val_loader,
                 device=device,
-                num_classes=args.num_classes,
-                official_class_name_map=args.official_class_name_map,
-                prepare_model_inputs=prepare_model_inputs,
-                max_detections=args.max_detections,
-                scope_mode=args.train_scope,
-                evaluate_train=args.eval_train,
-                official_eval_enabled=getattr(args, "official_eval_enabled", False),
-                official_eval_version=getattr(args, "official_eval_version", "revised"),
-                official_eval_iou_backend=getattr(args, "official_eval_iou_backend", "auto"),
-                official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
-                official_detection_metrics_enabled=getattr(
-                    args,
-                    "official_detection_metrics_enabled",
-                    True,
-                ),
-                coco_style_eval_enabled=getattr(args, "coco_style_eval_enabled", False),
-                nuscenes_style_eval_enabled=getattr(args, "nuscenes_style_eval_enabled", False),
-                ap_score_thresh=getattr(args, "ap_score_thresh", 0.01),
-                detection_score_thresh=getattr(args, "score_thresh", 0.3),
-                polar_eval_enabled=getattr(args, "polar_eval_enabled", False),
-                polar_iou_thresholds=getattr(
-                    args,
-                    "polar_iou_thresholds",
-                    (0.3, 0.5),
-                ),
-                box_coordinate_mode=args.box_coordinate_mode,
+                **evaluation_kwargs,
             )
 
         val_metrics, f1 = build_epoch_eval_metrics(
@@ -492,42 +514,172 @@ def main(train_config=None, _experiment_queue_child=False):
             training_eval_enabled=getattr(args, "training_eval_enabled", True),
             best_metric_key=getattr(args, "best_metric_key", "auto"),
             official_eval_enabled=getattr(args, "official_eval_enabled", False),
-            official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
+            official_eval_iou_mode=getattr(
+                args, "official_eval_iou_mode", "easy"
+            ),
         )
-        print_epoch_evaluation_summary(epoch=epoch + 1, val_metrics=val_metrics, f1=f1)
+        print_epoch_evaluation_summary(
+            epoch=epoch_number,
+            val_metrics=val_metrics,
+            f1=f1,
+        )
 
         learning_rate = optimizer.param_groups[0]["lr"]
         write_tensorboard_metrics(
-            writer=writer, epoch=epoch + 1, train_metrics=train_metrics,
-            val_metrics=val_metrics, f1=f1, learning_rate=learning_rate
-        )
-
-        save_epoch_and_update_best_checkpoint(
-            best_state=best_state, checkpoint_dir=checkpoint_dir, model=model,
-            optimizer=optimizer, scheduler=scheduler, args=args, cfg=cfg, epoch=epoch + 1,
-            train_metrics=train_metrics, val_metrics=val_metrics, f1=f1,
+            writer=writer,
+            epoch=epoch_number,
+            train_metrics=train_metrics,
+            val_metrics=val_metrics,
+            f1=f1,
             learning_rate=learning_rate,
-            total_epochs=args.epochs,
+        )
+        checkpoint_path = save_epoch_and_update_best_checkpoint(
+            best_state=best_state,
+            checkpoint_dir=checkpoint_dir,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            args=args,
+            cfg=cfg,
+            epoch=epoch_number,
+            train_metrics=train_metrics,
+            val_metrics=val_metrics,
+            f1=f1,
+            learning_rate=learning_rate,
+            total_epochs=end_epoch,
             checkpoint_epoch_step=args.checkpoint_epoch_step,
-            best_selection_enabled=getattr(
-                args,
-                "training_eval_enabled",
-                True,
-            ),
+            best_selection_enabled=getattr(args, "training_eval_enabled", True),
         )
-        
+        if print_saved_checkpoints and checkpoint_path is not None:
+            print(f"Saved checkpoint: {checkpoint_path}")
         append_training_history(
-            history=history, epoch=epoch + 1, train_metrics=train_metrics,
-            val_metrics=val_metrics, f1=f1
+            history=history,
+            epoch=epoch_number,
+            train_metrics=train_metrics,
+            val_metrics=val_metrics,
+            f1=f1,
         )
-        
+    return history
+
+
+def run_training(
+    args,
+    *,
+    restore_training_state=None,
+    resolve_checkpoint_directories=None,
+    existing_tensorboard_log_dir=None,
+    initialize_best_state_callback=None,
+    include_detection_metrics_setting=True,
+    print_checkpoint_directory=False,
+    print_saved_checkpoints=False,
+    print_global_best=False,
+):
+    """Run shared preparation, epoch execution, and finalization."""
+    args = prepare_training_configuration(args)
+    set_seed(args.seed)
+    cfg = DataConfig()
+    configured_sequences = get_dataset_sequences_for_split(
+        cfg=cfg,
+        split_mode=args.split_mode,
+        train_sequences=args.train_sequences,
+        val_sequences=args.val_sequences,
+    )
+    args = prepare_training_task_configuration(args)
+    loss_mode = resolve_loss_mode(
+        args.model_type,
+        box_coordinate_mode=args.box_coordinate_mode,
+        loss_mode=args.loss_mode,
+    )
+    print_training_configuration(args, loss_mode)
+
+    device, gpu_ids = select_device_and_gpus(args.gpu_ids)
+    train_dataset, val_dataset, train_loader, val_loader = build_training_data(
+        args,
+        cfg,
+    )
+    model, optimizer, scheduler = build_training_components(
+        args=args,
+        device=device,
+        gpu_ids=gpu_ids,
+        train_dataset=train_dataset,
+        loss_mode=loss_mode,
+        initialize_from_checkpoint=restore_training_state is None,
+    )
+
+    start_epoch = 1
+    if restore_training_state is not None:
+        start_epoch = restore_training_state(
+            args=args,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            device=device,
+        )
+    end_epoch = args.epochs
+
+    directory_resolver = (
+        create_training_checkpoint_directories
+        if resolve_checkpoint_directories is None
+        else resolve_checkpoint_directories
+    )
+    checkpoint_dirs, checkpoint_key, checkpoint_dir = directory_resolver(
+        args,
+        configured_sequences,
+    )
+    if print_checkpoint_directory:
+        print(f"Saving checkpoints to: {checkpoint_dir}")
+
+    writer = create_tensorboard_writer(
+        base_dir=args.log_base_dir,
+        experiment_name=EXPERIMENT_NAME,
+        sequence=configured_sequences,
+        model_type=args.run_model_type,
+        existing_log_dir=existing_tensorboard_log_dir,
+    )
+    write_training_run_config(
+        writer=writer,
+        cfg=cfg,
+        args=args,
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
+        loss_mode=loss_mode,
+    )
+
+    best_state = BestCheckpointState()
+    if (
+        getattr(args, "training_eval_enabled", True)
+        and initialize_best_state_callback is not None
+    ):
+        initialize_best_state_callback(best_state, checkpoint_dir)
+
+    run_training_epochs(
+        args=args,
+        cfg=cfg,
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        device=device,
+        writer=writer,
+        best_state=best_state,
+        checkpoint_dir=checkpoint_dir,
+        start_epoch=start_epoch,
+        end_epoch=end_epoch,
+        loss_mode=loss_mode,
+        include_detection_metrics_setting=include_detection_metrics_setting,
+        print_saved_checkpoints=print_saved_checkpoints,
+    )
+
     writer.close()
     if getattr(args, "training_eval_enabled", True):
-        save_global_best_checkpoint(
+        global_best_path, _ = save_global_best_checkpoint(
             best_state=best_state,
             checkpoint_dirs=checkpoint_dirs,
             checkpoint_key=checkpoint_key,
         )
+        if print_global_best and global_best_path is not None:
+            print(f"Current global best checkpoint: {global_best_path}")
     del model, optimizer, scheduler, train_loader, val_loader
     run_post_training_evaluation(
         checkpoint_root=checkpoint_dir,
@@ -540,6 +692,31 @@ def main(train_config=None, _experiment_queue_child=False):
         ),
     )
     return checkpoint_dir
+
+
+def main(train_config=None, _experiment_queue_child=False):
+    if train_config is None and len(sys.argv) > 1:
+        raise ValueError(
+            "Training reads settings from configs/training.py; "
+            "edit that configuration file instead of passing command-line arguments."
+        )
+
+    config = TRAIN_CONFIG if train_config is None else train_config
+    if (
+        not _experiment_queue_child
+        and bool(config.get("experiment_queue_enabled", False))
+    ):
+        return run_domain_shift_experiment_queue(
+            base_config=config,
+            train_function=lambda child_config: main(
+                child_config,
+                _experiment_queue_child=True,
+            ),
+        )
+
+    args = build_train_args(train_config=train_config)
+    return run_training(args)
+
 
 if __name__ == "__main__":
     main()

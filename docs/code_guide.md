@@ -150,7 +150,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [evaluation.py](../evaluation.py) | 27 | 独立评估命令入口；评估工作流在 eval/workflow.py。 | 保留主要入口；不继续复制工作流。 |
 | [legacy_module.py](../legacy_module.py) | 373 | 历史 RAD/RAE 编码器、固定框检测器及卷积组件；未发现当前源码直接导入。 | 暂保留；确认不需历史模型/检查点后再归档。 |
 | [train.py](../train.py) | 13 | 训练命令入口，调用 training_utils/runner.py，并导出 worker 使用的接口。 | 保留主要入口；不继续复制工作流。 |
-| [train_resume.py](../train_resume.py) | 714 | 断点续训入口；恢复模型、优化器、轮次和最佳指标状态。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
+| [train_resume.py](../train_resume.py) | — | 断点续训兼容入口；转发到 `training_utils/resume.py`。 | 保留现有命令和公开辅助函数。 |
 | [visualize.py](../visualize.py) | 1717 | 主检查点可视化器；重建 Cartesian 模型、解码预测，在 Polar/Cartesian 视图绘制 GT 与预测框，并显示或保存帧。 | 保留；后续和 eval 统一检查点解析/解码，先做输出对照。 |
 | [visualize_cfg.py](../visualize_cfg.py) | 40 | `visualize.py` 的配置，包括检查点、序列、阈值、坐标/视图模式和输出目录。 | 保留明确配置入口；后续统一机器路径，保持原默认值。 |
 
@@ -219,7 +219,8 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [training_utils/losses.py](../training_utils/losses.py) | 1379 | 实现 RADE-Net、CenterPoint、QFL、质量、GWD、忽略区域和 YOLOX 的目标生成与损失。 | 保留计算与接口；先按职责整理函数，再做有回归覆盖的提取。 |
 | [training_utils/other_helping_functions.py](../training_utils/other_helping_functions.py) | 421 | 设置随机种子、记录历史、解析最佳指标并管理候选/窗口/全局最佳检查点。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [training_utils/post_training_evaluation.py](../training_utils/post_training_evaluation.py) | 266 | 释放训练显存、选择评估 GPU，并在训练成功后启动独立评估。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [training_utils/runner.py](../training_utils/runner.py) | 545 | 实现根目录 `train.py` 命令使用的训练工作流。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
+| [training_utils/resume.py](../training_utils/resume.py) | — | 恢复模型、优化器/调度器、轮次、最佳指标及已有运行目录。 | 仅保留断点续训特有策略。 |
+| [training_utils/runner.py](../training_utils/runner.py) | — | 普通训练与断点续训共享的数据、模型、epoch 循环、检查点、TensorBoard 和收尾工作流。 | 两个入口的统一训练实现。 |
 | [training_utils/runtime.py](../training_utils/runtime.py) | 30 | 解析 GPU ID 并选择 CPU、单 GPU 或 DataParallel。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [training_utils/torch_load.py](../training_utils/torch_load.py) | 18 | 安全加载 PyTorch 检查点的兼容封装。 | 保留：多个调用方共享检查点加载兼容逻辑。 |
 | [training_utils/training_loop.py](../training_utils/training_loop.py) | 303 | 执行单个训练 epoch 和验证损失，并路由到不同模型损失。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
