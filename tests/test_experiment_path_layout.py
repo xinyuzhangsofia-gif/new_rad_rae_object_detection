@@ -7,14 +7,12 @@ import unittest
 from configs.domain_shift import EXPERIMENT_QUEUE_CONFIG
 from configs.experiment_paths import (
     DISTANCE_QUARTILE_EXPERIMENT_DIR,
-    DISTANCE_RANGE_EXPERIMENT_DIR,
     EXPERIMENTS_ROOT,
     PROJECT_ROOT,
     SOURCE_DROP_EXPERIMENT_DIR,
     TARGET_DROP_EXPERIMENT_DIR,
     resolve_recorded_experiment_path,
 )
-from scripts import evaluate_distance_experiments as distance_launcher
 from scripts import evaluate_quartile_experiments as quartile_launcher
 from scripts import evaluate_source_domain_experiments as source_launcher
 from training_utils.experiments.tables import (
@@ -32,10 +30,6 @@ class ExperimentPathLayoutTests(unittest.TestCase):
             EXPERIMENTS_ROOT / "target_drop",
         )
         self.assertEqual(
-            DISTANCE_RANGE_EXPERIMENT_DIR,
-            EXPERIMENTS_ROOT / "distance_ranges",
-        )
-        self.assertEqual(
             DISTANCE_QUARTILE_EXPERIMENT_DIR,
             EXPERIMENTS_ROOT / "distance_quartiles",
         )
@@ -45,7 +39,6 @@ class ExperimentPathLayoutTests(unittest.TestCase):
         )
         self.assertTrue(all(path.is_dir() for path in (
             TARGET_DROP_EXPERIMENT_DIR,
-            DISTANCE_RANGE_EXPERIMENT_DIR,
             DISTANCE_QUARTILE_EXPERIMENT_DIR,
             SOURCE_DROP_EXPERIMENT_DIR,
         )))
@@ -75,14 +68,6 @@ class ExperimentPathLayoutTests(unittest.TestCase):
         )
 
     def test_analysis_defaults_use_semantic_families(self):
-        self.assertEqual(
-            distance_launcher.SOURCE_EXPERIMENT_DIR,
-            TARGET_DROP_EXPERIMENT_DIR,
-        )
-        self.assertEqual(
-            distance_launcher.parse_args([]).output_dir,
-            DISTANCE_RANGE_EXPERIMENT_DIR,
-        )
         self.assertEqual(
             quartile_launcher.SOURCE_EXPERIMENT_DIR,
             TARGET_DROP_EXPERIMENT_DIR,

@@ -112,18 +112,8 @@ def main():
         print(f"Official IoU mode: {args.official_eval_iou_mode}")
         print(f"Official IoU backend: {args.official_eval_iou_backend}")
     print(
-        "Distance-range official AP@0.3: "
-        f"{'enabled' if args.distance_range_eval_enabled else 'disabled'}"
-    )
-    if args.distance_range_eval_enabled:
-        print(f"Distance ranges [lower, upper) metres: {args.distance_range_bins}")
-    print(
         "GT-distance-quartile official AP@0.3: "
         f"{'enabled' if args.distance_quartile_eval_enabled else 'disabled'}"
-    )
-    print(
-        f"Polar BEV AP: {'enabled' if args.polar_eval_enabled else 'disabled'}"
-        f" ({args.polar_geometry_source}, IoU={args.polar_iou_thresholds})"
     )
     print(f"AP score threshold: {args.ap_score_thresh}")
     print(f"Detection score threshold: {args.score_thresh}")
@@ -231,7 +221,6 @@ def main():
                 nuscenes_style_eval_enabled=(
                     args.nuscenes_style_eval_enabled
                 ),
-                loss_eval_enabled=False,
             )
             selection_results.append(result)
             write_evaluation_tensorboard_result(

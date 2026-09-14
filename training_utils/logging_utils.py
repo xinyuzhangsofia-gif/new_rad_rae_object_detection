@@ -27,12 +27,6 @@ def print_epoch_evaluation_summary(epoch, val_metrics, f1):
             f"fp={int(val_metrics.get('official_detection_fp', 0))}",
             f"fn={int(val_metrics.get('official_detection_fn', 0))}",
         )
-    if any(key.startswith("polar_") for key in val_metrics):
-        print(
-            "  polar:",
-            f"bev@0.3={val_metrics.get('polar_bev_mAP_0.3', 0.0):.4f}",
-            f"bev@0.5={val_metrics.get('polar_bev_mAP_0.5', 0.0):.4f}",
-        )
     if "coco_bev_mAP" in val_metrics:
         print(
             "  coco-style:",
@@ -122,8 +116,6 @@ def write_tensorboard_run_config(
         training_eval_detection_metrics_enabled=False,
         training_eval_ap_score_thresh=0.01,
         training_eval_score_thresh=0.3,
-        training_eval_polar_enabled=False,
-        training_eval_polar_iou_thresholds=None,
         training_eval_coco_style_enabled=False,
         training_eval_nuscenes_style_enabled=False,
         gt_object_ignore_override_path=None,
@@ -182,8 +174,6 @@ def write_tensorboard_run_config(
         f"training_eval_detection_metrics_enabled: {training_eval_detection_metrics_enabled}",
         f"training_eval_ap_score_thresh: {training_eval_ap_score_thresh}",
         f"training_eval_score_thresh: {training_eval_score_thresh}",
-        f"training_eval_polar_enabled: {training_eval_polar_enabled}",
-        f"training_eval_polar_iou_thresholds: {training_eval_polar_iou_thresholds}",
         f"training_eval_coco_style_enabled: {training_eval_coco_style_enabled}",
         f"training_eval_nuscenes_style_enabled: {training_eval_nuscenes_style_enabled}",
         f"gt_object_ignore_override_path: {gt_object_ignore_override_path}",
@@ -257,9 +247,5 @@ def write_tensorboard_metrics(writer, epoch, train_metrics, val_metrics, f1, lea
         value = val_metrics.get(key)
         if isinstance(value, (int, float)):
             writer.add_scalar(f"validation_metrics/{key}", value, epoch)
-    for key, value in val_metrics.items():
-        if key.startswith("polar_") and isinstance(value, (int, float)):
-            writer.add_scalar(f"validation_metrics/{key}", value, epoch)
-
     writer.add_scalar("parameters/learning_rate", learning_rate, epoch)
     writer.flush()

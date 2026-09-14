@@ -416,8 +416,6 @@ def apply_training_coordinate_mode(args):
             else "radenet_official"
         )
     args.training_eval_official_enabled = True
-    args.training_eval_polar_enabled = False
-
     return args
 
 

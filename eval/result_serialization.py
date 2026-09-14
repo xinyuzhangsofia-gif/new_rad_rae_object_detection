@@ -144,14 +144,6 @@ def collect_method_summary(result):
             "mASE": result.get("nuscenes_mASE"),
             "mAOE": result.get("nuscenes_mAOE"),
         }
-    if "polar_bev_mAP" in result:
-        summary["polar_bev"] = {
-            "iou_thresholds": result.get("polar_iou_thresholds"),
-            "mAP": result.get("polar_bev_mAP"),
-            "AP_0.3": result.get("polar_bev_mAP_0.3"),
-            "AP_0.5": result.get("polar_bev_mAP_0.5"),
-            "num_gt": result.get("polar_bev_num_gt"),
-        }
     return summary
 
 
@@ -223,10 +215,6 @@ def print_checkpoint_metrics(epoch, metrics):
         parts.append(
             f"3d@{suffix}={official_ap_text(metrics.get(f'official_3d_mAP_{suffix}'))}"
         )
-    for metric_key, metric_label in distance_range_metric_specs([metrics]):
-        parts.append(
-            f"{metric_label}={official_ap_text(metrics.get(metric_key))}"
-        )
     for metric_key, metric_label in distance_quartile_metric_specs([metrics]):
         parts.append(
             f"{metric_label}={official_ap_text(metrics.get(metric_key))}"
@@ -285,18 +273,6 @@ def print_checkpoint_metrics(epoch, metrics):
             f"mATE={metric_text(metrics.get('nuscenes_mATE'))} "
             f"mASE={metric_text(metrics.get('nuscenes_mASE'))} "
             f"mAOE={metric_text(metrics.get('nuscenes_mAOE'))}"
-        )
-    if "polar_bev_mAP" in metrics:
-        threshold_text = ", ".join(
-            f"{float(value):.2f}" for value in metrics.get("polar_iou_thresholds", [])
-        )
-        print(
-            f"  polar-bev-ap "
-            f"iou=[{threshold_text}] "
-            f"mAP={official_ap_text(metrics.get('polar_bev_mAP'))} "
-            f"bev@0.3={official_ap_text(metrics.get('polar_bev_mAP_0.3'))} "
-            f"bev@0.5={official_ap_text(metrics.get('polar_bev_mAP_0.5'))} "
-            f"gt={int(metrics.get('polar_bev_num_gt', 0))}"
         )
 
 
@@ -376,48 +352,6 @@ def format_custom_iou_range_text(thresholds):
     return f"iou=[{threshold_text}]"
 
 
-def distance_range_metric_specs(rows):
-    """Return ordered distance-bin metric keys and parse-safe labels."""
-    tags = []
-    for row in rows:
-        for distance_range in row.get("distance_range_bins", []):
-            if not isinstance(distance_range, dict):
-                continue
-            tag = distance_range.get("tag")
-            if tag not in (None, "") and str(tag) not in tags:
-                tags.append(str(tag))
-        for metric_key in row:
-            match = re.fullmatch(
-                r"official_(?:bev|3d)_mAP_0\.3_range_(.+)",
-                str(metric_key),
-            )
-            if match is not None and match.group(1) not in tags:
-                tags.append(match.group(1))
-
-    def tag_sort_key(tag):
-        match = re.fullmatch(
-            r"(\d+(?:p\d+)?)_(\d+(?:p\d+)?)m",
-            str(tag),
-        )
-        if match is None:
-            return (float("inf"), float("inf"), str(tag))
-        return (
-            float(match.group(1).replace("p", ".")),
-            float(match.group(2).replace("p", ".")),
-            str(tag),
-        )
-
-    metric_specs = []
-    for tag in sorted(tags, key=tag_sort_key):
-        for geometry in ("bev", "3d"):
-            metric_key = f"official_{geometry}_mAP_0.3_range_{tag}"
-            if any(metric_key in row for row in rows):
-                metric_specs.append(
-                    (metric_key, f"{geometry}@0.3_range_{tag}")
-                )
-    return tuple(metric_specs)
-
-
 def distance_quartile_metric_specs(rows):
     """Return ordered quartile AP@0.3 keys and parse-safe report labels."""
     tags = []
@@ -472,24 +406,6 @@ def format_eval_table(rows, metric_group="all"):
         return ""
 
     columns = [("epoch", "epoch", 5, "int")]
-    if metric_group in {"all", "core"} and any("val_loss" in row for row in rows):
-        columns.extend(
-            [
-                ("val_loss", "val_loss", 10, "float"),
-                ("val_box", "val_box_loss", 10, "float"),
-                ("val_cls", "val_cls_loss", 10, "float"),
-            ]
-        )
-        if any("val_heatmap_loss" in row for row in rows):
-            columns.append(("val_hm", "val_heatmap_loss", 10, "float"))
-        if any("val_quality_loss" in row for row in rows):
-            columns.append(("val_q", "val_quality_loss", 10, "float"))
-        if any("val_obj_loss" in row for row in rows):
-            columns.append(("val_obj", "val_obj_loss", 10, "float"))
-        if any("val_l1_loss" in row for row in rows):
-            columns.append(("val_l1", "val_l1_loss", 10, "float"))
-        if any("val_gwd_loss" in row for row in rows):
-            columns.append(("val_gwd", "val_gwd_loss", 10, "float"))
     if (
         metric_group in {"all", "core"}
         and any("official_bev_mAP_0.3" in row for row in rows)
@@ -501,10 +417,6 @@ def format_eval_table(rows, metric_group="all"):
             ("3d@0.5", "official_3d_mAP_0.5", 9, "float"),
         ])
     if metric_group in {"all", "core"}:
-        for metric_key, metric_label in distance_range_metric_specs(rows):
-            columns.append(
-                (metric_label, metric_key, max(12, len(metric_label)), "float")
-            )
         for metric_key, metric_label in distance_quartile_metric_specs(rows):
             columns.append(
                 (metric_label, metric_key, max(12, len(metric_label)), "float")
@@ -518,16 +430,6 @@ def format_eval_table(rows, metric_group="all"):
             ("r", "official_detection_recall", 8, "float"),
             ("f1", "official_detection_f1", 8, "float"),
         ])
-    if (
-        metric_group in {"all", "core"}
-        and any("polar_bev_mAP_0.3" in row for row in rows)
-    ):
-        columns.extend(
-            [
-                ("pbev@0.3", "polar_bev_mAP_0.3", 10, "float"),
-                ("pbev@0.5", "polar_bev_mAP_0.5", 10, "float"),
-            ]
-        )
     if (
         metric_group in {"all", "core"}
         and any("eval_ignore_suppressed_predictions" in row for row in rows)
@@ -603,12 +505,6 @@ def format_best_epoch_summary(rows):
             ("custom_iou_bev_mAP", "custom_bev_mAP"),
             ("custom_iou_3d_mAP", "custom_3d_mAP"),
         )
-    if any("polar_bev_mAP" in row for row in rows):
-        summary_specs = summary_specs + (
-            ("polar_bev_mAP_0.3", "pbev@0.3"),
-            ("polar_bev_mAP_0.5", "pbev@0.5"),
-            ("polar_bev_mAP", "polar_bev_mAP"),
-        )
     for metric_key, metric_label in summary_specs:
         best_row = select_best_result_by_metric(rows, metric_key)
         if best_row is None:
@@ -645,8 +541,6 @@ def format_epoch_range_average_ap_summary(
         ("official_bev_mAP_0.5", "bev@0.5"),
         ("official_3d_mAP_0.3", "3d@0.3"),
         ("official_3d_mAP_0.5", "3d@0.5"),
-        ("polar_bev_mAP_0.3", "pbev@0.3"),
-        ("polar_bev_mAP_0.5", "pbev@0.5"),
         ("custom_iou_bev_mAP", "c_bev_mAP"),
         ("custom_iou_3d_mAP", "c_3d_mAP"),
         ("nuscenes_mAP", "n_mAP"),
@@ -654,8 +548,6 @@ def format_epoch_range_average_ap_summary(
         ("nuscenes_AP_1.0m", "n@1m"),
         ("nuscenes_AP_2.0m", "n@2m"),
         ("nuscenes_AP_4.0m", "n@4m"),
-    ) + distance_range_metric_specs(
-        selected_rows
     ) + distance_quartile_metric_specs(selected_rows)
     average_parts = []
     for metric_key, metric_label in metric_specs:

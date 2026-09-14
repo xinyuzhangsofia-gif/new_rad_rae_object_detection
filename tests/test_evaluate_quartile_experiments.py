@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from scripts import evaluate_quartile_experiments as launcher
-from tests.test_evaluate_distance_experiments import temporary_checkpoint_records
+from tests.experiment_analysis_fixtures import temporary_checkpoint_records
 
 
 def quartile_metadata(counts=(25, 25, 25, 25)):
@@ -190,7 +190,6 @@ class QuartileExperimentLauncherTests(unittest.TestCase):
             )
         command_text = " ".join(command)
         self.assertIn("--start-epoch 5 --end-epoch 24", command_text)
-        self.assertIn("--distance-range-eval-enabled false", command_text)
         self.assertIn("--distance-quartile-eval-enabled true", command_text)
         self.assertIn("--official-eval-iou-backend cuda", command_text)
 

@@ -5,9 +5,7 @@ import torch
 
 from data.coordinates import RANGE_AXIS
 from configs.coordinates import resolve_evaluation_coordinate_mode
-from eval.polar_ap import compute_polar_ap_metrics
 from evaluation import (
-    attach_evaluation_main_metric,
     cartesian_rotated_nms_indices,
     outputs_to_detections,
 )
@@ -29,80 +27,21 @@ from data.geometry import (
 
 class CoordinateModeTests(unittest.TestCase):
     def test_standalone_auto_uses_only_the_checkpoint_direct_geometry(self):
-        polar = resolve_evaluation_coordinate_mode("auto", "polar")
-        self.assertEqual(polar["effective_mode"], "polar")
-        self.assertFalse(polar["official_eval_enabled"])
-        self.assertTrue(polar["polar_eval_enabled"])
-        self.assertEqual(polar["polar_geometry_source"], "direct")
-
         cartesian = resolve_evaluation_coordinate_mode("auto", "cartesian")
         self.assertEqual(cartesian["effective_mode"], "cartesian")
         self.assertTrue(cartesian["official_eval_enabled"])
-        self.assertFalse(cartesian["polar_eval_enabled"])
         self.assertEqual(cartesian["official_geometry_source"], "direct")
 
-    def test_standalone_both_keeps_checkpoint_geometry_as_primary(self):
-        settings = resolve_evaluation_coordinate_mode("both", "polar")
-        self.assertTrue(settings["official_eval_enabled"])
-        self.assertTrue(settings["polar_eval_enabled"])
-        self.assertEqual(settings["primary_geometry"], "polar")
-        self.assertEqual(
-            settings["official_geometry_source"],
-            "converted_auxiliary",
-        )
-
-    def test_explicit_mismatched_eval_geometry_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "does not match"):
-            resolve_evaluation_coordinate_mode("cartesian", "polar")
-
-    def test_polar_direct_metric_becomes_the_evaluation_main_metric(self):
-        metrics = {
-            "polar_bev_mAP": 35.0,
-            "polar_bev_mAP_0.3": 42.0,
-        }
-        attach_evaluation_main_metric(metrics, primary_geometry="polar")
-        self.assertEqual(
-            metrics["evaluation_main_metric_key"],
-            "polar_bev_mAP_0.3",
-        )
-        self.assertEqual(metrics["evaluation_main_metric_value"], 42.0)
-        self.assertEqual(metrics["mAP"], 42.0)
-
-    def test_polar_ap_uses_kradar_r40_sampling_and_percent_units(self):
-        centers = torch.arange(41, dtype=torch.float32) * 10.0
-        boxes = torch.stack(
-            [
-                centers,
-                torch.zeros_like(centers),
-                torch.zeros_like(centers),
-                torch.ones_like(centers),
-                torch.ones_like(centers),
-                torch.ones_like(centers),
-                torch.zeros_like(centers),
-            ],
-            dim=-1,
-        ).numpy()
-        metrics = compute_polar_ap_metrics(
-            polar_frames=[{
-                "gt_boxes": boxes,
-                "gt_labels": torch.zeros(41, dtype=torch.long).numpy(),
-                "dt_boxes": boxes.copy(),
-                "dt_labels": torch.zeros(41, dtype=torch.long).numpy(),
-                "dt_scores": torch.linspace(1.0, 0.5, 41).numpy(),
-            }],
-            class_ids=[0],
-            class_name_map={0: "sed"},
-            iou_thresholds=[0.3, 0.5],
-        )
-        self.assertEqual(metrics["polar_recall_points"], 41)
-        self.assertAlmostEqual(metrics["polar_bev_mAP_0.3"], 100.0)
-        self.assertAlmostEqual(metrics["polar_bev_mAP_0.5"], 100.0)
+    def test_standalone_rejects_retired_polar_metric_modes(self):
+        for mode, box_mode in (("both", "cartesian"), ("auto", "polar")):
+            with self.subTest(mode=mode, box_mode=box_mode):
+                with self.assertRaises(ValueError):
+                    resolve_evaluation_coordinate_mode(mode, box_mode)
 
     def test_training_rejects_polar_and_routes_cartesian_evaluation(self):
         polar_args = SimpleNamespace(
             box_coordinate_mode="polar",
             cartesian_gt_root=None,
-            training_eval_polar_iou_thresholds=(0.3, 0.5),
             model_type="model7",
             training_eval_best_metric_key="auto",
         )
@@ -112,13 +51,11 @@ class CoordinateModeTests(unittest.TestCase):
         cartesian_args = SimpleNamespace(
             box_coordinate_mode="cartesian",
             cartesian_gt_root="/labels",
-            training_eval_polar_iou_thresholds=(0.3, 0.5),
             model_type="model7",
             training_eval_best_metric_key="auto",
         )
         apply_training_coordinate_mode(cartesian_args)
         self.assertTrue(cartesian_args.training_eval_official_enabled)
-        self.assertFalse(cartesian_args.training_eval_polar_enabled)
         self.assertEqual(cartesian_args.configured_model_type, "model7")
         self.assertEqual(cartesian_args.model_type, "model7")
         self.assertEqual(
@@ -141,7 +78,6 @@ class CoordinateModeTests(unittest.TestCase):
             args = SimpleNamespace(
                 box_coordinate_mode="cartesian",
                 cartesian_gt_root="/labels",
-                training_eval_polar_iou_thresholds=(0.3, 0.5),
                 model_type="model7",
                 loss_mode=requested_mode,
                 training_eval_best_metric_key="auto",

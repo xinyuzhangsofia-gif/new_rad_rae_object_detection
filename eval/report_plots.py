@@ -69,11 +69,6 @@ def build_plot_metadata(args, model_variant_name, source_metadata):
         "group_checkpoint_plot_best_only": bool(args.group_checkpoint_plot_best_only),
         "custom_iou_range_eval_enabled": bool(args.custom_iou_range_eval_enabled),
         "custom_iou_thresholds": [float(value) for value in args.custom_iou_thresholds],
-        "distance_range_eval_enabled": bool(args.distance_range_eval_enabled),
-        "distance_range_bins": [
-            [float(lower_m), float(upper_m)]
-            for lower_m, upper_m in args.distance_range_bins
-        ],
         "distance_quartile_eval_enabled": bool(
             getattr(args, "distance_quartile_eval_enabled", False)
         ),
@@ -84,9 +79,6 @@ def build_plot_metadata(args, model_variant_name, source_metadata):
         "nuscenes_style_eval_enabled": bool(args.nuscenes_style_eval_enabled),
         "official_eval_enabled": bool(args.official_eval_enabled),
         "official_geometry_source": str(args.official_geometry_source),
-        "polar_eval_enabled": bool(args.polar_eval_enabled),
-        "polar_geometry_source": str(args.polar_geometry_source),
-        "polar_iou_thresholds": [float(value) for value in args.polar_iou_thresholds],
     }
 
 
@@ -110,7 +102,6 @@ def metric_class_names_for_result(result):
         "custom_iou_detection_per_class",
         "coco_per_class",
         "nuscenes_per_class",
-        "polar_per_class",
     ):
         values = result.get(key)
         if isinstance(values, dict) and len(values) > 0:
@@ -235,9 +226,6 @@ def build_official_plot_section(results, iou_suffixes, multi_epoch):
     columns = ["Object"]
     for iou_suffix in iou_suffixes:
         columns.extend([f"BEV AP@{iou_suffix}", f"3D AP@{iou_suffix}"])
-    include_polar = any("polar_bev_mAP_0.3" in result for result in results)
-    if include_polar:
-        columns.extend(["Polar AP@0.3", "Polar AP@0.5"])
     include_detection_metrics = any(
         isinstance(result.get("official_detection_precision"), (int, float))
         for result in results
@@ -254,11 +242,6 @@ def build_official_plot_section(results, iou_suffixes, multi_epoch):
             row.extend([
                 official_ap_text(result.get(f"official_bev_mAP_{iou_suffix}")),
                 official_ap_text(result.get(f"official_3d_mAP_{iou_suffix}")),
-            ])
-        if include_polar:
-            row.extend([
-                official_ap_text(result.get("polar_bev_mAP_0.3")),
-                official_ap_text(result.get("polar_bev_mAP_0.5")),
             ])
         if include_detection_metrics:
             for _, result_key, value_type in detection_table_columns():
@@ -284,11 +267,6 @@ def build_official_plot_section(results, iou_suffixes, multi_epoch):
                     official_ap_text(result.get(f"official_{class_name}_bev_AP_{iou_suffix}")),
                     official_ap_text(result.get(f"official_{class_name}_3d_AP_{iou_suffix}")),
                 ])
-            if include_polar:
-                row.extend([
-                    official_ap_text(result.get(f"polar_{class_name}_bev_AP_0.3")),
-                    official_ap_text(result.get(f"polar_{class_name}_bev_AP_0.5")),
-                ])
             if include_detection_metrics:
                 for label, _, value_type in detection_table_columns():
                     class_value = class_stats.get(label.lower())
@@ -305,11 +283,7 @@ def build_official_plot_section(results, iou_suffixes, multi_epoch):
             stripe_index += 1
 
     return {
-        "title": (
-            "Official K-Radar"
-            if len(iou_suffixes) > 0
-            else "Polar BEV"
-        ),
+        "title": "Official K-Radar",
         "columns": columns,
         "rows": rows,
         "row_meta": row_meta,
@@ -717,5 +691,4 @@ def save_evaluation_plot(results, plot_output_path, plot_metadata=None):
 
     fig.savefig(plot_output_path, dpi=200, bbox_inches="tight", pad_inches=0.12)
     plt.close(fig)
-
 

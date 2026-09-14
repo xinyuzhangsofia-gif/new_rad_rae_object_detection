@@ -374,12 +374,6 @@ def write_training_run_config(
         training_eval_score_thresh=getattr(
             args, "training_eval_score_thresh", 0.3
         ),
-        training_eval_polar_enabled=getattr(
-            args, "training_eval_polar_enabled", False
-        ),
-        training_eval_polar_iou_thresholds=getattr(
-            args, "training_eval_polar_iou_thresholds", None
-        ),
         training_eval_coco_style_enabled=getattr(
             args, "training_eval_coco_style_enabled", False
         ),
@@ -443,14 +437,6 @@ def _training_evaluation_kwargs(args, include_detection_metrics_setting):
         ),
         "detection_score_thresh": getattr(
             args, "training_eval_score_thresh", 0.3
-        ),
-        "polar_eval_enabled": getattr(
-            args, "training_eval_polar_enabled", False
-        ),
-        "polar_iou_thresholds": getattr(
-            args,
-            "training_eval_polar_iou_thresholds",
-            (0.3, 0.5),
         ),
         "box_coordinate_mode": args.box_coordinate_mode,
     }

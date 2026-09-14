@@ -39,9 +39,6 @@ EVAL_CONFIG = {
     "group_checkpoint_plot_best_only": True,
     "custom_iou_range_eval_enabled": False,  # skip per-epoch custom IoU AP
     "custom_iou_thresholds": "0.30:0.05:0.50",
-    # Opt in with the CLI for distance-stratified official AP@0.3.
-    "distance_range_eval_enabled": False,
-    "distance_range_bins": "0-30,30-60,60-90,90-120",
     # Opt in with --distance-quartile-eval-enabled true. Quartile boundaries
     # are derived from eligible evaluation GT centers for every checkpoint.
     "distance_quartile_eval_enabled": False,
@@ -49,8 +46,6 @@ EVAL_CONFIG = {
     "heatmap_score_mode": "peak_times_local_mean",  # peak_times_local_mean or peak_only
     "ap_score_thresh": 0.01,  # boxes below this are dropped before AP/mAP evaluation
     "score_thresh": 0.3,  # only for TP/FP/FN/Precision/Recall/F1 summary, not for AP/mAP ranking
-    "loss_eval_enabled": False,      # skip the extra val/test-loss data pass
-    "quality_loss_weight": 0.25,  # only model6 has the separate quality head; inactive for model7
     "ignore_mask_margin": 1.0,
     "ignore_mask_expand_ratio": 1.0,
     "eval_ignore_suppress_enabled": False,

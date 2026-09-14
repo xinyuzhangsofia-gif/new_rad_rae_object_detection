@@ -33,7 +33,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts import evaluate_distance_experiments as distance_launcher
 from scripts import evaluate_quartile_experiments as quartile_launcher
 from scripts.experiment_analysis import discovery as analysis_discovery
 from scripts.experiment_analysis import execution as analysis_execution
@@ -41,7 +40,6 @@ from scripts.experiment_analysis import results as analysis_results
 from scripts.experiment_analysis import state as analysis_state
 from configs.experiment_paths import (
     DISTANCE_QUARTILE_EXPERIMENT_DIR,
-    DISTANCE_RANGE_EXPERIMENT_DIR,
     SOURCE_DROP_EXPERIMENT_DIR,
     TARGET_DROP_EXPERIMENT_DIR,
     resolve_recorded_experiment_path,
@@ -53,7 +51,7 @@ DEFAULT_DISTANCE_QUARTILES_DIR = DISTANCE_QUARTILE_EXPERIMENT_DIR
 DEFAULT_OUTPUT_DIR = SOURCE_DROP_EXPERIMENT_DIR
 WEATHERS = ("heavy_snow", "light_snow", "overcast", "rain", "sleet")
 QUARTILES = ("q1", "q2", "q3", "q4")
-METADATA_HEADERS = distance_launcher.METADATA_HEADERS
+METADATA_HEADERS = analysis_discovery.METADATA_HEADERS
 EXPECTED_DISTANCE_QUARTILE_TASKS = 54
 EXPECTED_SD_TASKS = 80
 EXPECTED_SD_TASKS_BY_WEATHER = {
@@ -131,7 +129,6 @@ def parse_args(argv=None):
 
     protected = {
         SOURCE_EXPERIMENT_DIR.resolve(),
-        DISTANCE_RANGE_EXPERIMENT_DIR.resolve(),
         args.distance_quartiles_dir,
     }
     if args.output_dir in protected:
@@ -195,7 +192,10 @@ def row_identity(row):
 def load_completed_source_checkpoint_records(weather, experiment_rows):
     """Resolve one completed source branch without requiring target completion."""
     return analysis_discovery.load_completed_checkpoint_records(
-        state_path=distance_launcher.queue_state_path(weather),
+        state_path=analysis_discovery.queue_state_path(
+            SOURCE_EXPERIMENT_DIR,
+            weather,
+        ),
         experiment_rows=experiment_rows,
         branches=("source",),
         weather=weather,
@@ -885,7 +885,6 @@ def build_weather_reference_command(task, args):
             "--eval-report-path", task["report_path"],
         ),
         analysis_arguments=(
-            "--distance-range-eval-enabled", "false",
             "--distance-quartile-eval-enabled", "true",
         ),
         python_executable=sys.executable,
@@ -1246,7 +1245,6 @@ def build_evaluation_command(task, args):
             "--eval-report-path", task["report_path"],
         ),
         analysis_arguments=(
-            "--distance-range-eval-enabled", "false",
             "--distance-quartile-eval-enabled", "true",
             "--distance-quartile-bins", _fixed_bins_cli_text(task),
         ),
@@ -1809,7 +1807,10 @@ def main(argv=None):
                 + "; ".join(completion_errors[:10])
             )
 
-        distance_launcher.validate_physical_gpus(args.gpus)
+        analysis_execution.validate_physical_gpus(
+            args.gpus,
+            run=subprocess.run,
+        )
         if not run_weather_reference_queue(
             args, reference_state_path, reference_state
         ):

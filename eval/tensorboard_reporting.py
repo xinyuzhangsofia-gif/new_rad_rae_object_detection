@@ -40,18 +40,10 @@ def create_evaluation_tensorboard_writer(args, model_variant_name, source_metada
         "score_thresh": float(args.score_thresh),
         "custom_iou_range_eval_enabled": bool(args.custom_iou_range_eval_enabled),
         "custom_iou_thresholds": [float(value) for value in args.custom_iou_thresholds],
-        "distance_range_eval_enabled": bool(args.distance_range_eval_enabled),
-        "distance_range_bins": [
-            [float(lower_m), float(upper_m)]
-            for lower_m, upper_m in args.distance_range_bins
-        ],
         "distance_quartile_eval_enabled": bool(
             getattr(args, "distance_quartile_eval_enabled", False)
         ),
         "group_checkpoint_plot_best_only": bool(args.group_checkpoint_plot_best_only),
-        "polar_eval_enabled": bool(args.polar_eval_enabled),
-        "polar_geometry_source": args.polar_geometry_source,
-        "polar_iou_thresholds": [float(value) for value in args.polar_iou_thresholds],
     }
     writer.add_text(
         "run/config",
@@ -72,10 +64,7 @@ def write_evaluation_tensorboard_result(writer, result, namespace="evaluation"):
         "custom_iou_",
         "coco_",
         "nuscenes_",
-        "polar_",
-        "distance_range_",
         "distance_quartile_",
-        "val_",
     )
     epoch = int(result["epoch"])
     for key, value in result.items():
@@ -85,5 +74,4 @@ def write_evaluation_tensorboard_result(writer, result, namespace="evaluation"):
             continue
         writer.add_scalar(f"{namespace}/metrics/{key}", float(value), epoch)
     writer.flush()
-
 

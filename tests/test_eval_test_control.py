@@ -421,7 +421,6 @@ class FixedQuartileConfigurationTests(unittest.TestCase):
                 ),
                 "neutral_gt_labels": np.array([0]),
             }],
-            "polar_frames": [],
         }
         fixed = "0-10,10-20,20-30,30-inf"
         fake_metrics = {

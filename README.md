@@ -96,9 +96,9 @@ checkpoint coordinate flag does not convert the data. Shared statistics tools
 now read Cartesian labels, so their results may differ from old Polar-based
 summaries. Existing split/control manifests were not regenerated.
 
-RAD/RAE tensors, internal RAE grid conversions, polar-view rendering, and
-converted auxiliary metrics remain available. These are representations of
-radar data or Cartesian boxes, not a Polar-GT input branch.
+RAD/RAE tensors, internal RAE grid conversions, and polar-view rendering
+remain available. These are representations of radar data or Cartesian boxes,
+not a Polar-GT input branch or a Polar AP evaluator.
 
 ## Code layout
 
@@ -121,7 +121,7 @@ The experiment families use semantic directories:
 ```text
 experiments/
 ├── target_drop/         Primary weather Source-vs-Target / Target Drop tables
-├── distance_ranges/     Fixed 0–30/30–60/60–90/90–120 m evaluation
+├── distance_ranges/     Archived fixed-range result assets (evaluator removed)
 ├── distance_quartiles/  Equal-count GT-distance quartile analysis
 └── source_drop/         Controlled source-domain / Source Drop analysis
 ```

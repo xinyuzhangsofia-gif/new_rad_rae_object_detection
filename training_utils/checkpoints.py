@@ -523,16 +523,6 @@ def build_checkpoint_payload(
                 "training_eval_score_thresh",
                 0.3,
             ),
-            "training_eval_polar_enabled": getattr(
-                args,
-                "training_eval_polar_enabled",
-                False,
-            ),
-            "training_eval_polar_iou_thresholds": getattr(
-                args,
-                "training_eval_polar_iou_thresholds",
-                None,
-            ),
             "training_eval_coco_style_enabled": getattr(
                 args,
                 "training_eval_coco_style_enabled",

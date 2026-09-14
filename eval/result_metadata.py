@@ -75,8 +75,6 @@ def build_eval_table_metadata(
         ],
         "ap_score_thresh": args.ap_score_thresh,
         "score_thresh": args.score_thresh,
-        "distance_range_eval_enabled": args.distance_range_eval_enabled,
-        "distance_range_bins": args.distance_range_bins,
         "distance_quartile_eval_enabled": args.distance_quartile_eval_enabled,
         "distance_quartile_bins_mode": first_result.get(
             "distance_quartile_bins_mode"
@@ -173,4 +171,3 @@ def build_split_statistics_metadata(train_dataset, test_dataset):
             else 0.0
         ),
     }
-

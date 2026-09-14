@@ -26,25 +26,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts import evaluate_distance_experiments as distance_launcher
 from scripts.experiment_analysis import discovery as analysis_discovery
 from scripts.experiment_analysis import execution as analysis_execution
 from scripts.experiment_analysis import results as analysis_results
 from scripts.experiment_analysis import state as analysis_state
 from configs.experiment_paths import (
     DISTANCE_QUARTILE_EXPERIMENT_DIR,
-    DISTANCE_RANGE_EXPERIMENT_DIR,
     TARGET_DROP_EXPERIMENT_DIR,
 )
 
 
 SOURCE_EXPERIMENT_DIR = TARGET_DROP_EXPERIMENT_DIR
-PROTECTED_DISTANCE_OUTPUT_DIR = DISTANCE_RANGE_EXPERIMENT_DIR
 SOURCE_REPORT_ROOT = PROJECT_ROOT / "evaluation_plots"
 WEATHERS = ("rain", "sleet")
 QUARTILES = ("q1", "q2", "q3", "q4")
-METADATA_HEADERS = distance_launcher.METADATA_HEADERS
-BRANCHES = distance_launcher.BRANCHES
+METADATA_HEADERS = analysis_discovery.METADATA_HEADERS
+BRANCHES = ("source", "target")
 STATE_VERSION = 1
 
 
@@ -76,10 +73,7 @@ def parse_args(argv=None):
     )
     args = parser.parse_args(argv)
     args.output_dir = Path(args.output_dir).expanduser().resolve()
-    protected_output_dirs = {
-        SOURCE_EXPERIMENT_DIR.resolve(),
-        PROTECTED_DISTANCE_OUTPUT_DIR.resolve(),
-    }
+    protected_output_dirs = {SOURCE_EXPERIMENT_DIR.resolve()}
     if args.output_dir in protected_output_dirs:
         raise ValueError(
             "Refusing to overwrite a protected experiment directory: "
@@ -122,9 +116,30 @@ def row_identity(row):
     return analysis_discovery.row_identity(row)
 
 
+def queue_state_path(weather):
+    return analysis_discovery.queue_state_path(SOURCE_EXPERIMENT_DIR, weather)
+
+
+def load_canonical_checkpoint_records(weather, experiment_rows):
+    return analysis_discovery.load_completed_checkpoint_records(
+        state_path=queue_state_path(weather),
+        experiment_rows=experiment_rows,
+        branches=BRANCHES,
+        weather=weather,
+    )
+
+
 def discover_tasks(all_rows, output_dir):
     """Discover the same 54 branches under the quartile output root."""
-    return distance_launcher.discover_tasks(all_rows, output_dir)
+    return analysis_discovery.discover_paired_branch_tasks(
+        all_rows=all_rows,
+        output_dir=output_dir,
+        weathers=WEATHERS,
+        branches=BRANCHES,
+        load_records=load_canonical_checkpoint_records,
+        source_report_root=SOURCE_REPORT_ROOT,
+        expected_count=54,
+    )
 
 
 def atomic_write_text(path, text):
@@ -536,7 +551,27 @@ def build_table_matrix(weather, experiment_rows, state):
 
 
 def format_table(matrix):
-    return distance_launcher.format_table(matrix)
+    widths = [
+        max(len(str(row[index])) for row in matrix)
+        for index in range(len(matrix[0]))
+    ]
+
+    def format_row(row, header=False):
+        cells = []
+        for index, value in enumerate(row):
+            value = str(value)
+            left_aligned = header or index < len(METADATA_HEADERS)
+            cells.append(
+                f"{value:<{widths[index]}}"
+                if left_aligned
+                else f"{value:>{widths[index]}}"
+            )
+        return "  ".join(cells).rstrip()
+
+    header = format_row(matrix[0], header=True)
+    lines = [header, "-" * len(header)]
+    lines.extend(format_row(row) for row in matrix[1:])
+    return "\n".join(lines) + "\n"
 
 
 def write_tables(all_rows, state, output_dir):
@@ -570,7 +605,6 @@ def build_evaluation_command(task, args):
         tensorboard_log_dir=args.output_dir / "tensorboard",
         project_root=PROJECT_ROOT,
         analysis_arguments=(
-            "--distance-range-eval-enabled", "false",
             "--distance-quartile-eval-enabled", "true",
         ),
         python_executable=sys.executable,

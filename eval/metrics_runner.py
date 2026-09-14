@@ -6,7 +6,6 @@ import tqdm
 
 from data.coordinates import (
     SCOPE_FULL,
-    denormalize_rae_boxes_for_scope,
     denormalize_rae_boxes_to_local_scope,
 )
 from configs.coordinates import (
@@ -22,19 +21,12 @@ from eval.adapter import (
 )
 from eval.coco_style import compute_coco_style_metrics
 from eval.custom_iou_range import compute_custom_iou_range_metrics
-from eval.distance_ranges import (
-    distance_range_tag,
-    filter_kradar_eval_state_by_distance,
-    normalize_distance_ranges,
-)
 from eval.distance_quartiles import (
     derive_gt_distance_quartile_bins,
     filter_kradar_eval_state_by_quartile,
     normalize_distance_quartile_bins,
 )
 from eval.nuscenes_style import compute_nuscenes_style_metrics
-from eval.polar_ap import compute_polar_ap_metrics
-from data.geometry import metric_boxes_to_raw_local_rae
 
 from eval.decoding import (
     filter_predictions_to_scope,
@@ -58,7 +50,6 @@ def init_kradar_eval_state():
         "official_gt_annos": [],
         "official_dt_annos": [],
         "metric_frames": [],
-        "polar_frames": [],
     }
 
 
@@ -225,16 +216,6 @@ def append_frame_annos_for_kradar_eval(
             if neutral_metric_boxes_list is None
             else neutral_metric_boxes_list[batch_index].to(device)[valid_neutral]
         )
-        gt_polar_boxes = metric_boxes_to_raw_local_rae(
-            metric_boxes=gt_metric_boxes,
-            scope_mode=scope_mode,
-            full_rae_shape=full_rae_shape,
-        )
-        pred_polar_boxes = metric_boxes_to_raw_local_rae(
-            metric_boxes=pred_metric_boxes,
-            scope_mode=scope_mode,
-            full_rae_shape=full_rae_shape,
-        )
     else:
         gt_boxes_all = batch["gt_boxes"][batch_index].to(device)
         gt_boxes = gt_boxes_all[valid_gt]
@@ -255,16 +236,6 @@ def append_frame_annos_for_kradar_eval(
         )
         neutral_metric_boxes = normalized_rae_boxes_to_cartesian_metric_boxes(
             neutral_boxes,
-            scope_mode=scope_mode,
-            rae_shape=full_rae_shape,
-        )
-        gt_polar_boxes = denormalize_rae_boxes_for_scope(
-            boxes=gt_boxes,
-            scope_mode=scope_mode,
-            rae_shape=full_rae_shape,
-        )
-        pred_polar_boxes = denormalize_rae_boxes_for_scope(
-            boxes=frame_predictions["boxes"],
             scope_mode=scope_mode,
             rae_shape=full_rae_shape,
         )
@@ -301,15 +272,6 @@ def append_frame_annos_for_kradar_eval(
             "dt_scores": frame_predictions["scores"].detach().cpu().numpy(),
             "neutral_gt_boxes": neutral_metric_boxes.detach().cpu().numpy(),
             "neutral_gt_labels": neutral_labels.detach().cpu().numpy(),
-        }
-    )
-    state["polar_frames"].append(
-        {
-            "gt_boxes": gt_polar_boxes.detach().cpu().numpy(),
-            "gt_labels": gt_labels.detach().cpu().numpy(),
-            "dt_boxes": pred_polar_boxes.detach().cpu().numpy(),
-            "dt_labels": frame_predictions["labels"].detach().cpu().numpy(),
-            "dt_scores": frame_predictions["scores"].detach().cpu().numpy(),
         }
     )
 
@@ -406,10 +368,6 @@ def run_kradar_eval_revised(
         detection_score_thresh=0.3,
         official_eval_class_ids=None,
         official_class_name_map=None,
-        polar_eval_enabled=False,
-        polar_iou_thresholds=None,
-        distance_range_eval_enabled=False,
-        distance_range_bins=None,
         distance_quartile_eval_enabled=False,
         distance_quartile_bins=None,
     ):
@@ -418,36 +376,26 @@ def run_kradar_eval_revised(
             f"evaluation.py only supports K-Radar revised evaluation, got {official_eval_version!r}."
         )
 
-    frame_count = max(
-        len(kradar_eval_state["official_gt_annos"]),
-        len(kradar_eval_state.get("polar_frames", [])),
-    )
+    frame_count = len(kradar_eval_state["official_gt_annos"])
     print(
         "Finished model inference. "
         f"Collected {frame_count} eval frames. "
         "Running selected metrics now...",
         flush=True,
     )
-    if (
-        distance_range_eval_enabled or distance_quartile_eval_enabled
-    ) and not official_eval_enabled:
+    if distance_quartile_eval_enabled and not official_eval_enabled:
         raise ValueError(
-            "Distance range/quartile evaluation requires official Cartesian "
+            "Distance quartile evaluation requires official Cartesian "
             "evaluation."
         )
 
-    normalized_distance_ranges = ()
     shared_official_eval_fn = None
     shared_official_iou_backend_used = None
-    if distance_range_eval_enabled:
-        normalized_distance_ranges = normalize_distance_ranges(
-            distance_range_bins
-        )
-    if distance_range_eval_enabled or distance_quartile_eval_enabled:
+    if distance_quartile_eval_enabled:
         metric_frame_count = len(kradar_eval_state.get("metric_frames", []))
         if metric_frame_count != len(kradar_eval_state["official_gt_annos"]):
             raise ValueError(
-                "Distance-range evaluation requires one Cartesian metric frame "
+                "Distance-quartile evaluation requires one Cartesian metric frame "
                 "for every official annotation frame, got "
                 f"{metric_frame_count} metric frames and "
                 f"{len(kradar_eval_state['official_gt_annos'])} official frames."
@@ -481,58 +429,6 @@ def run_kradar_eval_revised(
         metrics.update(
             compute_official_kradar_style_metrics(**official_metric_kwargs)
         )
-    if distance_range_eval_enabled:
-        range_iou_mode = (
-            "all" if official_eval_iou_mode == "all" else "easy"
-        )
-        metrics["distance_range_eval_enabled"] = True
-        metrics["distance_range_bins"] = [
-            {
-                "lower_m": float(lower_m),
-                "upper_m": float(upper_m),
-                "tag": distance_range_tag(lower_m, upper_m),
-            }
-            for lower_m, upper_m in normalized_distance_ranges
-        ]
-        for lower_m, upper_m in normalized_distance_ranges:
-            range_tag = distance_range_tag(lower_m, upper_m)
-            range_state = filter_kradar_eval_state_by_distance(
-                state=kradar_eval_state,
-                lower_m=lower_m,
-                upper_m=upper_m,
-                official_class_name_map=official_class_name_map,
-            )
-            range_metrics = compute_official_kradar_style_metrics(
-                state=range_state,
-                official_eval_enabled=True,
-                official_eval_version="revised",
-                official_eval_iou_backend=official_eval_iou_backend,
-                official_eval_iou_mode=range_iou_mode,
-                official_detection_metrics_enabled=False,
-                detection_score_thresh=detection_score_thresh,
-                official_eval_class_ids=official_eval_class_ids,
-                official_class_name_map=official_class_name_map,
-                official_eval_fn=shared_official_eval_fn,
-                official_iou_backend_used=shared_official_iou_backend_used,
-            )
-            for geometry in ("bev", "3d"):
-                source_key = f"official_{geometry}_mAP_0.3"
-                if source_key not in range_metrics:
-                    raise RuntimeError(
-                        "Official distance-range evaluation did not return "
-                        f"the required metric {source_key!r}."
-                    )
-                metrics[
-                    f"official_{geometry}_mAP_0.3_range_{range_tag}"
-                ] = float(range_metrics[source_key])
-            metrics[f"distance_range_num_gt_{range_tag}"] = sum(
-                int(frame["gt_boxes"].shape[0])
-                for frame in range_state["metric_frames"]
-            )
-            metrics[f"distance_range_num_detections_{range_tag}"] = sum(
-                int(frame["dt_boxes"].shape[0])
-                for frame in range_state["metric_frames"]
-            )
     if distance_quartile_eval_enabled:
         fixed_quartile_bins = normalize_distance_quartile_bins(
             distance_quartile_bins
@@ -623,23 +519,13 @@ def run_kradar_eval_revised(
                 class_name_map=official_class_name_map,
             )
         )
-    if polar_eval_enabled:
-        metrics.update(
-            compute_polar_ap_metrics(
-                polar_frames=kradar_eval_state.get("polar_frames", []),
-                class_ids=official_eval_class_ids,
-                class_name_map=official_class_name_map,
-                iou_thresholds=polar_iou_thresholds,
-            )
-        )
     metrics["evaluation_num_eval_frames"] = int(frame_count)
     print("Metric computation finished.", flush=True)
-    if official_eval_enabled:
-        metrics["mAP"] = float(
-            metrics.get("official_main_metric_value", 0.0)
-        )
-    else:
-        metrics["mAP"] = float(metrics.get("polar_bev_mAP", 0.0))
+    metrics["mAP"] = float(
+        metrics.get("official_main_metric_value", 0.0)
+        if official_eval_enabled
+        else 0.0
+    )
     return metrics
 
 
@@ -670,23 +556,17 @@ def evaluate_checkpoint_with_kradar_revised(
         eval_ignore_suppress_enabled=False,
         eval_ignore_expand_ratio=1.5,
         eval_ignore_suppress_margin=1.0,
-        polar_eval_enabled=False,
-        polar_iou_thresholds=None,
         box_coordinate_mode=BOX_COORDINATE_POLAR,
-        distance_range_eval_enabled=False,
-        distance_range_bins=None,
         distance_quartile_eval_enabled=False,
         distance_quartile_bins=None,
     ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
-    if (
-        distance_range_eval_enabled or distance_quartile_eval_enabled
-    ) and not official_eval_enabled:
+    if distance_quartile_eval_enabled and not official_eval_enabled:
         raise ValueError(
-            "Distance range/quartile evaluation requires official Cartesian "
+            "Distance quartile evaluation requires official Cartesian "
             "evaluation."
         )
-    if not official_eval_enabled and not polar_eval_enabled:
+    if not official_eval_enabled:
         return {"mAP": 0.0}
 
     kradar_eval_state = collect_kradar_annos(
@@ -722,10 +602,6 @@ def evaluate_checkpoint_with_kradar_revised(
         detection_score_thresh=detection_score_thresh,
         official_eval_class_ids=sorted(official_class_name_map.keys()),
         official_class_name_map=official_class_name_map,
-        polar_eval_enabled=polar_eval_enabled,
-        polar_iou_thresholds=polar_iou_thresholds,
-        distance_range_eval_enabled=distance_range_eval_enabled,
-        distance_range_bins=distance_range_bins,
         distance_quartile_eval_enabled=distance_quartile_eval_enabled,
         distance_quartile_bins=distance_quartile_bins,
     )
@@ -764,8 +640,6 @@ def evaluate_train_val_iou(
         nuscenes_style_eval_enabled=False,
         ap_score_thresh=0.01,
         detection_score_thresh=0.3,
-        polar_eval_enabled=False,
-        polar_iou_thresholds=None,
         box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
     evaluation_kwargs = {
@@ -790,8 +664,6 @@ def evaluate_train_val_iou(
         "nuscenes_style_eval_enabled": nuscenes_style_eval_enabled,
         "ap_score_thresh": ap_score_thresh,
         "detection_score_thresh": detection_score_thresh,
-        "polar_eval_enabled": polar_eval_enabled,
-        "polar_iou_thresholds": polar_iou_thresholds,
         "box_coordinate_mode": box_coordinate_mode,
     }
     train_eval_metrics = None

@@ -157,8 +157,6 @@ class ReportingArchitectureTests(unittest.TestCase):
             include_bus_as_target=False,
             ap_score_thresh=0.01,
             score_thresh=0.3,
-            distance_range_eval_enabled=False,
-            distance_range_bins=(),
             distance_quartile_eval_enabled=True,
         )
         source_metadata = {
@@ -203,8 +201,7 @@ class ReportingArchitectureTests(unittest.TestCase):
             "box_coordinate_mode", "include_bus_as_target",
             "checkpoint_include_bus_as_target",
             "gt_object_ignore_override_path", "train_control_split_enabled",
-            "ap_score_thresh", "score_thresh", "distance_range_eval_enabled",
-            "distance_range_bins", "distance_quartile_eval_enabled",
+            "ap_score_thresh", "score_thresh", "distance_quartile_eval_enabled",
             "distance_quartile_bins_mode", "distance_quartile_bins",
             "group_checkpoint_plot_best_only", "train_frames",
         ))
@@ -428,13 +425,8 @@ class ReportingArchitectureTests(unittest.TestCase):
                 score_thresh=0.3,
                 custom_iou_range_eval_enabled=False,
                 custom_iou_thresholds=(0.3, 0.5),
-                distance_range_eval_enabled=False,
-                distance_range_bins=(),
                 distance_quartile_eval_enabled=True,
                 group_checkpoint_plot_best_only=False,
-                polar_eval_enabled=False,
-                polar_geometry_source="converted",
-                polar_iou_thresholds=(0.3,),
             )
             with mock.patch(
                 "eval.tensorboard_reporting.SummaryWriter",

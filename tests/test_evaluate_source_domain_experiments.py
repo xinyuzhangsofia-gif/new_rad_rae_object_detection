@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from scripts import evaluate_source_domain_experiments as launcher
-from tests.test_evaluate_distance_experiments import temporary_checkpoint_records
+from tests.experiment_analysis_fixtures import temporary_checkpoint_records
 
 
 def metric_blocks(bev, d3, normal_count=8, weather=False):
@@ -124,7 +124,8 @@ class SourceDomainLauncherTests(unittest.TestCase):
         }
         with temporary_checkpoint_records(rows) as root:
             quartile_rows = {
-                weather: rows[weather] for weather in launcher.distance_launcher.WEATHERS
+                weather: rows[weather]
+                for weather in launcher.quartile_launcher.WEATHERS
             }
             quartile_tasks = launcher.quartile_launcher.discover_tasks(
                 quartile_rows, root / "quartile"

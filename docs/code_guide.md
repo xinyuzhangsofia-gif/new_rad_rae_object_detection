@@ -124,7 +124,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 
 移除了 `scripts/build_polar_gt_from_cartesian.py` 以及 `tools/figures/plot_sedan_polar_{bbox_scatter,center_range_area,ra_center_scatter}.py` 三个旧图工具。`plot_sedan_cartesian_to_ra_center_area.py` 保留：其输入是 Cartesian，只把中心转换到 R-A 视图显示。此次删除的源码有清理前归档，磁盘数据集没有删除。
 
-Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距离分箱根据 Cartesian 中心推导，旧 Polar 统计不保证数值相同。已有控制清单未重生成。模型内部 RAE 网格、`eval_coordinate_mode="both"` 的转换辅助指标以及 Polar 雷达显示仍保留，不能将这些功能误认为 Polar 标签输入。
+Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距离分箱根据 Cartesian 中心推导，旧 Polar 统计不保证数值相同。已有控制清单未重生成。模型内部 RAE 网格和 Polar 雷达显示仍保留；Polar AP 与 `eval_coordinate_mode="both"` 已删除。
 
 当前支持的 Cartesian 训练组合是 Model7（CenterPoint / RADE-Net）、Model15、Model16。其余模型实现仍保留为历史结构；这次没有改造所有模型的检测头或损失。
 
@@ -170,9 +170,9 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 
 实验定义表、`split/` 与 `experiments/source_drop/control_specs/` 是复现输入，保留版本管理。队列状态/锁是运行状态，不随源代码提交；锁只应在 worker 已停止时删除。若本机存在与表同目录的未跟踪 state/lock，迁移仓库时也须随对应表移动。
 
-实验族统一位于一个语义目录：`experiments/target_drop/` 保存主天气 Target Drop 表，`experiments/distance_ranges/` 保存固定物理距离分析，`experiments/distance_quartiles/` 保存等数量 GT 距离四分位/相对 TD，`experiments/source_drop/` 保存受控正常域 Source Drop。旧结果或 state 内记录的历史绝对/相对路径只在读取时映射，不保留旧目录副本。
+实验族统一位于一个语义目录：`experiments/target_drop/` 保存主天气 Target Drop 表，`experiments/distance_ranges/` 仅保存已归档的固定距离历史结果（执行功能已删除），`experiments/distance_quartiles/` 保存等数量 GT 距离四分位/相对 TD，`experiments/source_drop/` 保存受控正常域 Source Drop。旧结果或 state 内记录的历史绝对/相对路径只在读取时映射，不保留旧目录副本。
 
-已删除状态不会让磁盘检查点自动重新登记为完成。距离、四分位和源域评估脚本仍依赖上游状态中的检查点记录，重评历史实验前需要恢复或准备正确状态清单；不要为了生成状态而盲目重跑训练。单元测试现在自行创建状态，不需要私人运行记录。
+已删除状态不会让磁盘检查点自动重新登记为完成。四分位和源域评估脚本仍依赖上游状态中的检查点记录，重评历史实验前需要恢复或准备正确状态清单；不要为了生成状态而盲目重跑训练。单元测试现在自行创建状态，不需要私人运行记录。
 
 ## 剩余精简的优先级
 
@@ -181,7 +181,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | 1 | `configs/data.py`、`data/paths.py`、训练/评估/可视化配置 | RAD/RAE 与 Cartesian GT 默认根路径已集中；接下来统一原始传感器、旧配方的标定/输出设置。当前保留本机默认值，换机器前需设置环境变量或参数。 |
 | 已完成 | `visualize.py`、`eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py`、`checkpoint_predictor.py` | 检查点解释/模型重建集中在 `eval/checkpoints.py`，前向推理集中在 `eval/inference.py`，解码与 NMS 集中在 `eval/decoding.py`；可视化只保留绘图坐标转换和兼容转发。 |
 | 已完成（队列） | `training_utils/experiment_queue.py` 与 `training_utils/experiments/` | 队列内部职责已分离，唯一执行路径是 seed 两阶段屏障；根模块保留当前编排所需导出，三个独立重评脚本仍不合并。 |
-| 已完成（分析脚本） | `scripts/evaluate_*_experiments.py` 与 `scripts/experiment_analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；三个 CLI、科学定义、输出 state schema 与表聚合保持独立。 |
+| 已完成（分析脚本） | 四分位/源域 `scripts/evaluate_*_experiments.py` 与 `scripts/experiment_analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；两个保留 CLI 的科学定义、输出 state schema 与表聚合保持独立。 |
 | 已完成（报告） | `eval/reporting.py` 与 `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | facade 保留旧导入；输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
 | 已完成（实验目录） | `experiments/{target_drop,distance_ranges,distance_quartiles,source_drop}/` | 四类实验资产移入唯一语义路径；文件内容、task/state identity、脚本默认值及内部结果布局不变。 |
 | 4 | `visualization_based_gt/generate_*.py` 等特定序列脚本 | 将序列、帧、epoch、标题等变为一套渲染入口的参数/预设；先保存参考图片与视频元数据，避免改变论文图。 |
@@ -302,16 +302,14 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [eval/custom_iou_range.py](../eval/custom_iou_range.py) | 288 | 在可配置 IoU 阈值范围内计算 AP。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/decoding.py](../eval/decoding.py) | 525 | 将模型输出转换为米制框和分数，并执行热力图处理、质量融合、NMS 和范围过滤。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/distance_quartiles.py](../eval/distance_quartiles.py) | 335 | 从 GT 推导保留并列值的距离四分位，并过滤评估状态。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [eval/distance_ranges.py](../eval/distance_ranges.py) | 196 | 标准化米制距离区间，并按距离过滤项目/官方标注。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/evaluation_config.py](../eval/evaluation_config.py) | 707 | 解析评估参数、继承检查点配置、选择设备、标准化阈值并解析类别映射。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/inference.py](../eval/inference.py) | — | 统一准备批次输入、执行 `model.eval()`/无梯度前向，并把原始输出交给 canonical decoder。 | 评估、主可视化和多传感器检查点预测共同使用。 |
 | [eval/kitti_eval/axis_aligned_iou.py](../eval/kitti_eval/axis_aligned_iou.py) | 71 | 与旋转 IoU 接口兼容的轴对齐 BEV 重叠后端。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/kitti_eval/eval_revised.py](../eval/kitti_eval/eval_revised.py) | 834 | 修订版官方 KITTI/K-Radar AP：重叠计算、匹配、难度过滤和结果格式化。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/kitti_eval/nms_gpu.py](../eval/kitti_eval/nms_gpu.py) | 639 | 官方评估使用的 Numba/CUDA 旋转 IoU 与 NMS。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/kitti_eval/rotate_iou_cpu.py](../eval/kitti_eval/rotate_iou_cpu.py) | 145 | 旋转矩形 IoU 的 CPU 多边形裁剪后备实现。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [eval/metrics_runner.py](../eval/metrics_runner.py) | 806 | 收集 GT/预测标注并运行 K-Radar、距离区间、四分位和训练期指标。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
+| [eval/metrics_runner.py](../eval/metrics_runner.py) | — | 收集 GT/预测标注并运行 K-Radar、四分位和训练期指标。 | 固定距离、Polar AP 与独立 loss pass 已删除。 |
 | [eval/nuscenes_style.py](../eval/nuscenes_style.py) | 425 | 实现适配后的 nuScenes 中心距离 AP 及平移、尺度、方向误差。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [eval/polar_ap.py](../eval/polar_ap.py) | 273 | 对 Polar/RAE 轴对齐矩形计算 AP。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/reporting.py](../eval/reporting.py) | — | 旧 `eval.reporting` 导入的兼容 facade。 | 只转发下列正式实现，不保留第二份逻辑。 |
 | [eval/report_paths.py](../eval/report_paths.py) | — | 构造 plot、YAML、TXT、weather/test/pair 目录和稳定文件名。 | 保持既有目录层级、日期/冲突后缀与 domain-shift 文件名。 |
 | [eval/result_serialization.py](../eval/result_serialization.py) | — | 格式化终端/TXT 表，写读 YAML，读取 TXT metadata。 | 保留字段顺序、四位小数、未知 YAML 字段和历史缺省值。 |
@@ -334,7 +332,6 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [scripts/build_seq9_matched_control_override.py](../scripts/build_seq9_matched_control_override.py) | 989 | 通过窗口搜索、类别容量、最大流分配构造优化的序列 9 控制集及忽略清单。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
 | [scripts/build_seq9_simple_random_control.py](../scripts/build_seq9_simple_random_control.py) | 434 | 通过随机试验构造更简单的序列 9 类别匹配控制集。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
 | [scripts/disk_space_guard.py](../scripts/disk_space_guard.py) | 224 | 监控磁盘空间，低于阈值时安全停止本项目训练/评估进程。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
-| [scripts/evaluate_distance_experiments.py](../scripts/evaluate_distance_experiments.py) | — | 定义物理距离区间、距离 AP/TD 表和该 CLI；通过共享基础设施运行评估。 | 保留 0–30/30–60/60–90/90–120 m 语义。 |
 | [scripts/evaluate_quartile_experiments.py](../scripts/evaluate_quartile_experiments.py) | — | 定义 GT 距离四分位、相对 TD 和该 CLI；通过共享基础设施运行评估。 | 保留边界、计数和相对下降公式。 |
 | [scripts/evaluate_source_domain_experiments.py](../scripts/evaluate_source_domain_experiments.py) | — | 定义受控正常域选择、天气参考、Source Drop 和全天气汇总。 | 保留控制签名、严格报告验证和 SD 公式。 |
 | [scripts/experiment_analysis/discovery.py](../scripts/experiment_analysis/discovery.py) | — | 读取实验行、按现有 updated_at 规则选择完成检查点，并从同一行建立 source/target 任务。 | 不解释模型权重；检查点 payload 仍由 `eval/checkpoints.py` 负责。 |
@@ -428,12 +425,10 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [tests/test_coordinate_modes.py](../tests/test_coordinate_modes.py) | 424 | Polar/Cartesian 配置、范围转换、目标、解码和数据集语义。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_distance_quartile_evaluation.py](../tests/test_distance_quartile_evaluation.py) | 217 | 四分位指标接线、报告键、绘图和输出元数据。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_distance_quartile_helpers.py](../tests/test_distance_quartile_helpers.py) | 75 | 四分位推导、并列值处理和帧过滤。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
-| [tests/test_distance_range_evaluation.py](../tests/test_distance_range_evaluation.py) | 247 | 距离区间过滤和指标集成。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_domain_shift_tables.py](../tests/test_domain_shift_tables.py) | 352 | 域表构建、配置隔离、记录更新和旧格式转换。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_domain_shift_training_config.py](../tests/test_domain_shift_training_config.py) | 90 | 共享/源/目标训练配置和验证序列推导。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_entrypoint_compatibility.py](../tests/test_entrypoint_compatibility.py) | 57 | 保护保留的 train.py / evaluation.py 入口及其导出接口。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_eval_test_control.py](../tests/test_eval_test_control.py) | 464 | 精确测试清单、中性忽略 GT 和固定四分位控制。 | 保留回归测试；直接测试公共 ignore 校验函数。 |
-| [tests/test_evaluate_distance_experiments.py](../tests/test_evaluate_distance_experiments.py) | 188 | 距离实验任务发现、命令、状态和表格；提供临时检查点/状态测试夹具。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_evaluate_quartile_experiments.py](../tests/test_evaluate_quartile_experiments.py) | 199 | 四分位启动器元数据、相对下降、状态和表格。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_evaluate_source_domain_experiments.py](../tests/test_evaluate_source_domain_experiments.py) | 406 | 受控源域任务、命令、报告和汇总。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_experiment_analysis_infrastructure.py](../tests/test_experiment_analysis_infrastructure.py) | — | 完成检查点/配对、命令公共段、CUDA 环境、报告 metadata/freshness、结果复用及失败状态。 | 保留 Step 5 的基础设施等价性覆盖。 |
@@ -465,7 +460,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | `Rotated_IoU/LICENSE`、`eval/kitti_eval/LICENSE` | 随第三方源码保留；不擅自重新许可。 |
 | `lidar2radar_calib.yml`、`visualization_based_gt/lidar2radar_calib.yml` | 标定输入；不同入口有各自默认路径，未直接删副本。 |
 | `sequence_information.csv` | 58 个序列的统计与天气/道路等元数据；帧/目标数来自当前 Cartesian-radar 标签，环境标签保留原注释。 |
-| `experiments/{target_drop,distance_ranges,distance_quartiles,source_drop}/` 中实验 TXT/XLSX、README | 实验定义/汇总格式与说明，是调度和论文复现上下文；不因包含历史 AP 就整目录删除。 |
+| `experiments/{target_drop,distance_ranges,distance_quartiles,source_drop}/` 中实验 TXT/XLSX、README | 实验定义/汇总格式与说明，是调度和论文复现上下文；`distance_ranges` 仅为历史归档，不再有执行入口。 |
 | `split/**/{train,test,discard}.txt` | 精确帧划分；合并或重生成会影响样本归属，保留。 |
 | `split/**/{control_config,object_ignore_override,stats}.json` 等 | 控制划分、对象忽略与复用统计，保留；可能需要和实验定义一起发布。 |
 | `experiments/source_drop/control_specs/**` | 正常天气控制测试集及索引/统计，保留。这些不是可随意删除的缓存。 |

@@ -9,17 +9,12 @@ from configs.data import CARTESIAN_GT_ROOT
 from data.coordinates import SCOPE_CHOICES
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
-    BOX_COORDINATE_POLAR,
     EVAL_COORDINATE_AUTO,
     EVAL_COORDINATE_CHOICES,
     require_cartesian_data,
     resolve_evaluation_coordinate_mode,
 )
 from eval.custom_iou_range import DEFAULT_CUSTOM_IOU_THRESHOLDS
-from eval.distance_ranges import (
-    DEFAULT_DISTANCE_RANGES,
-    normalize_distance_ranges,
-)
 from eval.distance_quartiles import normalize_distance_quartile_bins
 from models import MODEL_TYPES
 from training_utils.torch_load import load_torch_checkpoint
@@ -181,10 +176,6 @@ def parse_args():
         "eval_ignore_suppress_enabled": False,
         "eval_ignore_expand_ratio": 1.5,
         "eval_ignore_suppress_margin": 1.0,
-        "loss_eval_enabled": False,
-        "heatmap_radius": 3,
-        "centerpoint_gwd_loss_weight": 2.0,
-        "quality_loss_weight": 0.25,
         "table_txt_enabled": False,
         "table_output_base_dir": "evaluation_plots",
         "domain_comparison_enabled": True,
@@ -203,13 +194,10 @@ def parse_args():
         "official_eval_iou_mode": "easy",
         "custom_iou_range_eval_enabled": False,
         "custom_iou_thresholds": DEFAULT_CUSTOM_IOU_THRESHOLDS.tolist(),
-        "distance_range_eval_enabled": False,
-        "distance_range_bins": DEFAULT_DISTANCE_RANGES,
         "distance_quartile_eval_enabled": False,
         "distance_quartile_bins": None,
         "nuscenes_style_eval_enabled": False,
         "official_detection_metrics_enabled": True,
-        "polar_iou_thresholds": [0.3, 0.5],
         "official_ap03_only": False,
         "group_checkpoint_plot_best_only": False,
         "ap_score_thresh": 0.01,
@@ -217,13 +205,6 @@ def parse_args():
         "plot_output": None,
     }
     eval_config = dict(EVAL_CONFIG)
-    if (
-        "centerpoint_gwd_loss_weight" not in eval_config
-        and "centerpoint_giou_loss_weight" in eval_config
-    ):
-        eval_config["centerpoint_gwd_loss_weight"] = eval_config[
-            "centerpoint_giou_loss_weight"
-        ]
     cfg_defaults.update(eval_config)
     if "score_thresh" not in EVAL_CONFIG and "detection_score_thresh" in EVAL_CONFIG:
         cfg_defaults["score_thresh"] = EVAL_CONFIG["detection_score_thresh"]
@@ -277,10 +258,9 @@ def parse_args():
     parser.add_argument(
         "--eval-coordinate-mode",
         default=cfg_defaults["eval_coordinate_mode"],
-        choices=[mode for mode in EVAL_COORDINATE_CHOICES if mode != BOX_COORDINATE_POLAR],
+        choices=EVAL_COORDINATE_CHOICES,
         help=(
-            "auto uses the checkpoint's direct geometry; both also computes "
-            "the converted auxiliary geometry."
+            "auto uses the checkpoint's direct Cartesian geometry."
         ),
     )
     parser.add_argument(
@@ -328,24 +308,6 @@ def parse_args():
         type=float,
         default=cfg_defaults["eval_ignore_suppress_margin"],
     )
-    parser.add_argument(
-        "--loss-eval-enabled",
-        default=cfg_defaults["loss_eval_enabled"],
-    )
-    parser.add_argument("--heatmap-radius", type=int, default=cfg_defaults["heatmap_radius"])
-    parser.add_argument(
-        "--centerpoint-gwd-loss-weight",
-        "--centerpoint-giou-loss-weight",
-        dest="centerpoint_gwd_loss_weight",
-        type=float,
-        default=cfg_defaults["centerpoint_gwd_loss_weight"],
-        help="GWD loss weight; the GIoU spelling is accepted only for legacy commands.",
-    )
-    parser.add_argument(
-        "--quality-loss-weight",
-        type=float,
-        default=cfg_defaults["quality_loss_weight"],
-    )
     parser.add_argument("--max-detections", type=int, default=cfg_defaults["max_detections"])
     parser.add_argument("--heatmap-nms-kernel", type=int, default=cfg_defaults["heatmap_nms_kernel"])
     parser.add_argument(
@@ -389,18 +351,6 @@ def parse_args():
         default=cfg_defaults["custom_iou_thresholds"],
     )
     parser.add_argument(
-        "--distance-range-eval-enabled",
-        default=cfg_defaults["distance_range_eval_enabled"],
-    )
-    parser.add_argument(
-        "--distance-range-bins",
-        default=cfg_defaults["distance_range_bins"],
-        help=(
-            "Comma-separated half-open distance bins in metres, for example "
-            "0-30,30-60,60-90,90-120."
-        ),
-    )
-    parser.add_argument(
         "--distance-quartile-eval-enabled",
         default=cfg_defaults["distance_quartile_eval_enabled"],
         help=(
@@ -423,10 +373,6 @@ def parse_args():
     parser.add_argument(
         "--official-detection-metrics-enabled",
         default=cfg_defaults["official_detection_metrics_enabled"],
-    )
-    parser.add_argument(
-        "--polar-iou-thresholds",
-        default=cfg_defaults["polar_iou_thresholds"],
     )
     parser.add_argument(
         "--group-checkpoint-plot-best-only",
@@ -513,13 +459,6 @@ def parse_args():
         args.custom_iou_thresholds,
         name="custom_iou_thresholds",
     )
-    args.distance_range_eval_enabled = normalize_bool_flag(
-        args.distance_range_eval_enabled,
-        name="distance_range_eval_enabled",
-    )
-    args.distance_range_bins = normalize_distance_ranges(
-        args.distance_range_bins
-    )
     args.distance_quartile_eval_enabled = normalize_bool_flag(
         args.distance_quartile_eval_enabled,
         name="distance_quartile_eval_enabled",
@@ -545,10 +484,6 @@ def parse_args():
         args.official_detection_metrics_enabled,
         name="official_detection_metrics_enabled",
     )
-    args.polar_iou_thresholds = normalize_float_thresholds(
-        args.polar_iou_thresholds,
-        name="polar_iou_thresholds",
-    )
     # Keep the regular metric set permanently enabled.  The old command-line
     # AP@0.3-only and terminal epoch-table switches were removed.
     args.official_ap03_only = False
@@ -559,10 +494,6 @@ def parse_args():
     args.eval_ignore_suppress_enabled = normalize_bool_flag(
         args.eval_ignore_suppress_enabled,
         name="eval_ignore_suppress_enabled",
-    )
-    args.loss_eval_enabled = normalize_bool_flag(
-        args.loss_eval_enabled,
-        name="loss_eval_enabled",
     )
     args.table_txt_enabled = normalize_bool_flag(
         args.table_txt_enabled,
@@ -673,10 +604,8 @@ def apply_standalone_evaluation_coordinate_mode(args):
     args.eval_coordinate_mode = settings["requested_mode"]
     args.effective_eval_coordinate_mode = settings["effective_mode"]
     args.official_eval_enabled = settings["official_eval_enabled"]
-    args.polar_eval_enabled = settings["polar_eval_enabled"]
     args.evaluation_primary_geometry = settings["primary_geometry"]
     args.official_geometry_source = settings["official_geometry_source"]
-    args.polar_geometry_source = settings["polar_geometry_source"]
     return args
 
 

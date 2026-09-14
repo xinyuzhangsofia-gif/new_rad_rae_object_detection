@@ -76,6 +76,16 @@ class ConfigCompatibilityTests(unittest.TestCase):
         self.assertIn("official_eval_version", EVAL_CONFIG)
         self.assertIn("ap_score_thresh", EVAL_CONFIG)
         self.assertNotIn("training_eval_enabled", EVAL_CONFIG)
+        for removed_key in (
+            "polar_eval_enabled",
+            "polar_iou_thresholds",
+            "distance_range_eval_enabled",
+            "distance_range_bins",
+            "loss_eval_enabled",
+        ):
+            self.assertNotIn(removed_key, EVAL_CONFIG)
+        self.assertNotIn("training_eval_polar_enabled", TRAIN_CONFIG)
+        self.assertNotIn("training_eval_polar_iou_thresholds", TRAIN_CONFIG)
 
     def test_evaluation_runtime_and_output_paths_are_aggregated(self):
         for key, value in EVALUATION_RUNTIME_CONFIG.items():

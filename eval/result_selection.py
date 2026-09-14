@@ -2,7 +2,7 @@
 
 import os
 
-from configs.coordinates import BOX_COORDINATE_POLAR, validate_box_coordinate_mode
+from configs.coordinates import require_cartesian_data
 from eval.report_paths import plot_output_requested
 
 def result_main_metric_key(result):
@@ -20,18 +20,11 @@ def result_main_metric_value(result):
 
 
 def attach_evaluation_main_metric(metrics, primary_geometry):
-    primary_geometry = validate_box_coordinate_mode(primary_geometry)
-    if primary_geometry == BOX_COORDINATE_POLAR:
-        primary_key = (
-            "polar_bev_mAP_0.3"
-            if "polar_bev_mAP_0.3" in metrics
-            else "polar_bev_mAP"
-        )
-    else:
-        primary_key = metrics.get(
-            "official_main_metric_key",
-            "official_bev_mAP_0.3",
-        )
+    require_cartesian_data(primary_geometry)
+    primary_key = metrics.get(
+        "official_main_metric_key",
+        "official_bev_mAP_0.3",
+    )
     primary_value = float(metrics.get(primary_key, 0.0))
     metrics["evaluation_main_metric_key"] = primary_key
     metrics["evaluation_main_metric_value"] = primary_value
@@ -78,4 +71,3 @@ def group_checkpoint_plot_best_only_active(args, checkpoint_paths):
         and os.path.isdir(args.checkpoint_root)
         and len(checkpoint_paths) > 1
     )
-

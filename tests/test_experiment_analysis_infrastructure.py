@@ -6,7 +6,6 @@ import sys
 import tempfile
 import unittest
 
-from scripts import evaluate_distance_experiments as distance
 from scripts import evaluate_quartile_experiments as quartile
 from scripts import evaluate_source_domain_experiments as source_domain
 from scripts.experiment_analysis import discovery, execution, results
@@ -187,75 +186,11 @@ class ExperimentAnalysisInfrastructureTests(unittest.TestCase):
                 report, (source_input,), checkpoint
             ))
 
-    def test_existing_valid_distance_result_is_reused_as_completed(self):
-        with tempfile.TemporaryDirectory() as temporary_dir:
-            root = Path(temporary_dir)
-            checkpoint = root / "checkpoint"
-            checkpoint.mkdir()
-            report = root / "rain" / "seed42_source_result.txt"
-            report.parent.mkdir()
-            values = ["bev@0.3=50.0", "3d@0.3=40.0"]
-            for index, (_, _, tag) in enumerate(distance.DISTANCE_BINS):
-                values.extend((
-                    f"bev@0.3_range_{tag}={10 + index}",
-                    f"3d@0.3_range_{tag}={5 + index}",
-                ))
-            report.write_text(
-                "\n".join((
-                    f"checkpoint_root: {checkpoint}",
-                    "domain_shift_train_branch: source",
-                    "weather_group: rain",
-                    "seed: 42",
-                    "",
-                    "average_AP_epoch_5_to_24 (epochs_used=20): "
-                    + " | ".join(values),
-                )),
-                encoding="utf-8",
-            )
-            task_id = "rain_group1_seed42_source"
-            discovered = {
-                task_id: {
-                    "task_id": task_id,
-                    "weather": "rain",
-                    "group": "group1",
-                    "seed": 42,
-                    "branch": "source",
-                    "checkpoint_root": str(checkpoint),
-                    "report_path": str(report),
-                    "log_path": str(root / "task.log"),
-                }
-            }
-            state_path = root / "state.json"
-            state_path.write_text(
-                json.dumps({
-                    "tasks": {
-                        task_id: {
-                            "status": "completed",
-                            "attempts": 2,
-                        }
-                    }
-                }),
-                encoding="utf-8",
-            )
-            state = distance.initialize_state(
-                state_path,
-                discovered,
-                root,
-            )
-
-        self.assertEqual(state["tasks"][task_id]["status"], "completed")
-        self.assertEqual(state["tasks"][task_id]["attempts"], 2)
-        self.assertEqual(
-            state["tasks"][task_id]["metrics"]["all"],
-            {"BEV": 50.0, "3D": 40.0},
-        )
-
     def test_all_command_wrappers_use_the_canonical_builder(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
             root = Path(temporary_dir)
             args = argparse.Namespace(batch_size=32, output_dir=root)
             basic = {"checkpoint_root": "/tmp/checkpoints/example"}
-            distance_command = distance.build_evaluation_command(basic, args)
             quartile_command = quartile.build_evaluation_command(basic, args)
             weather_command = source_domain.build_weather_reference_command(
                 {
@@ -290,7 +225,7 @@ class ExperimentAnalysisInfrastructureTests(unittest.TestCase):
 
         common_prefix = [
             sys.executable,
-            str(distance.PROJECT_ROOT / "evaluation.py"),
+            str(quartile.PROJECT_ROOT / "evaluation.py"),
             "--checkpoint-root", "/tmp/checkpoints/example",
             "--start-epoch", "5", "--end-epoch", "24",
             "--batch-size", "32", "--num-workers", "0",
@@ -303,7 +238,6 @@ class ExperimentAnalysisInfrastructureTests(unittest.TestCase):
             "--official-detection-metrics-enabled", "true",
             "--custom-iou-range-eval-enabled", "false",
             "--nuscenes-style-eval-enabled", "false",
-            "--loss-eval-enabled", "false",
             "--group-checkpoint-plot-best-only", "false",
         ]
 
@@ -322,18 +256,8 @@ class ExperimentAnalysisInfrastructureTests(unittest.TestCase):
             ]
 
         self.assertEqual(
-            distance_command,
-            common_prefix + metric_arguments + [
-                "--distance-range-eval-enabled", "true",
-                "--distance-range-bins", distance.DISTANCE_BIN_TEXT,
-            ] + output_arguments(
-                root / "evaluation_reports", root / "tensorboard"
-            ),
-        )
-        self.assertEqual(
             quartile_command,
             common_prefix + metric_arguments + [
-                "--distance-range-eval-enabled", "false",
                 "--distance-quartile-eval-enabled", "true",
             ] + output_arguments(
                 root / "evaluation_reports", root / "tensorboard"
@@ -345,7 +269,6 @@ class ExperimentAnalysisInfrastructureTests(unittest.TestCase):
                 "--eval-val-sequences", "46,47",
                 "--eval-report-path", str(root / "weather.txt"),
             ] + metric_arguments + [
-                "--distance-range-eval-enabled", "false",
                 "--distance-quartile-eval-enabled", "true",
             ] + output_arguments(
                 root / "weather_reference_reports",
@@ -361,7 +284,6 @@ class ExperimentAnalysisInfrastructureTests(unittest.TestCase):
                 str(root / "override.json"),
                 "--eval-report-path", str(root / "normal.txt"),
             ] + metric_arguments + [
-                "--distance-range-eval-enabled", "false",
                 "--distance-quartile-eval-enabled", "true",
                 "--distance-quartile-bins",
                 source_domain._fixed_bins_cli_text(normal_task),

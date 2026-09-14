@@ -35,7 +35,6 @@ def build_evaluation_command(
         "--official-detection-metrics-enabled", "true",
         "--custom-iou-range-eval-enabled", "false",
         "--nuscenes-style-eval-enabled", "false",
-        "--loss-eval-enabled", "false",
         "--group-checkpoint-plot-best-only", "false",
         *map(str, analysis_arguments),
         "--max-detections", "64", "--heatmap-nms-kernel", "3",

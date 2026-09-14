@@ -46,7 +46,6 @@ class DistanceQuartileMetricWiringTests(unittest.TestCase):
                     dt_x=[6.0, 16.0, 26.0, 1000.0],
                 )
             ],
-            "polar_frames": [],
         }
 
     def test_enabled_quartiles_reuse_evaluator_and_preserve_full_metric(self):

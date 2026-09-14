@@ -56,8 +56,6 @@ TRAIN_CONFIG = {
     "training_eval_detection_metrics_enabled": False,
     "training_eval_ap_score_thresh": 0.01,
     "training_eval_score_thresh": 0.3,
-    "training_eval_polar_enabled": False,
-    "training_eval_polar_iou_thresholds": (0.3, 0.5),
     "training_eval_coco_style_enabled": False,
     "training_eval_nuscenes_style_enabled": False,
     "train_scope": SCOPE_FULL,

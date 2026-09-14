@@ -20,7 +20,6 @@ from domain_shift_tables import (
     update_domain_shift_tables,
 )
 from training_utils.configuration import apply_task_configuration, resolve_loss_mode
-from training_utils.training_loop import validate_loss
 from configs.data import DataConfig
 
 from eval.checkpoints import (
@@ -79,8 +78,6 @@ def evaluate_checkpoint_result(
         custom_iou_range_eval_enabled=None,
         coco_style_eval_enabled=None,
         nuscenes_style_eval_enabled=None,
-        loss_eval_enabled=None,
-        polar_eval_enabled=None,
     ):
     load_model_checkpoint(
         model=model,
@@ -88,33 +85,7 @@ def evaluate_checkpoint_result(
         device=device,
     )
 
-    metrics = {}
-    effective_loss_eval_enabled = (
-        args.loss_eval_enabled
-        if loss_eval_enabled is None
-        else bool(loss_eval_enabled)
-    )
-    if effective_loss_eval_enabled:
-        loss_metrics = validate_loss(
-            model=model,
-            dataloader=validation_loader,
-            device=device,
-            heatmap_radius=args.heatmap_radius,
-            centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
-            quality_loss_weight=args.quality_loss_weight,
-            ignore_mask_margin=args.ignore_mask_margin,
-            ignore_mask_expand_ratio=args.ignore_mask_expand_ratio,
-            loss_mode=resolve_loss_mode(
-                model_type,
-                box_coordinate_mode=args.box_coordinate_mode,
-                loss_mode=getattr(args, "loss_mode", "auto"),
-            ),
-            num_classes=args.num_classes,
-            box_coordinate_mode=args.box_coordinate_mode,
-        )
-        metrics.update(loss_metrics)
-
-    eval_metrics = evaluate_checkpoint_with_kradar_revised(
+    metrics = evaluate_checkpoint_with_kradar_revised(
         model=model,
         dataloader=validation_loader,
         device=device,
@@ -155,24 +126,15 @@ def evaluate_checkpoint_result(
             if nuscenes_style_eval_enabled is None
             else nuscenes_style_eval_enabled
         ),
-        polar_eval_enabled=(
-            args.polar_eval_enabled
-            if polar_eval_enabled is None
-            else polar_eval_enabled
-        ),
-        polar_iou_thresholds=args.polar_iou_thresholds,
         ap_score_thresh=args.ap_score_thresh,
         detection_score_thresh=args.detection_score_thresh,
         eval_ignore_suppress_enabled=args.eval_ignore_suppress_enabled,
         eval_ignore_expand_ratio=args.eval_ignore_expand_ratio,
         eval_ignore_suppress_margin=args.eval_ignore_suppress_margin,
         box_coordinate_mode=args.box_coordinate_mode,
-        distance_range_eval_enabled=args.distance_range_eval_enabled,
-        distance_range_bins=args.distance_range_bins,
         distance_quartile_eval_enabled=args.distance_quartile_eval_enabled,
         distance_quartile_bins=getattr(args, "distance_quartile_bins", None),
     )
-    metrics.update(eval_metrics)
     attach_evaluation_main_metric(
         metrics,
         primary_geometry=args.evaluation_primary_geometry,
@@ -185,7 +147,6 @@ def evaluate_checkpoint_result(
         "box_coordinate_mode": args.box_coordinate_mode,
         "evaluation_primary_geometry": args.evaluation_primary_geometry,
         "official_geometry_source": args.official_geometry_source,
-        "polar_geometry_source": args.polar_geometry_source,
         "ap_score_thresh": float(args.ap_score_thresh),
         "metric_class_names": list(args.metric_class_names),
         "class_display_name_map": dict(args.class_display_name_map),
@@ -194,8 +155,6 @@ def evaluate_checkpoint_result(
 
 
 def group_plot_selection_specs(args):
-    if args.evaluation_primary_geometry == BOX_COORDINATE_POLAR:
-        return [("polar_bev_mAP_0.3", "best_pbev03")]
     return [
         ("official_bev_mAP_0.3", "best_bev03"),
         ("official_3d_mAP_0.3", "best_3d03"),
