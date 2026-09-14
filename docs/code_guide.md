@@ -1,6 +1,6 @@
 # 代码结构与精简指南
 
-本指南合并原中英文文件目录及迁移说明。此次检查覆盖清理前 183 个 Python 文件的语法结构、顶层函数/类、导入关系、入口和本机路径，并重点阅读入口、转发模块、迁移代码和相关测试。它不是对约 6.5 万行代码的逐行算法正确性证明。当前保留 166 个生产 Python 文件（不计测试和运行产物）；下表逐一列出用途和后续处理建议。行数为本次整理时的快照。
+本指南合并原中英文文件目录及迁移说明。此次检查覆盖清理前 183 个 Python 文件的语法结构、顶层函数/类、导入关系、入口和本机路径，并重点阅读入口、转发模块、迁移代码和相关测试。它不是对约 6.5 万行代码的逐行算法正确性证明。当前保留 167 个生产 Python 文件（不计测试和运行产物）；下表逐一列出用途和后续处理建议。行数为本次整理时的快照。
 
 ## 从哪里开始
 
@@ -14,6 +14,9 @@ configs/training.py → train.py → training/runner.py
                                 ├─ models/factory.py → model1 … model16
                                 └─ training/ → 损失、训练、检查点、队列
 configs/evaluation.py → evaluation.py → eval/workflow.py → eval/
+sequence_information.csv → data/sequence_metadata.py
+    ├─ training/configuration.py → 训练域元数据
+    └─ eval/domain_shift_tables.py → evaluation_results/ 域比较表
 eval/reporting.py → 报告兼容 facade
     ├─ report_paths.py → 输出目录、文件名及 plot/YAML/TXT 路径
     ├─ result_serialization.py → TXT/YAML、历史 metadata 和数值格式
@@ -143,7 +146,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 - 按单一职责整理数据模块：`dataset.py` 从 726 行降为 354 行；移动几何、标签选择、ignore 校验和 collate，并合并重复 MAT 读取逻辑。
 - 将域偏移实验队列按职责拆为 `schema`、`tables`、`state`、`scheduling` 和 `execution`；`training/experiments/queue.py` 只保留按 seed 的两阶段编排：当前 seed 全部训练完成后才并行评估，评估全部完成后才进入下一 seed。已删除串行和训练/评估交错执行模式及 `experiment_queue_execution_mode`；任务身份、表顺序、恢复、GPU、worker 命令和结果写回规则未改变。
 - 距离四分位实验入口共享完成检查点发现、命令公共段、CUDA/subprocess 队列、锁/原子状态及报告 metadata 校验；GT 四分位和相对 TD 仍由该脚本定义。固定距离与 Source Drop 执行入口均已删除。
-- 将 `eval/reporting.py` 改为兼容 facade；路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现。`domain_shift_tables.py` 继续负责域注册、模型配置身份、三张比较表和记录更新，避免反向依赖。
+- 将 `eval/reporting.py` 改为兼容 facade；路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现。序列/天气元数据位于 `data/sequence_metadata.py`；域注册、模型配置身份、三张比较表和记录更新位于 `eval/domain_shift_tables.py`。
 - 在移动数值实现前固化 loss golden 值与梯度；损失公开 API 和数值实现统一在 `training/losses/`，CenterPoint、RADE-Net、YOLOX、GWD、目标生成和 SimOTA 各有唯一职责模块。损失键、权重、归一化、空目标和梯度保持不变。
 - 所有划分逻辑统一在 `data/split/`：`ordinary.py` 只分派两种普通模式，`manifests.py` 和 `sequences.py` 各自管理具体成员语义；Controlled Split 的 `matching.py`、`generation.py`、`reporting.py` 和 `runtime.py` 保持科学匹配、生成、输出与训练时加载职责。不保留并行的旧入口。
 
@@ -201,7 +204,6 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 
 | 文件 | 行数 | 功能 | 处理建议 |
 | --- | ---: | --- | --- |
-| [domain_shift_tables.py](../domain_shift_tables.py) | 1136 | 维护域注册、模型配置身份、best-BEV/best-3D/best-overall 比较表及 JSON 记录。 | 保留域表专属解释、原子更新、锁和旧表导入；不依赖报告 facade。 |
 | [evaluation.py](../evaluation.py) | 27 | 独立评估命令入口；评估工作流在 eval/workflow.py。 | 保留主要入口；不继续复制工作流。 |
 | [legacy_module.py](../legacy_module.py) | 373 | 历史 RAD/RAE 编码器、固定框检测器及卷积组件；未发现当前源码直接导入。 | 暂保留；确认不需历史模型/检查点后再归档。 |
 | [train.py](../train.py) | 13 | 训练命令入口，调用 `training/runner.py`，并导出 worker 使用的接口。 | 保留主要入口；不继续复制工作流。 |
@@ -236,6 +238,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [data/ignore_overrides.py](../data/ignore_overrides.py) | 153 | 加载并严格校验逐目标忽略规则。 | 保留独立策略边界。 |
 | [data/labels.py](../data/labels.py) | 237 | 选择并解析平铺/逐帧 Cartesian 标签。 | 保留唯一标签读取入口。 |
 | [data/paths.py](../data/paths.py) | 141 | 解析雷达、Cartesian 标签和原始传感器路径。 | 保留唯一共享路径入口。 |
+| [data/sequence_metadata.py](../data/sequence_metadata.py) | — | 解析 K-Radar 序列 ID 及 `sequence_information.csv` 中的天气/环境描述。 | 训练直接依赖数据元数据，不通过评估模块。 |
 | [data/split/__init__.py](../data/split/__init__.py) | — | 划分的小型稳定公开 API。 | 只导出主要公开操作，不导出私有科学辅助函数。 |
 | [data/split/ordinary.py](../data/split/ordinary.py) | — | 分派 `kradar_file` 与 `sequence` 两种普通划分。 | 不实现或修改成员算法。 |
 | [data/split/manifests.py](../data/split/manifests.py) | — | K-Radar train/test manifest 解析与精确索引解析。 | 保留顺序、去重、缺失帧和 limit 语义。 |
@@ -306,6 +309,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [eval/coco_style.py](../eval/coco_style.py) | 333 | 对旋转 BEV/3D 框计算 COCO 风格多 IoU AP。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/custom_iou_range.py](../eval/custom_iou_range.py) | 288 | 在可配置 IoU 阈值范围内计算 AP。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/decoding.py](../eval/decoding.py) | 525 | 将模型输出转换为米制框和分数，并执行热力图处理、质量融合、NMS 和范围过滤。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
+| [eval/domain_shift_tables.py](../eval/domain_shift_tables.py) | — | 维护域注册、模型配置身份、best-BEV/best-3D/best-overall 比较表、JSON 记录与 CLI。 | 保留原子写、`fcntl` 锁、输出层级和旧表转换。 |
 | [eval/distance_quartiles.py](../eval/distance_quartiles.py) | 335 | 从 GT 推导保留并列值的距离四分位，并过滤评估状态。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/evaluation_config.py](../eval/evaluation_config.py) | 707 | 解析评估参数、继承检查点配置、选择设备、标准化阈值并解析类别映射。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/inference.py](../eval/inference.py) | — | 统一准备批次输入、执行 `model.eval()`/无梯度前向，并把原始输出交给 canonical decoder。 | 评估、主可视化和多传感器检查点预测共同使用。 |

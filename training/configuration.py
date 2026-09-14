@@ -10,7 +10,7 @@ from configs.coordinates import (
     validate_box_coordinate_mode,
 )
 from data.dataset import CLASS_NAMES, CLASS_TO_IDX
-from domain_shift_tables import (
+from data.sequence_metadata import (
     DEFAULT_SEQUENCE_INFO_PATH,
     load_sequence_information,
 )

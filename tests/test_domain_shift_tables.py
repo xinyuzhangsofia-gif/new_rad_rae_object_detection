@@ -5,13 +5,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from domain_shift_tables import (
+from data.sequence_metadata import (
+    DEFAULT_SEQUENCE_INFO_PATH,
+    DomainShiftTableError,
+    load_sequence_information,
+)
+from eval.domain_shift_tables import (
     BEV_METRIC_KEY,
+    DEFAULT_OUTPUT_DIR,
+    DomainShiftTableError as EvaluationDomainShiftTableError,
     TABLE_CORNER_HEADER,
     THREED_METRIC_KEY,
     build_model_configuration,
     convert_legacy_csv_table,
-    load_sequence_information,
     parse_evaluation_table_txt,
     update_domain_shift_tables,
 )
@@ -58,6 +64,15 @@ def read_table(path):
 
 
 class DomainShiftTablesTest(unittest.TestCase):
+    def test_moved_modules_preserve_default_paths_and_exception_identity(self):
+        project_root = Path(__file__).resolve().parents[1]
+        self.assertEqual(
+            DEFAULT_SEQUENCE_INFO_PATH,
+            project_root / "sequence_information.csv",
+        )
+        self.assertEqual(DEFAULT_OUTPUT_DIR, project_root / "evaluation_results")
+        self.assertIs(DomainShiftTableError, EvaluationDomainShiftTableError)
+
     def test_sequence_information_contains_all_image_rows(self):
         information = load_sequence_information()
         self.assertEqual(len(information), 58)

@@ -6,8 +6,8 @@ from unittest import mock
 
 import numpy as np
 
-from domain_shift_tables import select_comparison_epochs
 from eval import reporting
+from eval.domain_shift_tables import select_comparison_epochs
 from eval.domain_shift_summaries import (
     _read_domain_shift_result_report,
     domain_shift_pair_key,

@@ -5,11 +5,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from domain_shift_tables import (
-    DEFAULT_OUTPUT_DIR,
+from data.sequence_metadata import (
     DEFAULT_SEQUENCE_INFO_PATH,
-    build_model_configuration,
     normalize_sequence_ids,
+)
+from eval.domain_shift_tables import (
+    DEFAULT_OUTPUT_DIR,
+    build_model_configuration,
     parse_evaluation_table_txt,
     select_comparison_epochs,
     update_domain_shift_tables,

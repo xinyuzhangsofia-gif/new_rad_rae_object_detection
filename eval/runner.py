@@ -15,7 +15,7 @@ from data.dataloader import (
     normalize_sequence_list,
     prepare_model_inputs,
 )
-from domain_shift_tables import (
+from eval.domain_shift_tables import (
     build_model_configuration,
     update_domain_shift_tables,
 )

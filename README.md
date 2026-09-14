@@ -155,6 +155,12 @@ Supported ordinary split modes are:
 2. `sequence`: uses explicit training and validation sequence IDs, including
    the existing first/last sequence-part selection.
 
+K-Radar sequence and weather descriptions are read by
+`data/sequence_metadata.py`. Domain Shift comparison-table selection, parsing,
+locking, and updates live in `eval/domain_shift_tables.py`; its standalone CLI
+is `python -m eval.domain_shift_tables <results_json>` and continues to write
+under the root `evaluation_results/` directory.
+
 Checkpoint prediction also has one shared path. `eval/checkpoints.py` interprets
 checkpoint metadata, reconstructs models, and loads state dictionaries;
 `eval/inference.py` owns model forward inference; and `eval/decoding.py` owns
