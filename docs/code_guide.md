@@ -367,10 +367,6 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | 文件 | 行数 | 功能 | 处理建议 |
 | --- | ---: | --- | --- |
 | [visualization_based_gt/checkpoint_predictor.py](../visualization_based_gt/checkpoint_predictor.py) | — | 活跃的多传感器预测适配器；调用 `eval/checkpoints.py`、`eval/inference.py` 和 `eval/decoding.py`，再输出渲染所需米制雷达框。 | 保留公开预测接口；不再独立重建或解码模型。 |
-| [visualization_based_gt/create_sleet_normal_comparison.py](../visualization_based_gt/create_sleet_normal_comparison.py) | 62 | 生成选定的雨夹雪与正常天气双面板对比图。 | 保留论文图/视频配方；后续用参数替代写死序列与 epoch。 |
-| [visualization_based_gt/generate_sequence11_clean_overlay.py](../visualization_based_gt/generate_sequence11_clean_overlay.py) | 160 | 重新生成序列 11 指定帧的简洁细线雷达叠加图。 | 保留论文图/视频配方；后续用参数替代写死序列与 epoch。 |
-| [visualization_based_gt/generate_sequence11_epoch9_multisensor_video.py](../visualization_based_gt/generate_sequence11_epoch9_multisensor_video.py) | 131 | 生成序列 11 相机、LiDAR、Cartesian 雷达和 epoch-9 预测视频。 | 保留论文图/视频配方；后续用参数替代写死序列与 epoch。 |
-| [visualization_based_gt/generate_sleet_best_weather_no_radar_text.py](../visualization_based_gt/generate_sleet_best_weather_no_radar_text.py) | 110 | 重新渲染最佳雨夹雪样例，并移除雷达面板文字。 | 保留论文图/视频配方；后续用参数替代写死序列与 epoch。 |
 | [visualization_based_gt/info_label_reader.py](../visualization_based_gt/info_label_reader.py) | 155 | 读取官方和当前 GT 格式，并按需执行 LiDAR 到雷达坐标转换。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
 | [visualization_based_gt/lidar2camera_transformation.py](../visualization_based_gt/lidar2camera_transformation.py) | 365 | 当前 LiDAR 到相机标定、去畸变、3D 框投影和相机视频工具。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
 | [visualization_based_gt/lidar2camera_transformation_old_version.py](../visualization_based_gt/lidar2camera_transformation_old_version.py) | 393 | 旧版相机投影，用于对比过去的标定和畸变处理。 | 暂保留旧渲染差异；对照图像后再合并。 |
