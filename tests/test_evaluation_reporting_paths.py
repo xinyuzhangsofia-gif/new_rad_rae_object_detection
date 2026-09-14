@@ -2,13 +2,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from eval.reporting import (
+from eval.domain_shift_summaries import refresh_weather_domain_shift_summary
+from eval.report_paths import (
     default_eval_table_txt_path,
     evaluation_output_dir,
+    resolve_output_base_dir,
+)
+from eval.result_serialization import (
     format_eval_table,
     format_epoch_range_average_ap_summary,
-    refresh_weather_domain_shift_summary,
-    resolve_output_base_dir,
     save_eval_table_txt,
 )
 from eval.checkpoints import build_model_variant_name

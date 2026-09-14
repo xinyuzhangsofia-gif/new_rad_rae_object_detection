@@ -6,7 +6,6 @@ from unittest import mock
 
 import numpy as np
 
-from eval import reporting
 from eval.domain_shift_tables import select_comparison_epochs
 from eval.domain_shift_summaries import (
     _read_domain_shift_result_report,
@@ -29,6 +28,7 @@ from eval.result_selection import (
 )
 from eval.result_serialization import (
     load_evaluation_yaml,
+    read_report_metadata,
     save_eval_table_txt,
     save_evaluation_yaml,
 )
@@ -39,18 +39,23 @@ from eval.tensorboard_reporting import (
 
 
 class ReportingArchitectureTests(unittest.TestCase):
-    def test_compatibility_facade_forwards_to_responsibility_modules(self):
-        self.assertIs(reporting.resolve_plot_output_path, resolve_plot_output_path)
-        self.assertIs(reporting.save_evaluation_yaml, save_evaluation_yaml)
-        self.assertIs(reporting.save_evaluation_plot, save_evaluation_plot)
-        self.assertIs(
-            reporting.write_evaluation_tensorboard_result,
-            write_evaluation_tensorboard_result,
+    def test_reporting_functions_have_responsibility_specific_owners(self):
+        expected_modules = (
+            (resolve_plot_output_path, "eval.report_paths"),
+            (save_evaluation_yaml, "eval.result_serialization"),
+            (save_evaluation_plot, "eval.report_plots"),
+            (
+                write_evaluation_tensorboard_result,
+                "eval.tensorboard_reporting",
+            ),
+            (
+                _read_domain_shift_result_report,
+                "eval.domain_shift_summaries",
+            ),
         )
-        self.assertIs(
-            reporting._read_domain_shift_result_report,
-            _read_domain_shift_result_report,
-        )
+        for function, module_name in expected_modules:
+            with self.subTest(function=function.__name__):
+                self.assertEqual(function.__module__, module_name)
 
     def test_plot_yaml_txt_and_summary_paths_keep_historical_names(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
@@ -230,7 +235,7 @@ class ReportingArchitectureTests(unittest.TestCase):
                 encoding="utf-8",
             )
             parsed = _read_domain_shift_result_report(report_path)
-            metadata = reporting.read_report_metadata(report_path)
+            metadata = read_report_metadata(report_path)
 
         self.assertEqual(parsed["branch"], "source")
         self.assertEqual(parsed["seed"], 42)

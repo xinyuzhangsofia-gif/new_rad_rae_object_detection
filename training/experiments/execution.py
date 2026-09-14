@@ -155,7 +155,7 @@ def _record_experiment_result(
             f"Experiment queue result: {report_path} -> {updated_path}",
             flush=True,
         )
-        from eval.reporting import refresh_total_result_summary
+        from eval.domain_shift_summaries import refresh_total_result_summary
 
         refresh_total_result_summary(results_base_dir)
     return report_path, report
@@ -281,7 +281,7 @@ def _launch_parallel_evaluation_task(
 def _refresh_completed_weather_summaries(results_base_dir, report_paths):
     if not report_paths:
         return
-    from eval.reporting import refresh_weather_domain_shift_summary
+    from eval.domain_shift_summaries import refresh_weather_domain_shift_summary
 
     base_path = Path(str(results_base_dir)).expanduser()
     if not base_path.is_absolute():
@@ -301,4 +301,3 @@ def _refresh_completed_weather_summaries(results_base_dir, report_paths):
             base_dir=base_path,
             weather_group=weather_name,
         )
-

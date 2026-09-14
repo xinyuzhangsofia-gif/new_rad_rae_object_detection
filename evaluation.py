@@ -19,7 +19,14 @@ from eval.decoding import *  # noqa: F401,F403
 from eval.evaluation_config import *  # noqa: F401,F403
 from eval.inference import *  # noqa: F401,F403
 from eval.metrics_runner import *  # noqa: F401,F403
-from eval.reporting import *  # noqa: F401,F403
+from eval.domain_shift_summaries import *  # noqa: F401,F403
+from eval.report_paths import *  # noqa: F401,F403
+from eval.report_plots import *  # noqa: F401,F403
+from eval.result_metadata import *  # noqa: F401,F403
+from eval.result_selection import *  # noqa: F401,F403
+from eval.result_serialization import *  # noqa: F401,F403
+from eval.result_serialization import _plain_text_table  # noqa: F401
+from eval.tensorboard_reporting import *  # noqa: F401,F403
 from eval.runner import *  # noqa: F401,F403
 from eval.workflow import main
 

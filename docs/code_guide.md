@@ -320,7 +320,6 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [eval/kitti_eval/rotate_iou_cpu.py](../eval/kitti_eval/rotate_iou_cpu.py) | 145 | 旋转矩形 IoU 的 CPU 多边形裁剪后备实现。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/metrics_runner.py](../eval/metrics_runner.py) | — | 收集 GT/预测标注并运行 K-Radar、四分位和训练期指标。 | 固定距离、Polar AP 与独立 loss pass 已删除。 |
 | [eval/nuscenes_style.py](../eval/nuscenes_style.py) | 425 | 实现适配后的 nuScenes 中心距离 AP 及平移、尺度、方向误差。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [eval/reporting.py](../eval/reporting.py) | — | 旧 `eval.reporting` 导入的兼容 facade。 | 只转发下列正式实现，不保留第二份逻辑。 |
 | [eval/report_paths.py](../eval/report_paths.py) | — | 构造 plot、YAML、TXT、weather/test/pair 目录和稳定文件名。 | 保持既有目录层级、日期/冲突后缀与 domain-shift 文件名。 |
 | [eval/result_serialization.py](../eval/result_serialization.py) | — | 格式化终端/TXT 表，写读 YAML，读取 TXT metadata。 | 保留字段顺序、四位小数、未知 YAML 字段和历史缺省值。 |
 | [eval/result_selection.py](../eval/result_selection.py) | — | 选择主指标结果与 group-best checkpoint。 | 分别保留首次最高值及同分最早 epoch 规则。 |

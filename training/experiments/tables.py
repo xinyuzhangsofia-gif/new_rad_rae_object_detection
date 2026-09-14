@@ -473,7 +473,7 @@ def find_fresh_experiment_result(
         started_at,
     ):
     """Find the result report produced by the just-completed evaluation."""
-    from eval.reporting import _read_domain_shift_result_report
+    from eval.domain_shift_summaries import _read_domain_shift_result_report
 
     base_path = Path(str(results_base_dir)).expanduser()
     if not base_path.is_absolute():

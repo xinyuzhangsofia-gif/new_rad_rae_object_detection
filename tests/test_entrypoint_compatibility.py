@@ -13,7 +13,7 @@ from eval.evaluation_config import (
 )
 from eval.metrics_runner import evaluate_train_val_iou
 from eval.inference import infer_and_decode
-from eval.reporting import attach_evaluation_main_metric
+from eval.result_selection import attach_evaluation_main_metric
 from eval.workflow import main as evaluation_workflow_main
 from training.runner import (
     build_train_args,

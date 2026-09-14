@@ -10,7 +10,7 @@ import numpy as np
 
 from eval.evaluation_config import parse_args
 from eval.metrics_runner import run_kradar_eval_revised
-from eval.reporting import (
+from eval.result_serialization import (
     format_epoch_range_average_ap_summary,
     format_eval_table,
     save_eval_table_txt,
