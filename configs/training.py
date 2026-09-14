@@ -29,7 +29,6 @@ TRAIN_CONFIG = {
     "heatmap_radius": 3,
     "centerpoint_gwd_loss_weight": 2.0,
     "quality_loss_weight": 0.25,
-    "init_from_checkpoint": "",
 
     # Target classes and ignored GT regions.
     "include_bus_as_target": True,
@@ -46,18 +45,28 @@ TRAIN_CONFIG = {
         "Motorcycle",
     ),
 
-    # Training-time evaluation and checkpoint selection.
-    "eval_train": False,
+    # Training-time evaluation.
     "training_eval_enabled": True,
-    "best_metric_key": "auto",
-    "official_eval_enabled": None,
-    "official_eval_version": "revised",
-    "official_eval_iou_backend": "gpu",
-    "official_eval_iou_mode": "easy",
-    "official_detection_metrics_enabled": False,
-    "ap_score_thresh": 0.01,
-    "score_thresh": 0.3,
+    "training_eval_train_set_enabled": False,
+    "training_eval_best_metric_key": "auto",
+    "training_eval_official_enabled": None,
+    "training_eval_official_version": "revised",
+    "training_eval_iou_backend": "gpu",
+    "training_eval_iou_mode": "easy",
+    "training_eval_detection_metrics_enabled": False,
+    "training_eval_ap_score_thresh": 0.01,
+    "training_eval_score_thresh": 0.3,
+    "training_eval_polar_enabled": False,
+    "training_eval_polar_iou_thresholds": (0.3, 0.5),
+    "training_eval_coco_style_enabled": False,
+    "training_eval_nuscenes_style_enabled": False,
     "train_scope": SCOPE_FULL,
+
+    # Post-training automatic evaluation.
+    "post_training_eval_enabled": False,
+    # post_training_eval_min_free_memory_mb comes from configs/runtime.py.
+
+    # Standalone evaluation lives exclusively in configs/evaluation.py.
 
     # Ordinary train/validation split.
     "split_mode": "kradar_file",
@@ -70,10 +79,8 @@ TRAIN_CONFIG = {
     "limit_samples": None,
     "checkpoint_epoch_step": 1,
     "checkpoint_base_dir": CHECKPOINT_BASE_DIR,
-    "checkpoint_layout": "legacy",
     "checkpoint_filename_style": "compact",
     "log_base_dir": LOG_BASE_DIR,
-    "post_training_eval_enabled": False,
     "model_type": "model7",
     "model7_decoder_hidden_channels": "64",
 

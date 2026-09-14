@@ -102,9 +102,9 @@ class CoordinateModeTests(unittest.TestCase):
         polar_args = SimpleNamespace(
             box_coordinate_mode="polar",
             cartesian_gt_root=None,
-            polar_iou_thresholds=(0.3, 0.5),
+            training_eval_polar_iou_thresholds=(0.3, 0.5),
             model_type="model7",
-            best_metric_key="auto",
+            training_eval_best_metric_key="auto",
         )
         with self.assertRaisesRegex(ValueError, "Only Cartesian"):
             apply_training_coordinate_mode(polar_args)
@@ -112,13 +112,13 @@ class CoordinateModeTests(unittest.TestCase):
         cartesian_args = SimpleNamespace(
             box_coordinate_mode="cartesian",
             cartesian_gt_root="/labels",
-            polar_iou_thresholds=(0.3, 0.5),
+            training_eval_polar_iou_thresholds=(0.3, 0.5),
             model_type="model7",
-            best_metric_key="auto",
+            training_eval_best_metric_key="auto",
         )
         apply_training_coordinate_mode(cartesian_args)
-        self.assertTrue(cartesian_args.official_eval_enabled)
-        self.assertFalse(cartesian_args.polar_eval_enabled)
+        self.assertTrue(cartesian_args.training_eval_official_enabled)
+        self.assertFalse(cartesian_args.training_eval_polar_enabled)
         self.assertEqual(cartesian_args.configured_model_type, "model7")
         self.assertEqual(cartesian_args.model_type, "model7")
         self.assertEqual(
@@ -141,10 +141,10 @@ class CoordinateModeTests(unittest.TestCase):
             args = SimpleNamespace(
                 box_coordinate_mode="cartesian",
                 cartesian_gt_root="/labels",
-                polar_iou_thresholds=(0.3, 0.5),
+                training_eval_polar_iou_thresholds=(0.3, 0.5),
                 model_type="model7",
                 loss_mode=requested_mode,
-                best_metric_key="auto",
+                training_eval_best_metric_key="auto",
             )
             apply_training_coordinate_mode(args)
             self.assertEqual(

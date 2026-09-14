@@ -48,12 +48,34 @@ class ConfigCompatibilityTests(unittest.TestCase):
             "split_mode": "kradar_file",
             "include_bus_as_target": True,
             "checkpoint_base_dir": "checkpoints",
-            "checkpoint_layout": "legacy",
             "checkpoint_filename_style": "compact",
         }
         self.assertEqual({key: TRAIN_CONFIG[key] for key in expected}, expected)
+        self.assertNotIn("checkpoint_layout", TRAIN_CONFIG)
         self.assertNotIn("train_ratio", TRAIN_CONFIG)
         self.assertNotIn("train_ratio", EVAL_CONFIG)
+
+    def test_evaluation_workflow_configuration_is_explicitly_separated(self):
+        self.assertTrue(TRAIN_CONFIG["training_eval_enabled"])
+        self.assertFalse(TRAIN_CONFIG["training_eval_train_set_enabled"])
+        self.assertFalse(TRAIN_CONFIG["post_training_eval_enabled"])
+        self.assertIn("post_training_eval_min_free_memory_mb", TRAIN_CONFIG)
+        for ambiguous_name in (
+            "eval_train",
+            "best_metric_key",
+            "official_eval_enabled",
+            "official_eval_version",
+            "official_eval_iou_backend",
+            "official_eval_iou_mode",
+            "official_detection_metrics_enabled",
+            "ap_score_thresh",
+            "score_thresh",
+        ):
+            self.assertNotIn(ambiguous_name, TRAIN_CONFIG)
+
+        self.assertIn("official_eval_version", EVAL_CONFIG)
+        self.assertIn("ap_score_thresh", EVAL_CONFIG)
+        self.assertNotIn("training_eval_enabled", EVAL_CONFIG)
 
     def test_evaluation_runtime_and_output_paths_are_aggregated(self):
         for key, value in EVALUATION_RUNTIME_CONFIG.items():

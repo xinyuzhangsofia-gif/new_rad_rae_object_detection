@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest import mock
 
 from training_utils.experiment_queue import (
-    _run_parallel_experiment_queue,
     _run_seed_two_phase_experiment_queue,
     build_experiment_training_config,
     experiment_queue_lock,
@@ -271,10 +270,7 @@ class ExperimentQueueTests(unittest.TestCase):
                     {
                         "experiment_sheet_path": str(sheet_path),
                         "experiment_queue_branches": ("source", "target"),
-                    },
-                    train_function=lambda _config: self.fail(
-                        "Training must not start for identical train sets."
-                    ),
+                    }
                 )
 
     def test_only_one_master_queue_can_lock_a_sheet(self):
@@ -349,153 +345,6 @@ class ExperimentQueueTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "overlap"):
             validate_parallel_gpu_strategy("isolated", slots)
-
-    def test_parallel_scheduler_launches_two_trains_then_two_evaluations(self):
-        class CompletedProcess:
-            next_pid = 1000
-
-            def __init__(self):
-                self.pid = CompletedProcess.next_pid
-                CompletedProcess.next_pid += 1
-
-            def poll(self):
-                return 0
-
-            def terminate(self):
-                return None
-
-            def kill(self):
-                return None
-
-            def wait(self, timeout=None):
-                return 0
-
-        with tempfile.TemporaryDirectory() as temporary_dir:
-            sheet_path = self.write_sheet(temporary_dir)
-            experiments = load_domain_shift_experiments(sheet_path)
-            experiment = next(
-                item for item in experiments if item.name == "第二组"
-            )
-            from training_utils.experiment_queue import (
-                ExperimentQueueTask,
-            )
-
-            tasks = [
-                ExperimentQueueTask(1, experiment, "source"),
-                ExperimentQueueTask(2, experiment, "target"),
-            ]
-            events = []
-            evaluation_gpus = []
-
-            def fake_train_launch(
-                    base_config,
-                    task,
-                    gpu_slot,
-                    session_dir,
-                ):
-                events.append(("train", task.branch, gpu_slot))
-                return {
-                    "process": CompletedProcess(),
-                    "task": task,
-                    "gpu_slot": gpu_slot,
-                    "result_path": Path(temporary_dir) / "result.json",
-                    "log_path": Path(temporary_dir) / "train.log",
-                    "log_file": None,
-                    "started_at": 0.0,
-                }
-
-            def fake_eval_launch(
-                    pending_state,
-                    physical_gpu_id,
-                    session_dir,
-                ):
-                task = pending_state["task"]
-                events.append(("eval", task.branch, physical_gpu_id))
-                evaluation_gpus.append(physical_gpu_id)
-                return {
-                    "process": CompletedProcess(),
-                    "task": task,
-                    "checkpoint_root": Path(temporary_dir),
-                    "physical_gpu_id": physical_gpu_id,
-                    "log_path": Path(temporary_dir) / "eval.log",
-                    "log_file": None,
-                    "started_at": 0.0,
-                }
-
-            gpu_status = [
-                {
-                    "index": index,
-                    "free_memory_mb": 12000,
-                    "total_memory_mb": 16000,
-                    "utilization_percent": 0,
-                }
-                for index in range(3)
-            ]
-            with mock.patch(
-                "training_utils.experiment_queue."
-                "_launch_parallel_training_task",
-                side_effect=fake_train_launch,
-            ), mock.patch(
-                "training_utils.experiment_queue."
-                "_launch_parallel_evaluation_task",
-                side_effect=fake_eval_launch,
-            ), mock.patch(
-                "training_utils.experiment_queue."
-                "_read_training_job_result",
-                return_value=Path(temporary_dir),
-            ), mock.patch(
-                "training_utils.experiment_queue."
-                "_record_experiment_result",
-                return_value=(
-                    Path(temporary_dir) / "overcast" / "report.txt",
-                    {"bev_ap": 10.0, "threed_ap": 8.0},
-                ),
-            ), mock.patch(
-                "training_utils.experiment_queue.query_gpu_status",
-                return_value=gpu_status,
-            ), mock.patch(
-                "training_utils.experiment_queue."
-                "_refresh_completed_weather_summaries",
-            ):
-                launched = _run_parallel_experiment_queue(
-                    base_config={
-                        "experiment_queue_train_workers": 2,
-                        "experiment_queue_eval_workers": 2,
-                        "experiment_queue_gpu_strategy": "shared_dynamic",
-                        "experiment_queue_train_gpu_slots": (
-                            "0,1,2",
-                            "0,1,2",
-                        ),
-                        "experiment_queue_eval_gpu_pool": "0,1,2",
-                        "experiment_queue_eval_min_free_memory_mb": 4000,
-                        "experiment_queue_eval_reservation_memory_mb": 3500,
-                        "experiment_queue_poll_seconds": 0.1,
-                        "gpu_ids": "0,1,2",
-                        "log_base_dir": temporary_dir,
-                    },
-                    tasks=tasks,
-                    total_steps=2,
-                    sheet_path=sheet_path,
-                    results_base_dir=temporary_dir,
-                    update_sheet_results=False,
-                )
-
-        self.assertEqual(
-            events[:2],
-            [
-                ("train", "source", "0,1,2"),
-                ("train", "target", "0,1,2"),
-            ],
-        )
-        self.assertEqual(
-            {event[:2] for event in events[2:]},
-            {("eval", "source"), ("eval", "target")},
-        )
-        self.assertEqual(len(set(evaluation_gpus)), 2)
-        self.assertEqual(
-            launched,
-            [("第二组", "source"), ("第二组", "target")],
-        )
 
     def test_parallel_restart_reuses_checkpoint_instead_of_retraining(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
@@ -597,6 +446,7 @@ class ExperimentQueueTests(unittest.TestCase):
 
             events = []
             evaluation_sheets = []
+            result_update_flags = []
 
             def fake_train_launch(
                     base_config,
@@ -640,8 +490,9 @@ class ExperimentQueueTests(unittest.TestCase):
                     "started_at": 0.0,
                 }
 
-            def fake_record(sheet_path, **_kwargs):
+            def fake_record(sheet_path, update_sheet_results, **_kwargs):
                 evaluation_sheets.append(Path(sheet_path).stem)
+                result_update_flags.append(update_sheet_results)
                 return (
                     root / Path(sheet_path).stem / "report.txt",
                     {"bev_ap": 10.0, "threed_ap": 8.0},
@@ -701,7 +552,7 @@ class ExperimentQueueTests(unittest.TestCase):
                     seed=42,
                     table_batches=tuple(table_batches),
                     results_base_dir=root,
-                    update_sheet_results=False,
+                    update_sheet_results=True,
                 )
 
         phases = [event[0] for event in events]
@@ -715,6 +566,7 @@ class ExperimentQueueTests(unittest.TestCase):
             "heavy_snow_experiments",
             "sleet_experiments",
         })
+        self.assertEqual(result_update_flags, [True] * 4)
         self.assertEqual(len(launched), 4)
 
     def test_training_worker_returns_its_checkpoint_without_evaluation(self):
@@ -752,84 +604,6 @@ class ExperimentQueueTests(unittest.TestCase):
         self.assertFalse(observed["config"]["post_training_eval_enabled"])
         self.assertTrue(observed["child"])
 
-    def test_runs_rows_in_source_then_target_order(self):
-        with tempfile.TemporaryDirectory() as temporary_dir:
-            sheet_path = self.write_sheet(temporary_dir)
-            observed = []
-            with mock.patch(
-                "training_utils.experiment_queue."
-                "ensure_no_other_top_level_train_process",
-                return_value=True,
-            ):
-                launched = run_domain_shift_experiment_queue(
-                    {
-                        "experiment_sheet_path": str(sheet_path),
-                        "experiment_queue_branches": ("source", "target"),
-                        "experiment_queue_skip_completed_branches": False,
-                        "experiment_queue_update_sheet_results": False,
-                        "seed": 42,
-                    },
-                    train_function=lambda config: observed.append((
-                        config["shared_train_sequences"],
-                        config["domain_shift_train_branch"],
-                    )),
-                )
-
-        self.assertEqual(observed, [
-            ((12,), "source"),
-            ((12,), "target"),
-            ((9,), "source"),
-            ((9,), "target"),
-        ])
-        self.assertEqual(len(launched), 4)
-
-    def test_runs_multiple_weather_tables_without_manual_restart(self):
-        with tempfile.TemporaryDirectory() as temporary_dir:
-            first_dir = Path(temporary_dir) / "heavy_snow"
-            second_dir = Path(temporary_dir) / "sleet"
-            first_dir.mkdir()
-            second_dir.mkdir()
-            first_sheet = self.write_sheet(first_dir)
-            second_sheet = self.write_sheet(second_dir)
-            observed = []
-
-            with mock.patch(
-                "training_utils.experiment_queue."
-                "ensure_no_other_top_level_train_process",
-                return_value=True,
-            ):
-                launched = run_domain_shift_experiment_queue(
-                    {
-                        "experiment_sheet_paths": (
-                            str(first_sheet),
-                            str(second_sheet),
-                        ),
-                        "experiment_queue_branches": ("source", "target"),
-                        "experiment_queue_skip_completed_branches": False,
-                        "experiment_queue_update_sheet_results": False,
-                        "seed": 42,
-                    },
-                    train_function=lambda config: observed.append((
-                        Path(config["experiment_sheet_path"]).parent.name,
-                        config["domain_shift_train_branch"],
-                    )),
-                )
-
-        self.assertEqual(
-            observed,
-            [
-                ("heavy_snow", "source"),
-                ("heavy_snow", "target"),
-                ("heavy_snow", "source"),
-                ("heavy_snow", "target"),
-                ("sleet", "source"),
-                ("sleet", "target"),
-                ("sleet", "source"),
-                ("sleet", "target"),
-            ],
-        )
-        self.assertEqual(len(launched), 8)
-
     def test_multi_weather_queue_runs_all_weather_for_each_seed(self):
         def write_seeded_sheet(directory, weather_name):
             path = Path(directory) / f"{weather_name}_experiments.csv"
@@ -863,10 +637,24 @@ class ExperimentQueueTests(unittest.TestCase):
             )
             observed = []
 
+            def fake_seed_queue(seed, table_batches, **_kwargs):
+                launched = []
+                for _index, sheet_path, _steps, tasks in table_batches:
+                    observed.append((seed, Path(sheet_path).stem))
+                    launched.extend(
+                        (task.experiment.name, task.branch)
+                        for task in tasks
+                    )
+                return launched
+
             with mock.patch(
                 "training_utils.experiment_queue."
                 "ensure_no_other_top_level_train_process",
                 return_value=True,
+            ), mock.patch(
+                "training_utils.experiment_queue."
+                "_run_seed_two_phase_experiment_queue",
+                side_effect=fake_seed_queue,
             ):
                 launched = run_domain_shift_experiment_queue(
                     {
@@ -880,11 +668,7 @@ class ExperimentQueueTests(unittest.TestCase):
                         "experiment_queue_skip_completed_branches": False,
                         "experiment_queue_update_sheet_results": False,
                         "seed": 42,
-                    },
-                    train_function=lambda config: observed.append((
-                        config["seed"],
-                        Path(config["experiment_sheet_path"]).stem,
-                    )),
+                    }
                 )
 
         self.assertEqual(observed, [
@@ -930,6 +714,10 @@ class ExperimentQueueTests(unittest.TestCase):
                     seed,
                     tuple(Path(batch[1]).stem for batch in table_batches),
                     sum(len(batch[3]) for batch in table_batches),
+                    tuple(
+                        tuple(task.branch for task in batch[3])
+                        for batch in table_batches
+                    ),
                 ))
                 return []
 
@@ -947,7 +735,6 @@ class ExperimentQueueTests(unittest.TestCase):
                         "experiment_sheet_paths": tuple(map(str, sheets)),
                         "experiment_queue_order": "seed_then_weather",
                         "experiment_queue_seed_order": (42, 43),
-                        "experiment_queue_execution_mode": "seed_two_phase",
                         "experiment_queue_branches": ("source", "target"),
                         "experiment_queue_skip_completed_branches": False,
                         "experiment_queue_update_sheet_results": False,
@@ -955,8 +742,7 @@ class ExperimentQueueTests(unittest.TestCase):
                         "experiment_queue_train_workers": 3,
                         "experiment_queue_eval_workers": 18,
                         "seed": 42,
-                    },
-                    train_function=lambda _config: None,
+                    }
                 )
 
         self.assertEqual(observed, [
@@ -964,11 +750,13 @@ class ExperimentQueueTests(unittest.TestCase):
                 42,
                 ("heavy_snow_experiments", "sleet_experiments"),
                 4,
+                (("source", "target"), ("source", "target")),
             ),
             (
                 43,
                 ("heavy_snow_experiments", "sleet_experiments"),
                 4,
+                (("source", "target"), ("source", "target")),
             ),
         ])
 
@@ -976,10 +764,27 @@ class ExperimentQueueTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_dir:
             sheet_path = self.write_sheet(temporary_dir)
             observed = []
+
+            def fake_seed_queue(table_batches, **_kwargs):
+                tasks = [
+                    task
+                    for _index, _path, _steps, batch_tasks in table_batches
+                    for task in batch_tasks
+                ]
+                observed.extend(task.branch for task in tasks)
+                return [
+                    (task.experiment.name, task.branch)
+                    for task in tasks
+                ]
+
             with mock.patch(
                 "training_utils.experiment_queue."
                 "ensure_no_other_top_level_train_process",
                 return_value=True,
+            ), mock.patch(
+                "training_utils.experiment_queue."
+                "_run_seed_two_phase_experiment_queue",
+                side_effect=fake_seed_queue,
             ):
                 run_domain_shift_experiment_queue(
                     {
@@ -988,10 +793,7 @@ class ExperimentQueueTests(unittest.TestCase):
                         "experiment_queue_skip_completed_branches": True,
                         "experiment_queue_update_sheet_results": False,
                         "seed": 42,
-                    },
-                    train_function=lambda config: observed.append(
-                        config["domain_shift_train_branch"]
-                    ),
+                    }
                 )
 
         self.assertEqual(observed, ["source", "target"])

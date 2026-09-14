@@ -25,7 +25,7 @@ def validate_resume_args(args):
 
 
 def _validate_resume_options(args):
-    if args.resume_checkpoint == "":
+    if args.resume_checkpoint in (None, ""):
         raise ValueError(
             "Set RESUME_CONFIG['resume_checkpoint'] in "
             "configs/resume.py before running train_resume.py"
@@ -88,9 +88,8 @@ def load_resume_checkpoint(
     ):
         raise ValueError(
             f"Checkpoint num_classes={checkpoint_num_classes}, but current "
-            f"config expects num_classes={expected_num_classes}. Use "
-            "init_from_checkpoint for 2-class -> 1-class initialization "
-            "instead of train_resume.py."
+            f"config expects num_classes={expected_num_classes}. Resume "
+            "Training requires matching model class counts."
         )
     if (
         expected_include_bus_as_target is not None

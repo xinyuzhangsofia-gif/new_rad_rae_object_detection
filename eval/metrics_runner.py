@@ -768,38 +768,45 @@ def evaluate_train_val_iou(
         polar_iou_thresholds=None,
         box_coordinate_mode=BOX_COORDINATE_POLAR,
     ):
-    del train_dataloader
-    del evaluate_train
+    evaluation_kwargs = {
+        "model": model,
+        "device": device,
+        "num_classes": num_classes,
+        "official_class_name_map": official_class_name_map,
+        "prepare_model_inputs": prepare_model_inputs,
+        "max_detections": max_detections,
+        "heatmap_nms_kernel": heatmap_nms_kernel,
+        "heatmap_score_mode": heatmap_score_mode,
+        "yolox_nms_iou": yolox_nms_iou,
+        "scope_mode": scope_mode,
+        "official_eval_enabled": official_eval_enabled,
+        "official_eval_version": official_eval_version,
+        "official_eval_iou_backend": official_eval_iou_backend,
+        "official_eval_iou_mode": official_eval_iou_mode,
+        "official_detection_metrics_enabled": official_detection_metrics_enabled,
+        "custom_iou_range_eval_enabled": custom_iou_range_eval_enabled,
+        "custom_iou_thresholds": custom_iou_thresholds,
+        "coco_style_eval_enabled": coco_style_eval_enabled,
+        "nuscenes_style_eval_enabled": nuscenes_style_eval_enabled,
+        "ap_score_thresh": ap_score_thresh,
+        "detection_score_thresh": detection_score_thresh,
+        "polar_eval_enabled": polar_eval_enabled,
+        "polar_iou_thresholds": polar_iou_thresholds,
+        "box_coordinate_mode": box_coordinate_mode,
+    }
+    train_eval_metrics = None
+    if evaluate_train:
+        train_eval_metrics = evaluate_checkpoint_with_kradar_revised(
+            dataloader=train_dataloader,
+            **evaluation_kwargs,
+        )
 
     val_eval_metrics = evaluate_checkpoint_with_kradar_revised(
-        model=model,
         dataloader=val_dataloader,
-        device=device,
-        num_classes=num_classes,
-        official_class_name_map=official_class_name_map,
-        prepare_model_inputs=prepare_model_inputs,
-        max_detections=max_detections,
-        heatmap_nms_kernel=heatmap_nms_kernel,
-        heatmap_score_mode=heatmap_score_mode,
-        yolox_nms_iou=yolox_nms_iou,
-        scope_mode=scope_mode,
-        official_eval_enabled=official_eval_enabled,
-        official_eval_version=official_eval_version,
-        official_eval_iou_backend=official_eval_iou_backend,
-        official_eval_iou_mode=official_eval_iou_mode,
-        official_detection_metrics_enabled=official_detection_metrics_enabled,
-        custom_iou_range_eval_enabled=custom_iou_range_eval_enabled,
-        custom_iou_thresholds=custom_iou_thresholds,
-        coco_style_eval_enabled=coco_style_eval_enabled,
-        nuscenes_style_eval_enabled=nuscenes_style_eval_enabled,
-        ap_score_thresh=ap_score_thresh,
-        detection_score_thresh=detection_score_thresh,
-        polar_eval_enabled=polar_eval_enabled,
-        polar_iou_thresholds=polar_iou_thresholds,
-        box_coordinate_mode=box_coordinate_mode,
+        **evaluation_kwargs,
     )
 
     return {
-        "train_eval_metrics": None,
+        "train_eval_metrics": train_eval_metrics,
         "val_eval_metrics": val_eval_metrics,
     }

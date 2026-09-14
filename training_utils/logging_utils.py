@@ -1,76 +1,6 @@
 import os
-from datetime import datetime
 
 from torch.utils.tensorboard import SummaryWriter
-
-from training_utils.checkpoints import format_timestamp_model_sequence_run_name
-
-
-def print_training_history(history):
-    if len(history) == 0:
-        return
-
-    has_heatmap = any(("train_heatmap_loss" in row) or ("val_heatmap_loss" in row) for row in history)
-    has_detection_eval = any("val_mAP" in row for row in history)
-    has_selection = any("selection_metric_value" in row for row in history)
-
-    print("\nTraining history")
-    header = (
-        f"{'epoch':>5} "
-        f"{'train_loss':>11} "
-        f"{'train_box':>10} "
-        f"{'train_cls':>10} "
-    )
-    if has_heatmap:
-        header += f"{'train_hm':>10} "
-    header += (
-        f"{'val_loss':>9} "
-        f"{'val_box':>9} "
-        f"{'val_cls':>9} "
-    )
-    if has_heatmap:
-        header += f"{'val_hm':>9} "
-    if has_detection_eval:
-        header += (
-            f"{'BEV@0.3':>9} "
-            f"{'3D@0.3':>8} "
-            f"{'tp':>6} "
-            f"{'fp':>6} "
-            f"{'fn':>6} "
-        )
-    if has_selection:
-        header += f"{'Sel':>9}"
-    header = header.rstrip()
-    print(header)
-    print("-" * len(header))
-
-    for row in history:
-        line = (
-            f"{row['epoch']:5d} "
-            f"{row['train_loss']:11.4f} "
-            f"{row['train_box_loss']:10.4f} "
-            f"{row['train_cls_loss']:10.4f} "
-        )
-        if has_heatmap:
-            line += f"{row.get('train_heatmap_loss', 0.0):10.4f} "
-        line += (
-            f"{row['val_loss']:9.4f} "
-            f"{row['val_box_loss']:9.4f} "
-            f"{row['val_cls_loss']:9.4f} "
-        )
-        if has_heatmap:
-            line += f"{row.get('val_heatmap_loss', 0.0):9.4f} "
-        if has_detection_eval:
-            line += (
-                f"{row.get('val_bev_mAP_0.3', row['val_mAP']):9.4f} "
-                f"{row.get('val_3d_mAP_0.3', 0.0):8.4f} "
-                f"{int(row.get('val_detection_tp', 0)):6d} "
-                f"{int(row.get('val_detection_fp', 0)):6d} "
-                f"{int(row.get('val_detection_fn', 0)):6d} "
-            )
-        if has_selection:
-            line += f"{row['selection_metric_value']:9.4f}"
-        print(line.rstrip())
 
 
 def print_epoch_evaluation_summary(epoch, val_metrics, f1):
@@ -129,9 +59,7 @@ def print_epoch_evaluation_summary(epoch, val_metrics, f1):
 
 def create_tensorboard_writer(
         base_dir,
-        experiment_name,
-        sequence,
-        model_type=None,
+        run_relative_path=None,
         existing_log_dir=None,
     ):
     if existing_log_dir not in (None, ""):
@@ -139,12 +67,14 @@ def create_tensorboard_writer(
         if not os.path.isdir(log_dir):
             raise FileNotFoundError(
                 f"TensorBoard resume directory not found: {log_dir}"
-            )
+        )
         return SummaryWriter(log_dir=log_dir)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    run_name = format_timestamp_model_sequence_run_name(sequence, model_type, timestamp)
-    log_dir = os.path.join(base_dir, experiment_name, run_name)
+    if run_relative_path in (None, ""):
+        raise ValueError(
+            "run_relative_path is required when creating a TensorBoard run"
+        )
+    log_dir = os.path.join(base_dir, os.fspath(run_relative_path))
 
     suffix = 1
     unique_log_dir = log_dir
@@ -183,15 +113,19 @@ def write_tensorboard_run_config(
         train_sequence_half_selection=None,
         train_sequence_half_ratio=None,
         training_eval_enabled=True,
-        best_metric_key=None,
-        official_eval_enabled=False,
-        official_eval_version="revised",
-        official_eval_iou_backend="auto",
-        official_eval_iou_mode="easy",
-        polar_eval_enabled=False,
-        polar_iou_thresholds=None,
-        coco_style_eval_enabled=False,
-        nuscenes_style_eval_enabled=False,
+        training_eval_train_set_enabled=False,
+        training_eval_best_metric_key=None,
+        training_eval_official_enabled=False,
+        training_eval_official_version="revised",
+        training_eval_iou_backend="auto",
+        training_eval_iou_mode="easy",
+        training_eval_detection_metrics_enabled=False,
+        training_eval_ap_score_thresh=0.01,
+        training_eval_score_thresh=0.3,
+        training_eval_polar_enabled=False,
+        training_eval_polar_iou_thresholds=None,
+        training_eval_coco_style_enabled=False,
+        training_eval_nuscenes_style_enabled=False,
         gt_object_ignore_override_path=None,
         train_control_split_enabled=False,
         train_control_split_dir=None,
@@ -231,6 +165,7 @@ def write_tensorboard_run_config(
         f"test_sequence_weather: {test_sequence_weather}",
         f"cartesian_gt_root: {cartesian_gt_root}",
         f"training_eval_enabled: {training_eval_enabled}",
+        f"training_eval_train_set_enabled: {training_eval_train_set_enabled}",
         f"num_epochs: {num_epochs}",
         f"batch_size: {batch_size}",
         f"train_size: {train_size}",
@@ -239,15 +174,18 @@ def write_tensorboard_run_config(
         f"max_detections: {max_detections}",
         f"num_classes: {num_classes}",
         f"class_names: {class_names}",
-        f"best_metric_key: {best_metric_key}",
-        f"official_eval_enabled: {official_eval_enabled}",
-        f"official_eval_version: {official_eval_version}",
-        f"official_eval_iou_backend: {official_eval_iou_backend}",
-        f"official_eval_iou_mode: {official_eval_iou_mode}",
-        f"polar_eval_enabled: {polar_eval_enabled}",
-        f"polar_iou_thresholds: {polar_iou_thresholds}",
-        f"coco_style_eval_enabled: {coco_style_eval_enabled}",
-        f"nuscenes_style_eval_enabled: {nuscenes_style_eval_enabled}",
+        f"training_eval_best_metric_key: {training_eval_best_metric_key}",
+        f"training_eval_official_enabled: {training_eval_official_enabled}",
+        f"training_eval_official_version: {training_eval_official_version}",
+        f"training_eval_iou_backend: {training_eval_iou_backend}",
+        f"training_eval_iou_mode: {training_eval_iou_mode}",
+        f"training_eval_detection_metrics_enabled: {training_eval_detection_metrics_enabled}",
+        f"training_eval_ap_score_thresh: {training_eval_ap_score_thresh}",
+        f"training_eval_score_thresh: {training_eval_score_thresh}",
+        f"training_eval_polar_enabled: {training_eval_polar_enabled}",
+        f"training_eval_polar_iou_thresholds: {training_eval_polar_iou_thresholds}",
+        f"training_eval_coco_style_enabled: {training_eval_coco_style_enabled}",
+        f"training_eval_nuscenes_style_enabled: {training_eval_nuscenes_style_enabled}",
         f"gt_object_ignore_override_path: {gt_object_ignore_override_path}",
         f"train_control_split_enabled: {train_control_split_enabled}",
         f"train_control_split_dir: {train_control_split_dir}",

@@ -14,11 +14,6 @@ from domain_shift_tables import (
     DEFAULT_SEQUENCE_INFO_PATH,
     load_sequence_information,
 )
-from training_utils.checkpoint_init import (
-    adapt_checkpoint_to_sedan_only,
-    print_checkpoint_init_summary,
-)
-from training_utils.torch_load import load_torch_checkpoint
 
 
 DEFAULT_IGNORE_CLASS_NAMES = (
@@ -420,8 +415,8 @@ def apply_training_coordinate_mode(args):
             if configured_model_type == "model7"
             else "radenet_official"
         )
-    args.official_eval_enabled = True
-    args.polar_eval_enabled = False
+    args.training_eval_official_enabled = True
+    args.training_eval_polar_enabled = False
 
     return args
 
@@ -688,40 +683,3 @@ def build_model15_lr_scheduler(args, optimizer, num_train_samples):
         T_max=total_iter,
         eta_min=OFFICIAL_MODEL15_MIN_LR,
     )
-
-
-def _checkpoint_state_dict(checkpoint):
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        return checkpoint["model_state_dict"]
-    return checkpoint
-
-
-def initialize_model_from_checkpoint(
-        model,
-        checkpoint_path,
-        map_location,
-        include_bus_as_target,
-    ):
-    if checkpoint_path in (None, ""):
-        return None
-
-    if not include_bus_as_target:
-        checkpoint, summary = adapt_checkpoint_to_sedan_only(
-            model=model,
-            checkpoint_path=checkpoint_path,
-            map_location=map_location,
-        )
-        print_checkpoint_init_summary(summary)
-        return checkpoint
-
-    checkpoint = load_torch_checkpoint(checkpoint_path, map_location=map_location)
-    state_dict = _checkpoint_state_dict(checkpoint)
-    load_result = model.load_state_dict(state_dict, strict=False)
-
-    print(f"Initialized model from: {checkpoint_path}")
-    if load_result.missing_keys:
-        print(f"  missing keys after load: {list(load_result.missing_keys)}")
-    if load_result.unexpected_keys:
-        print(f"  unexpected keys after load: {list(load_result.unexpected_keys)}")
-
-    return checkpoint

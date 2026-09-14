@@ -21,7 +21,11 @@ from data.dataloader import (
 from eval.evaluation_config import resolve_official_eval_class_name_map
 from eval.metrics_runner import evaluate_train_val_iou
 from models import MODEL_TYPES, build_model
-from training_utils.checkpoints import create_checkpoint_run_dirs, EXPERIMENT_NAME
+from training_utils.checkpoints import (
+    checkpoint_run_relative_path,
+    create_checkpoint_run_dirs,
+    EXPERIMENT_NAME,
+)
 from training_utils.configuration import (
     apply_domain_shift_training_configuration,
     apply_model15_lr_defaults,
@@ -29,7 +33,6 @@ from training_utils.configuration import (
     apply_test_sequence_weather_configuration,
     apply_training_coordinate_mode,
     build_model15_lr_scheduler,
-    initialize_model_from_checkpoint,
     model_uses_separate_quality_loss,
     prepare_controlled_train_data,
     resolve_loss_mode,
@@ -45,7 +48,6 @@ from training_utils.logging_utils import (
     write_tensorboard_run_config,
 )
 from training_utils.other_helping_functions import (
-    append_training_history,
     BestCheckpointState,
     build_epoch_eval_metrics,
     save_epoch_and_update_best_checkpoint,
@@ -90,10 +92,10 @@ def prepare_training_configuration(args):
         raise ValueError("checkpoint_epoch_step must be greater than 0")
     if (
         getattr(args, "training_eval_enabled", True)
-        and getattr(args, "official_eval_enabled", False)
-        and getattr(args, "official_eval_iou_backend", "auto") == "auto"
+        and getattr(args, "training_eval_official_enabled", False)
+        and getattr(args, "training_eval_iou_backend", "auto") == "auto"
     ):
-        args.official_eval_iou_backend = "cpu"
+        args.training_eval_iou_backend = "cpu"
 
     return args
 
@@ -235,7 +237,6 @@ def build_training_components(
     gpu_ids,
     train_dataset,
     loss_mode,
-    initialize_from_checkpoint=True,
 ):
     """Build model, DataParallel wrapper, optimizer, and scheduler in order."""
     model = build_model(
@@ -250,14 +251,6 @@ def build_training_components(
         box_coordinate_mode=args.box_coordinate_mode,
         loss_mode=loss_mode,
     )
-    if initialize_from_checkpoint:
-        initialize_model_from_checkpoint(
-            model=model,
-            checkpoint_path=getattr(args, "init_from_checkpoint", ""),
-            map_location=device,
-            include_bus_as_target=args.include_bus_as_target,
-        )
-
     if len(gpu_ids) > 1:
         model = torch.nn.DataParallel(
             model,
@@ -290,7 +283,16 @@ def create_training_checkpoint_directories(args, configured_sequences):
         train_sequence_half_ratio=getattr(
             args, "train_sequence_half_ratio", None
         ),
-        checkpoint_layout=getattr(args, "checkpoint_layout", "legacy"),
+        domain_shift_experiment_enabled=getattr(
+            args,
+            "domain_shift_experiment_enabled",
+            False,
+        ),
+        domain_shift_train_branch=getattr(
+            args,
+            "domain_shift_train_branch",
+            None,
+        ),
         weather_group=getattr(args, "weather_group", None),
         train_sequences=args.train_sequences,
         test_sequences=args.val_sequences,
@@ -341,24 +343,48 @@ def write_training_run_config(
             args, "train_sequence_half_ratio", None
         ),
         training_eval_enabled=getattr(args, "training_eval_enabled", True),
-        best_metric_key=(
-            getattr(args, "best_metric_key", "auto")
+        training_eval_train_set_enabled=getattr(
+            args,
+            "training_eval_train_set_enabled",
+            False,
+        ),
+        training_eval_best_metric_key=(
+            getattr(args, "training_eval_best_metric_key", "auto")
             if getattr(args, "training_eval_enabled", True)
             else None
         ),
-        official_eval_enabled=getattr(args, "official_eval_enabled", False),
-        official_eval_version=getattr(args, "official_eval_version", "revised"),
-        official_eval_iou_backend=getattr(
-            args, "official_eval_iou_backend", "auto"
+        training_eval_official_enabled=getattr(
+            args, "training_eval_official_enabled", False
         ),
-        official_eval_iou_mode=getattr(args, "official_eval_iou_mode", "easy"),
-        polar_eval_enabled=getattr(args, "polar_eval_enabled", False),
-        polar_iou_thresholds=getattr(args, "polar_iou_thresholds", None),
-        coco_style_eval_enabled=getattr(
-            args, "coco_style_eval_enabled", False
+        training_eval_official_version=getattr(
+            args, "training_eval_official_version", "revised"
         ),
-        nuscenes_style_eval_enabled=getattr(
-            args, "nuscenes_style_eval_enabled", False
+        training_eval_iou_backend=getattr(
+            args, "training_eval_iou_backend", "auto"
+        ),
+        training_eval_iou_mode=getattr(
+            args, "training_eval_iou_mode", "easy"
+        ),
+        training_eval_detection_metrics_enabled=getattr(
+            args, "training_eval_detection_metrics_enabled", False
+        ),
+        training_eval_ap_score_thresh=getattr(
+            args, "training_eval_ap_score_thresh", 0.01
+        ),
+        training_eval_score_thresh=getattr(
+            args, "training_eval_score_thresh", 0.3
+        ),
+        training_eval_polar_enabled=getattr(
+            args, "training_eval_polar_enabled", False
+        ),
+        training_eval_polar_iou_thresholds=getattr(
+            args, "training_eval_polar_iou_thresholds", None
+        ),
+        training_eval_coco_style_enabled=getattr(
+            args, "training_eval_coco_style_enabled", False
+        ),
+        training_eval_nuscenes_style_enabled=getattr(
+            args, "training_eval_nuscenes_style_enabled", False
         ),
         gt_object_ignore_override_path=getattr(
             args, "gt_object_ignore_override_path", None
@@ -389,29 +415,49 @@ def _training_evaluation_kwargs(args, include_detection_metrics_setting):
         "prepare_model_inputs": prepare_model_inputs,
         "max_detections": args.max_detections,
         "scope_mode": args.train_scope,
-        "evaluate_train": args.eval_train,
-        "official_eval_enabled": getattr(args, "official_eval_enabled", False),
-        "official_eval_version": getattr(args, "official_eval_version", "revised"),
-        "official_eval_iou_backend": getattr(
-            args, "official_eval_iou_backend", "auto"
+        "evaluate_train": getattr(
+            args,
+            "training_eval_train_set_enabled",
+            False,
         ),
-        "official_eval_iou_mode": getattr(args, "official_eval_iou_mode", "easy"),
+        "official_eval_enabled": getattr(
+            args, "training_eval_official_enabled", False
+        ),
+        "official_eval_version": getattr(
+            args, "training_eval_official_version", "revised"
+        ),
+        "official_eval_iou_backend": getattr(
+            args, "training_eval_iou_backend", "auto"
+        ),
+        "official_eval_iou_mode": getattr(
+            args, "training_eval_iou_mode", "easy"
+        ),
         "coco_style_eval_enabled": getattr(
-            args, "coco_style_eval_enabled", False
+            args, "training_eval_coco_style_enabled", False
         ),
         "nuscenes_style_eval_enabled": getattr(
-            args, "nuscenes_style_eval_enabled", False
+            args, "training_eval_nuscenes_style_enabled", False
         ),
-        "ap_score_thresh": getattr(args, "ap_score_thresh", 0.01),
-        "detection_score_thresh": getattr(args, "score_thresh", 0.3),
-        "polar_eval_enabled": getattr(args, "polar_eval_enabled", False),
-        "polar_iou_thresholds": getattr(args, "polar_iou_thresholds", (0.3, 0.5)),
+        "ap_score_thresh": getattr(
+            args, "training_eval_ap_score_thresh", 0.01
+        ),
+        "detection_score_thresh": getattr(
+            args, "training_eval_score_thresh", 0.3
+        ),
+        "polar_eval_enabled": getattr(
+            args, "training_eval_polar_enabled", False
+        ),
+        "polar_iou_thresholds": getattr(
+            args,
+            "training_eval_polar_iou_thresholds",
+            (0.3, 0.5),
+        ),
         "box_coordinate_mode": args.box_coordinate_mode,
     }
     if include_detection_metrics_setting:
         kwargs["official_detection_metrics_enabled"] = getattr(
             args,
-            "official_detection_metrics_enabled",
+            "training_eval_detection_metrics_enabled",
             True,
         )
     return kwargs
@@ -437,7 +483,6 @@ def run_training_epochs(
     print_saved_checkpoints=False,
 ):
     """Run the common ordered train/validate/evaluate/save epoch sequence."""
-    history = []
     for epoch_number in range(start_epoch, end_epoch + 1):
         train_metrics = train_one_epoch(
             model=model,
@@ -493,10 +538,14 @@ def run_training_epochs(
             eval_metrics=eval_metrics,
             val_loss_metrics=val_loss_metrics,
             training_eval_enabled=getattr(args, "training_eval_enabled", True),
-            best_metric_key=getattr(args, "best_metric_key", "auto"),
-            official_eval_enabled=getattr(args, "official_eval_enabled", False),
+            best_metric_key=getattr(
+                args, "training_eval_best_metric_key", "auto"
+            ),
+            official_eval_enabled=getattr(
+                args, "training_eval_official_enabled", False
+            ),
             official_eval_iou_mode=getattr(
-                args, "official_eval_iou_mode", "easy"
+                args, "training_eval_iou_mode", "easy"
             ),
         )
         print_epoch_evaluation_summary(
@@ -533,14 +582,6 @@ def run_training_epochs(
         )
         if print_saved_checkpoints and checkpoint_path is not None:
             print(f"Saved checkpoint: {checkpoint_path}")
-        append_training_history(
-            history=history,
-            epoch=epoch_number,
-            train_metrics=train_metrics,
-            val_metrics=val_metrics,
-            f1=f1,
-        )
-    return history
 
 
 def run_training(
@@ -584,7 +625,6 @@ def run_training(
         gpu_ids=gpu_ids,
         train_dataset=train_dataset,
         loss_mode=loss_mode,
-        initialize_from_checkpoint=restore_training_state is None,
     )
 
     start_epoch = 1
@@ -610,11 +650,15 @@ def run_training(
     if print_checkpoint_directory:
         print(f"Saving checkpoints to: {checkpoint_dir}")
 
+    tensorboard_run_relative_path = None
+    if existing_tensorboard_log_dir in (None, ""):
+        tensorboard_run_relative_path = checkpoint_run_relative_path(
+            checkpoint_dir,
+            args.checkpoint_base_dir,
+        )
     writer = create_tensorboard_writer(
         base_dir=args.log_base_dir,
-        experiment_name=EXPERIMENT_NAME,
-        sequence=configured_sequences,
-        model_type=args.run_model_type,
+        run_relative_path=tensorboard_run_relative_path,
         existing_log_dir=existing_tensorboard_log_dir,
     )
     write_training_run_config(
@@ -687,13 +731,7 @@ def main(train_config=None, _experiment_queue_child=False):
         not _experiment_queue_child
         and bool(config.get("experiment_queue_enabled", False))
     ):
-        return run_domain_shift_experiment_queue(
-            base_config=config,
-            train_function=lambda child_config: main(
-                child_config,
-                _experiment_queue_child=True,
-            ),
-        )
+        return run_domain_shift_experiment_queue(base_config=config)
 
     args = build_train_args(train_config=train_config)
     return run_training(args)

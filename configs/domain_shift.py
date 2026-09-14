@@ -21,7 +21,6 @@ EXPERIMENT_QUEUE_CONFIG = {
     ),
     "experiment_queue_order": "seed_then_weather",
     "experiment_queue_seed_order": (42, 43, 44),
-    "experiment_queue_execution_mode": "seed_two_phase",
     "experiment_queue_branches": ("source", "target"),
     "experiment_queue_skip_completed_branches": True,
     "experiment_queue_update_sheet_results": True,

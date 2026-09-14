@@ -86,7 +86,6 @@ def evaluate_checkpoint_result(
         model=model,
         checkpoint_path=checkpoint_path,
         device=device,
-        include_bus_as_target=args.include_bus_as_target,
     )
 
     metrics = {}

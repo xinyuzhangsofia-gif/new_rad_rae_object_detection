@@ -8,8 +8,7 @@ import copy
 import os
 import re
 import time
-from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 
@@ -21,16 +20,12 @@ from training_utils.experiments.execution import (
     _read_training_job_result,
     _record_experiment_result,
     _refresh_completed_weather_summaries,
-    _run_sequential_experiment_queue,
     _terminate_running_processes,
-    _write_training_job_config,
     build_experiment_training_config,
 )
 from training_utils.experiments.scheduling import (
-    _effective_train_signature,
     build_experiment_queue_tasks,
     ensure_no_other_top_level_train_process,
-    find_other_top_level_train_processes,
     normalize_parallel_gpu_slots,
     normalize_queue_branches,
     select_parallel_evaluation_gpu as _select_parallel_evaluation_gpu,
@@ -40,18 +35,13 @@ from training_utils.experiments.scheduling import (
 from training_utils.experiments.schema import (
     DomainShiftExperiment,
     ExperimentQueueTask,
-    QUEUE_TASK_IDENTITY_VERSION,
     VALID_BRANCHES,
 )
 from training_utils.experiments.state import (
     _load_queue_state,
-    _process_is_alive,
-    _queue_state_path,
     _queue_task_slug,
-    _queue_task_state_key,
     _recover_parallel_queue_tasks,
     _update_queue_task_state,
-    _write_queue_state,
     experiment_queue_lock,
 )
 from training_utils.experiments.tables import (
@@ -87,11 +77,9 @@ from training_utils.experiments.tables import (
     validate_experiment_sheet_is_full,
 )
 from training_utils.post_training_evaluation import (
-    prepare_post_training_evaluation_launch,
     query_gpu_status,
     resolve_candidate_physical_gpu_ids,
 )
-from training_utils.runtime import parse_gpu_ids
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -116,333 +104,6 @@ def select_parallel_evaluation_gpu(
         gpu_status=gpu_status,
         max_active_per_gpu=max_active_per_gpu,
     )
-
-
-def _run_parallel_experiment_queue(
-        base_config,
-        tasks,
-        total_steps,
-        sheet_path,
-        results_base_dir,
-        update_sheet_results,
-    ):
-    train_worker_count = int(
-        base_config.get("experiment_queue_train_workers", 2)
-    )
-    evaluation_worker_count = int(
-        base_config.get("experiment_queue_eval_workers", 2)
-    )
-    if train_worker_count <= 0 or evaluation_worker_count <= 0:
-        raise ValueError(
-            "experiment_queue_train_workers and "
-            "experiment_queue_eval_workers must both be positive."
-        )
-
-    train_gpu_slots = normalize_parallel_gpu_slots(
-        base_config.get("experiment_queue_train_gpu_slots"),
-        worker_count=train_worker_count,
-        fallback_gpu_ids=base_config.get("gpu_ids", "0"),
-    )
-    gpu_strategy = validate_parallel_gpu_strategy(
-        base_config.get(
-            "experiment_queue_gpu_strategy",
-            "shared_dynamic",
-        ),
-        train_gpu_slots,
-    )
-    evaluation_gpu_pool_text = str(
-        base_config.get(
-            "experiment_queue_eval_gpu_pool",
-            base_config.get("gpu_ids", "0"),
-        )
-    )
-    evaluation_gpu_ids = tuple(resolve_candidate_physical_gpu_ids(
-        evaluation_gpu_pool_text,
-    ))
-    min_free_memory_mb = int(
-        base_config.get(
-            "experiment_queue_eval_min_free_memory_mb",
-            base_config.get("post_training_eval_min_free_memory_mb", 4096),
-        )
-    )
-    reservation_memory_mb = int(
-        base_config.get(
-            "experiment_queue_eval_reservation_memory_mb",
-            min_free_memory_mb,
-        )
-    )
-    poll_seconds = max(
-        0.1,
-        float(base_config.get("experiment_queue_poll_seconds", 1.0)),
-    )
-
-    log_base_dir = Path(
-        str(base_config.get("log_base_dir", "runs"))
-    ).expanduser()
-    if not log_base_dir.is_absolute():
-        log_base_dir = PROJECT_ROOT / log_base_dir
-    session_name = (
-        datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        + f"_pid{os.getpid()}"
-    )
-    session_dir = log_base_dir / "experiment_queue" / session_name
-    session_dir.mkdir(parents=True, exist_ok=False)
-
-    print(
-        "Parallel experiment queue: "
-        f"train_workers={train_worker_count}, "
-        f"eval_workers={evaluation_worker_count}, "
-        f"strategy={gpu_strategy}, train_gpu_slots={train_gpu_slots}, "
-        f"eval_gpu_pool={evaluation_gpu_ids}, logs={session_dir}",
-        flush=True,
-    )
-
-    (
-        queue_state_path,
-        queue_state,
-        pending_train,
-        pending_evaluation,
-    ) = _recover_parallel_queue_tasks(
-        tasks=tasks,
-        sheet_path=sheet_path,
-    )
-    available_train_slots = list(range(train_worker_count))
-    active_train = {}
-    active_evaluation = {}
-    active_evaluation_gpu_counts = {
-        int(gpu_id): 0
-        for gpu_id in evaluation_gpu_ids
-    }
-    completed = []
-    completed_report_paths = []
-    last_memory_wait_message = 0.0
-
-    try:
-        while (
-            pending_train
-            or pending_evaluation
-            or active_train
-            or active_evaluation
-        ):
-            for process_id, state in list(active_train.items()):
-                return_code = state["process"].poll()
-                if return_code is None:
-                    continue
-                _close_process_log(state)
-                active_train.pop(process_id)
-                available_train_slots.append(state["slot_index"])
-                available_train_slots.sort()
-                if return_code != 0:
-                    _update_queue_task_state(
-                        queue_state_path,
-                        queue_state,
-                        state["task"],
-                        "training_failed",
-                        pid=state["process"].pid,
-                        log_path=str(state["log_path"]),
-                        return_code=int(return_code),
-                    )
-                    raise RuntimeError(
-                        f"Training task {state['task'].label} failed with "
-                        f"exit code {return_code}. See {state['log_path']}."
-                    )
-                checkpoint_root = _read_training_job_result(
-                    state["result_path"]
-                )
-                _update_queue_task_state(
-                    queue_state_path,
-                    queue_state,
-                    state["task"],
-                    "trained",
-                    checkpoint_root=str(checkpoint_root),
-                    train_log_path=str(state["log_path"]),
-                )
-                pending_evaluation.append({
-                    "task": state["task"],
-                    "checkpoint_root": checkpoint_root,
-                })
-                print(
-                    f"Experiment queue: training completed for "
-                    f"{state['task'].label}; evaluation queued; "
-                    f"checkpoint={checkpoint_root}",
-                    flush=True,
-                )
-
-            for process_id, state in list(active_evaluation.items()):
-                return_code = state["process"].poll()
-                if return_code is None:
-                    continue
-                _close_process_log(state)
-                active_evaluation.pop(process_id)
-                gpu_id = state["physical_gpu_id"]
-                active_evaluation_gpu_counts[gpu_id] -= 1
-                if return_code != 0:
-                    _update_queue_task_state(
-                        queue_state_path,
-                        queue_state,
-                        state["task"],
-                        "evaluation_failed",
-                        pid=state["process"].pid,
-                        checkpoint_root=str(state["checkpoint_root"]),
-                        log_path=str(state["log_path"]),
-                        return_code=int(return_code),
-                    )
-                    raise RuntimeError(
-                        f"Evaluation task {state['task'].label} failed with "
-                        f"exit code {return_code}. See {state['log_path']}."
-                    )
-                report_path, report = _record_experiment_result(
-                    sheet_path=sheet_path,
-                    results_base_dir=results_base_dir,
-                    task=state["task"],
-                    evaluation_started_at=state["started_at"],
-                    update_sheet_results=update_sheet_results,
-                )
-                _update_queue_task_state(
-                    queue_state_path,
-                    queue_state,
-                    state["task"],
-                    "completed",
-                    checkpoint_root=str(state["checkpoint_root"]),
-                    evaluation_log_path=str(state["log_path"]),
-                    report_path=str(report_path),
-                    bev_ap=float(report["bev_ap"]),
-                    threed_ap=float(report["threed_ap"]),
-                )
-                completed_report_paths.append(report_path)
-                completed.append((
-                    state["task"].ordinal,
-                    state["task"].experiment.name,
-                    state["task"].branch,
-                ))
-                print(
-                    f"Experiment queue [{state['task'].ordinal}/"
-                    f"{total_steps}]: completed {state['task'].label}.",
-                    flush=True,
-                )
-
-            evaluation_waiting_for_memory = False
-            while (
-                pending_evaluation
-                and len(active_evaluation) < evaluation_worker_count
-            ):
-                selected_gpu = select_parallel_evaluation_gpu(
-                    candidate_gpu_ids=evaluation_gpu_ids,
-                    active_gpu_counts=active_evaluation_gpu_counts,
-                    min_free_memory_mb=min_free_memory_mb,
-                    reservation_memory_mb=reservation_memory_mb,
-                )
-                if selected_gpu is None:
-                    evaluation_waiting_for_memory = True
-                    now = time.monotonic()
-                    if now - last_memory_wait_message >= 30.0:
-                        print(
-                            "Experiment queue: evaluation is waiting for "
-                            f"{min_free_memory_mb} MiB free GPU memory; "
-                            "new training launches are temporarily paused.",
-                            flush=True,
-                        )
-                        last_memory_wait_message = now
-                    break
-                pending_state = pending_evaluation.pop(0)
-                evaluation_state = _launch_parallel_evaluation_task(
-                    pending_state=pending_state,
-                    physical_gpu_id=selected_gpu["index"],
-                    session_dir=session_dir,
-                )
-                process_id = evaluation_state["process"].pid
-                active_evaluation[process_id] = evaluation_state
-                active_evaluation_gpu_counts[
-                    evaluation_state["physical_gpu_id"]
-                ] += 1
-                _update_queue_task_state(
-                    queue_state_path,
-                    queue_state,
-                    evaluation_state["task"],
-                    "evaluating",
-                    pid=evaluation_state["process"].pid,
-                    checkpoint_root=str(
-                        evaluation_state["checkpoint_root"]
-                    ),
-                    physical_gpu_id=int(
-                        evaluation_state["physical_gpu_id"]
-                    ),
-                    log_path=str(evaluation_state["log_path"]),
-                )
-                print(
-                    f"Experiment queue: evaluation started for "
-                    f"{evaluation_state['task'].label} on physical "
-                    f"cuda:{evaluation_state['physical_gpu_id']} "
-                    f"({selected_gpu['free_memory_mb']} MiB reported free, "
-                    f"log={evaluation_state['log_path']}).",
-                    flush=True,
-                )
-
-            while (
-                pending_train
-                and available_train_slots
-                and not evaluation_waiting_for_memory
-            ):
-                slot_index = available_train_slots.pop(0)
-                task = pending_train.pop(0)
-                gpu_slot = train_gpu_slots[slot_index]
-                _print_experiment_task_start(
-                    task,
-                    total_steps,
-                    gpu_slot=gpu_slot,
-                )
-                train_state = _launch_parallel_training_task(
-                    base_config=base_config,
-                    task=task,
-                    gpu_slot=gpu_slot,
-                    session_dir=session_dir,
-                )
-                train_state["slot_index"] = slot_index
-                active_train[train_state["process"].pid] = train_state
-                _update_queue_task_state(
-                    queue_state_path,
-                    queue_state,
-                    task,
-                    "training",
-                    pid=train_state["process"].pid,
-                    gpu_ids=str(gpu_slot),
-                    log_path=str(train_state["log_path"]),
-                )
-                print(
-                    f"Experiment queue: training subprocess pid="
-                    f"{train_state['process'].pid}, "
-                    f"log={train_state['log_path']}",
-                    flush=True,
-                )
-
-            if (
-                pending_evaluation
-                and not active_train
-                and not active_evaluation
-                and evaluation_waiting_for_memory
-            ):
-                time.sleep(poll_seconds)
-                continue
-            if active_train or active_evaluation:
-                time.sleep(poll_seconds)
-
-    except BaseException:
-        _terminate_running_processes(active_train, active_evaluation)
-        raise
-    finally:
-        for state in active_train.values():
-            _close_process_log(state)
-        for state in active_evaluation.values():
-            _close_process_log(state)
-
-    _refresh_completed_weather_summaries(
-        results_base_dir=results_base_dir,
-        report_paths=completed_report_paths,
-    )
-    return [
-        (name, branch)
-        for _ordinal, name, branch in sorted(completed)
-    ]
 
 
 def _experiment_sheet_runtime_tag(sheet_path):
@@ -863,8 +524,8 @@ def _run_seed_two_phase_experiment_queue(
     ]
 
 
-def run_domain_shift_experiment_queue(base_config, train_function):
-    """Run one continuous queue across one or more ordered weather tables."""
+def run_domain_shift_experiment_queue(base_config):
+    """Run the seed-two-phase queue across ordered weather tables."""
     sheet_paths = resolve_experiment_sheet_paths(base_config)
     ensure_no_other_top_level_train_process()
     with ExitStack() as lock_stack:
@@ -891,10 +552,10 @@ def run_domain_shift_experiment_queue(base_config, train_function):
             "evaluation_plots",
         )
         train_workers = int(
-            base_config.get("experiment_queue_train_workers", 1)
+            base_config.get("experiment_queue_train_workers", 3)
         )
         evaluation_workers = int(
-            base_config.get("experiment_queue_eval_workers", 1)
+            base_config.get("experiment_queue_eval_workers", 18)
         )
         queue_order = str(
             base_config.get(
@@ -902,29 +563,11 @@ def run_domain_shift_experiment_queue(base_config, train_function):
                 "seed_then_weather",
             )
         ).strip().lower()
-        if queue_order not in {"seed_then_weather", "weather_then_seed"}:
+        if queue_order != "seed_then_weather":
             raise ValueError(
-                "experiment_queue_order must be 'seed_then_weather' or "
-                f"'weather_then_seed', got {queue_order!r}."
-            )
-        execution_mode = str(
-            base_config.get(
-                "experiment_queue_execution_mode",
-                "pipelined",
-            )
-        ).strip().lower()
-        if execution_mode not in {"pipelined", "seed_two_phase"}:
-            raise ValueError(
-                "experiment_queue_execution_mode must be 'pipelined' or "
-                f"'seed_two_phase', got {execution_mode!r}."
-            )
-        if (
-            execution_mode == "seed_two_phase"
-            and queue_order != "seed_then_weather"
-        ):
-            raise ValueError(
-                "seed_two_phase execution requires "
-                "experiment_queue_order='seed_then_weather'."
+                "The experiment queue requires "
+                "experiment_queue_order='seed_then_weather', got "
+                f"{queue_order!r}."
             )
 
         prepared_tables = []
@@ -956,197 +599,94 @@ def run_domain_shift_experiment_queue(base_config, train_function):
             f"tables={len(prepared_tables)}, rows={total_rows}, "
             f"branches={branches}, pending={total_pending}, "
             f"skip_completed={skip_completed}, order={queue_order}, "
-            f"execution={execution_mode}",
+            "execution=seed_two_phase",
             flush=True,
         )
 
         seed_queue_batches = []
-        if queue_order == "seed_then_weather":
-            available_seeds = {
-                int(experiment.seed)
-                for _path, experiments, _steps, _tasks in prepared_tables
-                for experiment in experiments
-            }
-            configured_seed_order = base_config.get(
-                "experiment_queue_seed_order",
-                (42, 43, 44),
-            )
-            if isinstance(configured_seed_order, str):
-                configured_seed_order = tuple(
-                    part.strip()
-                    for part in configured_seed_order.split(",")
-                    if part.strip()
-                )
+        available_seeds = {
+            int(experiment.seed)
+            for _path, experiments, _steps, _tasks in prepared_tables
+            for experiment in experiments
+        }
+        configured_seed_order = base_config.get(
+            "experiment_queue_seed_order",
+            (42, 43, 44),
+        )
+        if isinstance(configured_seed_order, str):
             configured_seed_order = tuple(
-                int(seed)
-                for seed in configured_seed_order
+                part.strip()
+                for part in configured_seed_order.split(",")
+                if part.strip()
             )
-            if len(set(configured_seed_order)) != len(
-                configured_seed_order
-            ):
-                raise ValueError(
-                    "experiment_queue_seed_order contains duplicate seeds: "
-                    f"{configured_seed_order}."
-                )
-            seeds = [
-                seed
-                for seed in configured_seed_order
-                if seed in available_seeds
-            ]
-            seeds.extend(sorted(
-                available_seeds.difference(configured_seed_order)
-            ))
-            queue_batches = []
-            for seed_index, seed in enumerate(seeds, start=1):
-                current_seed_batches = []
-                for table_index, prepared_table in enumerate(
-                    prepared_tables,
-                    start=1,
-                ):
-                    sheet_path, experiments, total_steps, tasks = (
-                        prepared_table
-                    )
-                    seed_experiments = tuple(
-                        experiment
-                        for experiment in experiments
-                        if int(experiment.seed) == seed
-                    )
-                    if not seed_experiments:
-                        continue
-                    seed_tasks = tuple(
-                        task
-                        for task in tasks
-                        if int(task.experiment.seed) == seed
-                    )
-                    current_seed_batches.append((
-                        table_index,
-                        sheet_path,
-                        total_steps,
-                        seed_tasks,
-                    ))
-                    queue_batches.append((
-                        seed_index,
-                        len(seeds),
-                        seed,
-                        table_index,
-                        sheet_path,
-                        seed_experiments,
-                        total_steps,
-                        seed_tasks,
-                    ))
-                seed_queue_batches.append((
-                    seed_index,
-                    len(seeds),
-                    seed,
-                    tuple(current_seed_batches),
-                ))
-        else:
-            queue_batches = []
+        configured_seed_order = tuple(
+            int(seed)
+            for seed in configured_seed_order
+        )
+        if len(set(configured_seed_order)) != len(configured_seed_order):
+            raise ValueError(
+                "experiment_queue_seed_order contains duplicate seeds: "
+                f"{configured_seed_order}."
+            )
+        seeds = [
+            seed
+            for seed in configured_seed_order
+            if seed in available_seeds
+        ]
+        seeds.extend(sorted(available_seeds.difference(configured_seed_order)))
+        for seed_index, seed in enumerate(seeds, start=1):
+            current_seed_batches = []
             for table_index, prepared_table in enumerate(
                 prepared_tables,
                 start=1,
             ):
                 sheet_path, experiments, total_steps, tasks = prepared_table
-                queue_batches.append((
-                    None,
-                    None,
-                    None,
+                if not any(
+                    int(experiment.seed) == seed
+                    for experiment in experiments
+                ):
+                    continue
+                seed_tasks = tuple(
+                    task
+                    for task in tasks
+                    if int(task.experiment.seed) == seed
+                )
+                current_seed_batches.append((
                     table_index,
                     sheet_path,
-                    tuple(experiments),
                     total_steps,
-                    tuple(tasks),
+                    seed_tasks,
                 ))
+            seed_queue_batches.append((
+                seed_index,
+                len(seeds),
+                seed,
+                tuple(current_seed_batches),
+            ))
 
         launched = []
-        if execution_mode == "seed_two_phase":
-            if train_workers <= 1 and evaluation_workers <= 1:
-                raise ValueError(
-                    "seed_two_phase execution requires parallel workers."
-                )
-            for seed_index, seed_count, seed, table_batches in (
-                seed_queue_batches
-            ):
-                print(
-                    f"Seed batch [{seed_index}/{seed_count}]={seed}: "
-                    f"weather_tables={len(table_batches)}, "
-                    f"pending={sum(len(batch[3]) for batch in table_batches)}",
-                    flush=True,
-                )
-                seed_launched = _run_seed_two_phase_experiment_queue(
-                    base_config=base_config,
-                    seed=seed,
-                    table_batches=table_batches,
-                    results_base_dir=results_base_dir,
-                    update_sheet_results=update_sheet_results,
-                )
-                launched.extend(seed_launched)
-                print(
-                    f"Seed batch [{seed_index}/{seed_count}]={seed} "
-                    f"completed ({len(seed_launched)} runs).",
-                    flush=True,
-                )
-
-            if bool(
-                base_config.get("experiment_queue_require_full_table", False)
-            ):
-                for sheet_path, _experiments, _total_steps, _tasks in (
-                    prepared_tables
-                ):
-                    validate_experiment_sheet_is_full(sheet_path)
+        if train_workers <= 1 and evaluation_workers <= 1:
+            raise ValueError(
+                "The seed-two-phase queue requires parallel workers."
+            )
+        for seed_index, seed_count, seed, table_batches in seed_queue_batches:
             print(
-                f"Multi-weather experiment queue completed: {len(launched)} "
-                f"training/evaluation runs across "
-                f"{len(prepared_tables)} tables.",
+                f"Seed batch [{seed_index}/{seed_count}]={seed}: "
+                f"weather_tables={len(table_batches)}, "
+                f"pending={sum(len(batch[3]) for batch in table_batches)}",
                 flush=True,
             )
-            return launched
-
-        for (
-            seed_index,
-            seed_count,
-            seed,
-            table_index,
-            sheet_path,
-            experiments,
-            total_steps,
-            tasks,
-        ) in queue_batches:
-            seed_label = ""
-            if seed is not None:
-                seed_label = f", seed [{seed_index}/{seed_count}]={seed}"
-            print(
-                f"Weather table [{table_index}/{len(prepared_tables)}]: "
-                f"{sheet_path} ({len(experiments)} rows, "
-                f"pending={len(tasks)}{seed_label})",
-                flush=True,
+            seed_launched = _run_seed_two_phase_experiment_queue(
+                base_config=base_config,
+                seed=seed,
+                table_batches=table_batches,
+                results_base_dir=results_base_dir,
+                update_sheet_results=update_sheet_results,
             )
-            table_config = copy.deepcopy(dict(base_config))
-            table_config["experiment_sheet_path"] = str(sheet_path)
-            if train_workers > 1 or evaluation_workers > 1:
-                table_launched = _run_parallel_experiment_queue(
-                    base_config=table_config,
-                    tasks=tasks,
-                    total_steps=total_steps,
-                    sheet_path=sheet_path,
-                    results_base_dir=results_base_dir,
-                    update_sheet_results=update_sheet_results,
-                )
-            else:
-                table_launched = _run_sequential_experiment_queue(
-                    base_config=table_config,
-                    train_function=train_function,
-                    tasks=tasks,
-                    total_steps=total_steps,
-                    sheet_path=sheet_path,
-                    results_base_dir=results_base_dir,
-                    update_sheet_results=update_sheet_results,
-                )
-            launched.extend(table_launched)
+            launched.extend(seed_launched)
             print(
-                f"Weather table [{table_index}/{len(prepared_tables)}] "
-                f"completed{seed_label}: {sheet_path.name} "
-                f"({len(table_launched)} runs).",
+                f"Seed batch [{seed_index}/{seed_count}]={seed} "
+                f"completed ({len(seed_launched)} runs).",
                 flush=True,
             )
 

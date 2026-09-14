@@ -1,5 +1,6 @@
 """Focused invariants for the shared normal/resume training workflow."""
 
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -9,13 +10,27 @@ from unittest import mock
 import torch
 
 from configs.training import RESUME_CONFIG, TRAIN_CONFIG
-from training_utils import resume, runner
+from configs.resume import RESUME_CONFIG_OVERRIDES
+from eval import metrics_runner
+from training_utils import configuration, resume, runner
 from training_utils.checkpoints import build_checkpoint_payload
 from training_utils.configuration import SUPPORTED_TRAINING_SPLIT_MODES
+from training_utils.logging_utils import write_tensorboard_run_config
 from training_utils.other_helping_functions import BestCheckpointState
 
 
 class SharedTrainingConfigurationTests(unittest.TestCase):
+    def test_warm_start_is_not_part_of_the_training_contract(self):
+        self.assertNotIn("init_from_checkpoint", TRAIN_CONFIG)
+        self.assertNotIn("init_from_checkpoint", RESUME_CONFIG)
+        self.assertNotIn(
+            "initialize_from_checkpoint",
+            inspect.signature(runner.build_training_components).parameters,
+        )
+        self.assertFalse(
+            hasattr(configuration, "initialize_model_from_checkpoint")
+        )
+
     def test_normal_and_resume_use_the_canonical_split_modes(self):
         self.assertEqual(
             SUPPORTED_TRAINING_SPLIT_MODES,
@@ -24,7 +39,11 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
         for split_mode in SUPPORTED_TRAINING_SPLIT_MODES:
             with self.subTest(split_mode=split_mode):
                 normal = dict(TRAIN_CONFIG, split_mode=split_mode)
-                resumed = dict(RESUME_CONFIG, split_mode=split_mode)
+                resumed = dict(
+                    RESUME_CONFIG,
+                    split_mode=split_mode,
+                    resume_checkpoint="checkpoint.pth",
+                )
                 self.assertEqual(runner.build_train_args(normal).split_mode, split_mode)
                 self.assertEqual(resume.build_resume_args(resumed).split_mode, split_mode)
 
@@ -52,7 +71,6 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
             model7_decoder_hidden_channels="64",
             box_coordinate_mode="cartesian",
             include_bus_as_target=True,
-            init_from_checkpoint="init.pth",
             lr=5e-5,
         )
         dataset = [object(), object()]
@@ -64,7 +82,6 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
                 "build_model",
                 side_effect=[torch.nn.Linear(2, 1), torch.nn.Linear(2, 1)],
             ) as build_model,
-            mock.patch.object(runner, "initialize_model_from_checkpoint") as init,
             mock.patch.object(
                 runner,
                 "build_model15_lr_scheduler",
@@ -77,7 +94,6 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
                 [],
                 dataset,
                 "centerpoint",
-                initialize_from_checkpoint=True,
             )
             resumed = runner.build_training_components(
                 args,
@@ -85,7 +101,6 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
                 [],
                 dataset,
                 "centerpoint",
-                initialize_from_checkpoint=False,
             )
 
         normal_optimizer = normal[1]
@@ -97,7 +112,6 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
             )
         self.assertIs(normal[2], schedulers[0])
         self.assertIs(resumed[2], schedulers[1])
-        init.assert_called_once()
         self.assertEqual(
             build_model.call_args_list[0].kwargs,
             build_model.call_args_list[1].kwargs,
@@ -110,7 +124,10 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
         run.assert_called_once()
 
         with mock.patch.object(resume, "run_training", return_value="resumed") as run:
-            result = resume.main(resume_config=dict(RESUME_CONFIG))
+            result = resume.main(resume_config=dict(
+                RESUME_CONFIG,
+                resume_checkpoint="checkpoint.pth",
+            ))
         self.assertEqual(result, "resumed")
         run.assert_called_once()
         self.assertEqual(run.call_args.args[0].epochs, RESUME_CONFIG["end_epoch"])
@@ -118,6 +135,12 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
             run.call_args.kwargs["restore_training_state"],
             resume.restore_resume_training_state,
         )
+
+    def test_resume_defaults_require_explicit_checkpoint_selection(self):
+        self.assertIsNone(RESUME_CONFIG_OVERRIDES["resume_checkpoint"])
+        self.assertIsNone(RESUME_CONFIG_OVERRIDES["resume_tensorboard_log_dir"])
+        with self.assertRaisesRegex(ValueError, "Set RESUME_CONFIG"):
+            resume.build_resume_args(dict(RESUME_CONFIG))
 
 
 class ResumeRestorationTests(unittest.TestCase):
@@ -310,6 +333,90 @@ class ResumeRestorationTests(unittest.TestCase):
 
 
 class SharedEpochWorkflowTests(unittest.TestCase):
+    def test_train_set_evaluation_uses_the_same_evaluator_before_validation(self):
+        train_loader = object()
+        val_loader = object()
+        train_metrics = {"mAP": 0.25}
+        val_metrics = {"mAP": 0.5}
+
+        with mock.patch.object(
+            metrics_runner,
+            "evaluate_checkpoint_with_kradar_revised",
+            side_effect=[train_metrics, val_metrics],
+        ) as evaluate:
+            result = metrics_runner.evaluate_train_val_iou(
+                model=object(),
+                train_dataloader=train_loader,
+                val_dataloader=val_loader,
+                device=torch.device("cpu"),
+                num_classes=2,
+                official_class_name_map={0: "Sedan", 1: "Bus or Truck"},
+                prepare_model_inputs=object(),
+                evaluate_train=True,
+            )
+
+        self.assertEqual(result["train_eval_metrics"], train_metrics)
+        self.assertEqual(result["val_eval_metrics"], val_metrics)
+        self.assertEqual(evaluate.call_count, 2)
+        self.assertIs(evaluate.call_args_list[0].kwargs["dataloader"], train_loader)
+        self.assertIs(evaluate.call_args_list[1].kwargs["dataloader"], val_loader)
+        train_kwargs = dict(evaluate.call_args_list[0].kwargs)
+        val_kwargs = dict(evaluate.call_args_list[1].kwargs)
+        train_kwargs.pop("dataloader")
+        val_kwargs.pop("dataloader")
+        self.assertEqual(train_kwargs, val_kwargs)
+
+    def test_validation_only_evaluation_remains_the_default(self):
+        val_loader = object()
+        val_metrics = {"mAP": 0.5}
+
+        with mock.patch.object(
+            metrics_runner,
+            "evaluate_checkpoint_with_kradar_revised",
+            return_value=val_metrics,
+        ) as evaluate:
+            result = metrics_runner.evaluate_train_val_iou(
+                model=object(),
+                train_dataloader=object(),
+                val_dataloader=val_loader,
+                device=torch.device("cpu"),
+                num_classes=1,
+                official_class_name_map={0: "Sedan"},
+                prepare_model_inputs=object(),
+            )
+
+        self.assertIsNone(result["train_eval_metrics"])
+        self.assertEqual(result["val_eval_metrics"], val_metrics)
+        evaluate.assert_called_once()
+        self.assertIs(evaluate.call_args.kwargs["dataloader"], val_loader)
+
+    def test_tensorboard_config_uses_training_scoped_evaluation_names(self):
+        writer = mock.Mock()
+        write_tensorboard_run_config(
+            writer=writer,
+            cfg=SimpleNamespace(sequence=1, sequences=(1,)),
+            num_epochs=2,
+            batch_size=1,
+            train_size=3,
+            val_size=2,
+            learning_rate=5e-5,
+            max_detections=64,
+            num_classes=1,
+            class_names=("Sedan",),
+            training_eval_enabled=True,
+            training_eval_train_set_enabled=False,
+            training_eval_best_metric_key="auto",
+            training_eval_official_enabled=True,
+        )
+
+        config_text = writer.add_text.call_args.args[1]
+        self.assertIn("training_eval_train_set_enabled: False", config_text)
+        self.assertIn("training_eval_best_metric_key: auto", config_text)
+        self.assertIn("training_eval_official_enabled: True", config_text)
+        self.assertNotIn("\neval_train:", config_text)
+        self.assertNotIn("\nbest_metric_key:", config_text)
+        self.assertNotIn("\nofficial_eval_enabled:", config_text)
+
     def test_epoch_operation_order_and_numbering_are_shared(self):
         events = []
         args = SimpleNamespace(
@@ -321,9 +428,9 @@ class SharedEpochWorkflowTests(unittest.TestCase):
             num_classes=2,
             box_coordinate_mode="cartesian",
             training_eval_enabled=False,
-            best_metric_key="auto",
-            official_eval_enabled=False,
-            official_eval_iou_mode="easy",
+            training_eval_best_metric_key="auto",
+            training_eval_official_enabled=False,
+            training_eval_iou_mode="easy",
             checkpoint_epoch_step=1,
         )
         optimizer = SimpleNamespace(param_groups=[{"lr": 5e-5}])
@@ -369,13 +476,8 @@ class SharedEpochWorkflowTests(unittest.TestCase):
                 "save_epoch_and_update_best_checkpoint",
                 side_effect=lambda **kw: record("checkpoint", kw["epoch"]),
             ),
-            mock.patch.object(
-                runner,
-                "append_training_history",
-                side_effect=lambda **kw: record("history", kw["epoch"]),
-            ),
         ):
-            runner.run_training_epochs(
+            result = runner.run_training_epochs(
                 args=args,
                 cfg=object(),
                 model=object(),
@@ -392,6 +494,7 @@ class SharedEpochWorkflowTests(unittest.TestCase):
                 loss_mode="centerpoint",
             )
 
+        self.assertIsNone(result)
         self.assertEqual(
             events,
             [
@@ -401,7 +504,6 @@ class SharedEpochWorkflowTests(unittest.TestCase):
                 ("summary", 8),
                 ("tensorboard", 8),
                 ("checkpoint", 8),
-                ("history", 8),
             ],
         )
 
@@ -418,6 +520,16 @@ class SharedEpochWorkflowTests(unittest.TestCase):
             model_type="model7",
             seed=42,
             limit_samples=None,
+            training_eval_enabled=True,
+            training_eval_train_set_enabled=False,
+            training_eval_best_metric_key="auto",
+            training_eval_official_enabled=True,
+            training_eval_official_version="revised",
+            training_eval_iou_backend="gpu",
+            training_eval_iou_mode="easy",
+            training_eval_detection_metrics_enabled=False,
+            training_eval_ap_score_thresh=0.01,
+            training_eval_score_thresh=0.3,
         )
         payload = build_checkpoint_payload(
             model=model,
@@ -458,6 +570,28 @@ class SharedEpochWorkflowTests(unittest.TestCase):
                 "mAP",
             },
         )
+        self.assertNotIn("init_from_checkpoint", payload["config"])
+        self.assertNotIn("checkpoint_layout", payload["config"])
+        self.assertFalse(
+            payload["config"]["training_eval_train_set_enabled"]
+        )
+        self.assertEqual(
+            payload["config"]["training_eval_best_metric_key"],
+            "auto",
+        )
+        self.assertTrue(payload["config"]["training_eval_official_enabled"])
+        for ambiguous_name in (
+            "eval_train",
+            "best_metric_key",
+            "official_eval_enabled",
+            "official_eval_version",
+            "official_eval_iou_backend",
+            "official_eval_iou_mode",
+            "official_detection_metrics_enabled",
+            "ap_score_thresh",
+            "score_thresh",
+        ):
+            self.assertNotIn(ambiguous_name, payload["config"])
 
 
 if __name__ == "__main__":

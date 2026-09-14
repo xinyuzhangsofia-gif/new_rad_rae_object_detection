@@ -69,7 +69,7 @@ def should_inherit_from_checkpoint(key):
     return False
 
 
-def load_model_checkpoint(model, checkpoint_path, device, include_bus_as_target=True):
+def load_model_checkpoint(model, checkpoint_path, device):
     # Keep this historical import path as a compatibility facade.
     from eval.checkpoints import load_model_checkpoint as _load_model_checkpoint
 
@@ -77,7 +77,6 @@ def load_model_checkpoint(model, checkpoint_path, device, include_bus_as_target=
         model=model,
         checkpoint_path=checkpoint_path,
         device=device,
-        include_bus_as_target=include_bus_as_target,
     )
 
 

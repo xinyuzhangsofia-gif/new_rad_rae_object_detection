@@ -17,7 +17,6 @@ from models import build_model
 from training_utils.configuration import (
     infer_include_bus_as_target_from_checkpoint_config,
     format_train_sequence_half_label,
-    initialize_model_from_checkpoint,
     normalize_optional_path,
     normalize_train_sequence_half_ratio,
     normalize_train_sequence_half_selection,
@@ -147,21 +146,10 @@ def load_model_checkpoint(
         model,
         checkpoint_path=None,
         device="cpu",
-        include_bus_as_target=True,
         checkpoint=None,
         strict=False,
     ):
     """Load checkpoint weights with the repository's historical policies."""
-    if checkpoint is None and not include_bus_as_target:
-        checkpoint = initialize_model_from_checkpoint(
-            model=model,
-            checkpoint_path=checkpoint_path,
-            map_location=device,
-            include_bus_as_target=False,
-        )
-        model.eval()
-        return model
-
     if checkpoint is None:
         if checkpoint_path in (None, ""):
             raise ValueError(

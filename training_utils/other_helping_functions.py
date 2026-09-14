@@ -91,57 +91,6 @@ def metric_prefers_lower(metric_key):
     return str(metric_key).endswith("_loss") or str(metric_key) == "val_loss"
 
 
-def append_training_history(history, epoch, train_metrics, val_metrics, f1):
-    del f1
-
-    row = {
-        "epoch": epoch,
-        "train_loss": train_metrics["train_loss"],
-        "train_box_loss": train_metrics["train_box_loss"],
-        "train_cls_loss": train_metrics["train_cls_loss"],
-        "train_obj_loss": train_metrics.get("train_obj_loss", 0.0),
-        "train_l1_loss": train_metrics.get("train_l1_loss", 0.0),
-        "val_loss": val_metrics["val_loss"],
-        "val_box_loss": val_metrics["val_box_loss"],
-        "val_cls_loss": val_metrics["val_cls_loss"],
-        "val_obj_loss": val_metrics.get("val_obj_loss", 0.0),
-        "val_l1_loss": val_metrics.get("val_l1_loss", 0.0),
-    }
-    if "mAP" in val_metrics:
-        row["val_mAP"] = val_metrics["mAP"]
-    if "official_bev_mAP_0.3" in val_metrics:
-        row["val_bev_mAP_0.3"] = val_metrics["official_bev_mAP_0.3"]
-        row["val_3d_mAP_0.3"] = val_metrics.get("official_3d_mAP_0.3", 0.0)
-        row["val_detection_tp"] = val_metrics.get("official_detection_tp", 0)
-        row["val_detection_fp"] = val_metrics.get("official_detection_fp", 0)
-        row["val_detection_fn"] = val_metrics.get("official_detection_fn", 0)
-    if "selection_metric_key" in val_metrics:
-        row["selection_metric_key"] = val_metrics["selection_metric_key"]
-        row["selection_metric_value"] = val_metrics["selection_metric_value"]
-    if "train_heatmap_loss" in train_metrics:
-        row["train_heatmap_loss"] = train_metrics["train_heatmap_loss"]
-    if "train_quality_loss" in train_metrics:
-        row["train_quality_loss"] = train_metrics["train_quality_loss"]
-    if "val_heatmap_loss" in val_metrics:
-        row["val_heatmap_loss"] = val_metrics["val_heatmap_loss"]
-    if "val_quality_loss" in val_metrics:
-        row["val_quality_loss"] = val_metrics["val_quality_loss"]
-
-    for key, value in val_metrics.items():
-        if (
-            (
-                key.startswith("official_")
-                or key.startswith("polar_")
-                or key.startswith("coco_")
-                or key.startswith("nuscenes_")
-            )
-            and isinstance(value, (int, float))
-        ):
-            row[key] = float(value)
-
-    history.append(row)
-
-
 def build_epoch_eval_metrics(
         train_metrics,
         eval_metrics,

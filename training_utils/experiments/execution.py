@@ -161,42 +161,6 @@ def _record_experiment_result(
     return report_path, report
 
 
-def _run_sequential_experiment_queue(
-        base_config,
-        train_function,
-        tasks,
-        total_steps,
-        sheet_path,
-        results_base_dir,
-        update_sheet_results,
-    ):
-    launched = []
-    for task in tasks:
-        _print_experiment_task_start(task, total_steps)
-        child_config = build_experiment_training_config(
-            base_config,
-            task.experiment,
-            task.branch,
-        )
-        started_at = time.time()
-        train_function(child_config)
-        if update_sheet_results:
-            _record_experiment_result(
-                sheet_path=sheet_path,
-                results_base_dir=results_base_dir,
-                task=task,
-                evaluation_started_at=started_at,
-                update_sheet_results=True,
-            )
-        launched.append((task.experiment.name, task.branch))
-        print(
-            f"Experiment queue [{task.ordinal}/{total_steps}]: completed "
-            f"{task.experiment.name} {task.branch}.",
-            flush=True,
-        )
-    return launched
-
-
 def _launch_parallel_training_task(
         base_config,
         task,
@@ -337,6 +301,5 @@ def _refresh_completed_weather_summaries(results_base_dir, report_paths):
             base_dir=base_path,
             weather_group=weather_name,
         )
-
 
 

@@ -111,7 +111,7 @@ class CheckpointSelectionTests(unittest.TestCase):
         self.assertEqual(metadata["target_train_sequences"], (13,))
         self.assertEqual(metadata["target_test_sequences"], (22,))
 
-    def test_weather_train_test_checkpoint_layout_and_compact_names(self):
+    def test_domain_shift_uses_weather_train_test_layout_and_compact_names(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
             checkpoint_dirs = create_checkpoint_run_dirs(
                 base_dir=temporary_dir,
@@ -120,7 +120,8 @@ class CheckpointSelectionTests(unittest.TestCase):
                 model_type="model7_sedan_only",
                 train_sequence_half_selection={9: "first"},
                 train_sequence_half_ratio=0.5,
-                checkpoint_layout="weather_train_test",
+                domain_shift_experiment_enabled=True,
+                domain_shift_train_branch="source",
                 weather_group="Overcast",
                 train_sequences=(9, 1),
                 test_sequences=(13,),
@@ -163,6 +164,27 @@ class CheckpointSelectionTests(unittest.TestCase):
                 find_epoch_checkpoints(str(checkpoint_dir), epoch_step=1),
                 [(3, str(checkpoint_dir / epoch_filename))],
             )
+
+    def test_non_domain_sequence_experiment_uses_legacy_layout(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            checkpoint_dirs = create_checkpoint_run_dirs(
+                base_dir=temporary_dir,
+                experiment_name="object_detection",
+                sequences=(1, 2),
+                model_type="model7",
+                domain_shift_experiment_enabled=False,
+                domain_shift_train_branch=None,
+                weather_group="overcast",
+                train_sequences=(1,),
+                test_sequences=(2,),
+            )
+            checkpoint_dir = Path(next(iter(checkpoint_dirs.values())))
+
+        self.assertEqual(checkpoint_dir.parent.name, "object_detection")
+        self.assertRegex(
+            checkpoint_dir.name,
+            r"^\d{8}_\d{6}_\d{6}__model_7__seq1-2$",
+        )
 
     def test_checkpoint_names_include_sequence_half_selection(self):
         run_name = format_timestamp_model_sequence_run_name(
@@ -241,7 +263,7 @@ class CheckpointSelectionTests(unittest.TestCase):
             model_type="model7",
             run_model_type="model7_sedan_only",
             training_eval_enabled=False,
-            best_metric_key="auto",
+            training_eval_best_metric_key="auto",
             seed=42,
             limit_samples=None,
         )
@@ -275,7 +297,9 @@ class CheckpointSelectionTests(unittest.TestCase):
         self.assertFalse(checkpoint["is_best"])
         self.assertNotIn("selection_metric_key", checkpoint)
         self.assertNotIn("selection_metric_value", checkpoint)
-        self.assertIsNone(checkpoint["config"]["best_metric_key"])
+        self.assertIsNone(
+            checkpoint["config"]["training_eval_best_metric_key"]
+        )
         self.assertEqual(best_state.epoch, -1)
 
 

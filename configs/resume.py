@@ -1,12 +1,8 @@
-"""Overrides for the interrupted run currently selected for resumption."""
+"""Neutral Resume Training overrides; select a checkpoint explicitly."""
 
 
 RESUME_CONFIG_OVERRIDES = {
-    "resume_checkpoint": (
-        "checkpoints/object_detection/"
-        "20260815_134341_021343__model_7__seq1-58/"
-        "0816_epoch_050.pth"
-    ),
+    "resume_checkpoint": None,
     "initial_best_checkpoint": None,
     "start_epoch": None,
     "end_epoch": 100,
@@ -14,19 +10,7 @@ RESUME_CONFIG_OVERRIDES = {
     "training_eval_enabled": False,
     "post_training_eval_enabled": False,
     "resume_save_in_checkpoint_dir": True,
-    "resume_tensorboard_log_dir": (
-        "runs/object_detection/"
-        "20260815_134341_021894__model_7__seq1-58"
-    ),
-    # These values describe the split used by this specific interrupted run.
-    "split_mode": "kradar_file",
-    "split_dir": "split",
-    "train_sequences": None,
-    "val_sequences": None,
-    "domain_shift_train_branch": None,
-    "train_sequence_half_selection": {},
-    "train_control_split_enabled": False,
-    "train_control_split_dir": None,
+    "resume_tensorboard_log_dir": None,
 }
 
 

@@ -109,7 +109,7 @@ def _category_key(
 
 
 def _load_cartesian_control_gt(sequence, cartesian_gt_root):
-    """Load Cartesian GT using the same two formats as the training dataset."""
+    """Load Cartesian GT from the canonical ``<sequence>/gt/gt.txt`` file."""
     if cartesian_gt_root in (None, ""):
         raise ValueError(
             "Cartesian controlled training requires cartesian_gt_root."
@@ -140,9 +140,9 @@ def _build_frame_infos(
     radar_dataset = KRadarRADRAEDataset(
         get_rad_rae_npy_root_dir(), int(sequence)
     )
-    gt_key_mode, cartesian_gt = _load_cartesian_control_gt(
+    cartesian_gt = _load_cartesian_control_gt(
         sequence=sequence, cartesian_gt_root=cartesian_gt_root
-    )
+    )[1]
 
     category_keys = _category_keys(
         range_m_bins,
@@ -154,10 +154,7 @@ def _build_frame_infos(
         category_object_labels = {key: [] for key in category_keys}
         all_target_object_labels = []
         outside_bin_object_labels = []
-        if gt_key_mode == "frame_name":
-            frame_objects = cartesian_gt.get(frame_name, [])
-        else:
-            frame_objects = cartesian_gt.get(file_idx, [])
+        frame_objects = cartesian_gt.get(file_idx, [])
 
         for obj in frame_objects:
             class_name = str(obj["cls"])

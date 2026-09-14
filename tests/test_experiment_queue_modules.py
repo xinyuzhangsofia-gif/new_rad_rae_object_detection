@@ -1,4 +1,5 @@
 import json
+import inspect
 import pickle
 import sys
 import tempfile
@@ -6,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from configs.domain_shift import EXPERIMENT_QUEUE_CONFIG
 import training_utils.experiment_queue as queue
 from training_utils.experiments import execution, scheduling, schema, state
 
@@ -28,6 +30,20 @@ class ExperimentQueueModuleTests(unittest.TestCase):
             half_selection=((22, "last"),),
             source_complete=False,
             target_complete=False,
+        )
+
+    def test_seed_two_phase_is_the_only_queue_execution_path(self):
+        self.assertNotIn(
+            "experiment_queue_execution_mode",
+            EXPERIMENT_QUEUE_CONFIG,
+        )
+        self.assertFalse(hasattr(queue, "_run_sequential_experiment_queue"))
+        self.assertFalse(hasattr(queue, "_run_parallel_experiment_queue"))
+        self.assertEqual(
+            tuple(inspect.signature(
+                queue.run_domain_shift_experiment_queue
+            ).parameters),
+            ("base_config",),
         )
 
     def test_facade_reexports_canonical_schema_and_task_identity(self):
@@ -244,19 +260,21 @@ class ExperimentQueueModuleTests(unittest.TestCase):
                 "_launch_parallel_training_task",
                 side_effect=launch,
             ), self.assertRaisesRegex(RuntimeError, "exit code 9"):
-                queue._run_parallel_experiment_queue(
+                queue._run_seed_two_phase_experiment_queue(
                     base_config={
                         "experiment_queue_train_workers": 1,
                         "experiment_queue_eval_workers": 1,
                         "experiment_queue_train_gpu_slots": ("0",),
+                        "experiment_queue_gpu_strategy": "isolated",
                         "experiment_queue_eval_gpu_pool": "0",
+                        "experiment_queue_eval_max_per_gpu": 1,
+                        "experiment_queue_eval_batch_size": 8,
                         "experiment_queue_poll_seconds": 0.1,
                         "gpu_ids": "0",
                         "log_base_dir": root,
                     },
-                    tasks=(task,),
-                    total_steps=1,
-                    sheet_path=sheet_path,
+                    seed=43,
+                    table_batches=((1, sheet_path, 1, (task,)),),
                     results_base_dir=root,
                     update_sheet_results=False,
                 )

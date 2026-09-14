@@ -28,6 +28,17 @@ MODEL_RUN_NAME_PREFIXES = {
 EXPERIMENT_NAME = "object_detection"
 
 
+def checkpoint_run_relative_path(checkpoint_dir, checkpoint_base_dir):
+    """Return the semantic run path below the configured checkpoint root."""
+    checkpoint_root = os.path.abspath(os.path.expanduser(str(checkpoint_base_dir)))
+    run_dir = os.path.abspath(os.path.expanduser(str(checkpoint_dir)))
+    if os.path.commonpath((checkpoint_root, run_dir)) != checkpoint_root:
+        raise ValueError(
+            f"Checkpoint directory {run_dir!r} is outside root {checkpoint_root!r}"
+        )
+    return os.path.relpath(run_dir, checkpoint_root)
+
+
 def _create_unique_checkpoint_dir(checkpoint_dir):
     suffix = 1
     unique_checkpoint_dir = checkpoint_dir
@@ -279,24 +290,34 @@ def create_checkpoint_run_dirs(
         model_type=None,
         train_sequence_half_selection=None,
         train_sequence_half_ratio=None,
-        checkpoint_layout="legacy",
+        domain_shift_experiment_enabled=False,
+        domain_shift_train_branch=None,
         weather_group=None,
         train_sequences=None,
         test_sequences=None,
     ):
     sequences = tuple(sequences)
-    if str(checkpoint_layout).strip().lower() == "weather_train_test":
+    branch = (
+        None
+        if domain_shift_train_branch in (None, "")
+        else str(domain_shift_train_branch).strip().lower()
+    )
+    use_weather_train_test_layout = (
+        bool(domain_shift_experiment_enabled)
+        or branch in {"source", "target"}
+    )
+    if use_weather_train_test_layout:
         if weather_group in (None, ""):
             raise ValueError(
-                "checkpoint_layout='weather_train_test' requires weather_group"
+                "Weather-related Domain Shift checkpoints require weather_group"
             )
         if train_sequences in (None, "", ()):
             raise ValueError(
-                "checkpoint_layout='weather_train_test' requires train_sequences"
+                "Weather-related Domain Shift checkpoints require train_sequences"
             )
         if test_sequences in (None, "", ()):
             raise ValueError(
-                "checkpoint_layout='weather_train_test' requires test_sequences"
+                "Weather-related Domain Shift checkpoints require test_sequences"
             )
 
         weather_name = "".join(
@@ -317,11 +338,6 @@ def create_checkpoint_run_dirs(
         run_name = f"{date_text}_train_{train_name}_test_{test_name}"
         checkpoint_dir = os.path.join(base_dir, weather_name, run_name)
         return {sequences: _create_unique_checkpoint_dir(checkpoint_dir)}
-    if str(checkpoint_layout).strip().lower() != "legacy":
-        raise ValueError(
-            "checkpoint_layout must be 'legacy' or 'weather_train_test', "
-            f"got {checkpoint_layout!r}"
-        )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     run_name = format_timestamp_model_sequence_run_name(
@@ -380,7 +396,6 @@ def build_checkpoint_payload(
             "sequence": cfg.sequence,
             "sequences": getattr(cfg, "sequences", None),
             "epochs": args.epochs,
-            "checkpoint_layout": getattr(args, "checkpoint_layout", "legacy"),
             "checkpoint_filename_style": getattr(
                 args,
                 "checkpoint_filename_style",
@@ -435,7 +450,6 @@ def build_checkpoint_payload(
             "gt_object_ignore_override_path": getattr(args, "gt_object_ignore_override_path", None),
             "train_control_split_enabled": getattr(args, "train_control_split_enabled", False),
             "train_control_split_dir": getattr(args, "train_control_split_dir", None),
-            "init_from_checkpoint": getattr(args, "init_from_checkpoint", None),
             "train_scope": getattr(args, "train_scope", "full"),
             "box_coordinate_mode": getattr(
                 args,
@@ -464,27 +478,71 @@ def build_checkpoint_payload(
                 None,
             ),
             "training_eval_enabled": getattr(args, "training_eval_enabled", True),
-            "best_metric_key": (
-                getattr(args, "best_metric_key", "auto")
+            "training_eval_train_set_enabled": getattr(
+                args,
+                "training_eval_train_set_enabled",
+                False,
+            ),
+            "training_eval_best_metric_key": (
+                getattr(args, "training_eval_best_metric_key", "auto")
                 if getattr(args, "training_eval_enabled", True)
                 else None
             ),
-            "official_eval_enabled": getattr(args, "official_eval_enabled", False),
-            "official_eval_version": getattr(args, "official_eval_version", "revised"),
-            "official_eval_iou_backend": getattr(args, "official_eval_iou_backend", "auto"),
-            "official_eval_iou_mode": getattr(args, "official_eval_iou_mode", "easy"),
-            "polar_eval_enabled": getattr(
+            "training_eval_official_enabled": getattr(
                 args,
-                "polar_eval_enabled",
+                "training_eval_official_enabled",
                 False,
             ),
-            "polar_iou_thresholds": getattr(
+            "training_eval_official_version": getattr(
                 args,
-                "polar_iou_thresholds",
+                "training_eval_official_version",
+                "revised",
+            ),
+            "training_eval_iou_backend": getattr(
+                args,
+                "training_eval_iou_backend",
+                "auto",
+            ),
+            "training_eval_iou_mode": getattr(
+                args,
+                "training_eval_iou_mode",
+                "easy",
+            ),
+            "training_eval_detection_metrics_enabled": getattr(
+                args,
+                "training_eval_detection_metrics_enabled",
+                False,
+            ),
+            "training_eval_ap_score_thresh": getattr(
+                args,
+                "training_eval_ap_score_thresh",
+                0.01,
+            ),
+            "training_eval_score_thresh": getattr(
+                args,
+                "training_eval_score_thresh",
+                0.3,
+            ),
+            "training_eval_polar_enabled": getattr(
+                args,
+                "training_eval_polar_enabled",
+                False,
+            ),
+            "training_eval_polar_iou_thresholds": getattr(
+                args,
+                "training_eval_polar_iou_thresholds",
                 None,
             ),
-            "coco_style_eval_enabled": getattr(args, "coco_style_eval_enabled", False),
-            "nuscenes_style_eval_enabled": getattr(args, "nuscenes_style_eval_enabled", False),
+            "training_eval_coco_style_enabled": getattr(
+                args,
+                "training_eval_coco_style_enabled",
+                False,
+            ),
+            "training_eval_nuscenes_style_enabled": getattr(
+                args,
+                "training_eval_nuscenes_style_enabled",
+                False,
+            ),
             "split_mode": getattr(args, "split_mode", None),
             "split_dir": getattr(args, "split_dir", None),
             "domain_shift_experiment_enabled": getattr(
