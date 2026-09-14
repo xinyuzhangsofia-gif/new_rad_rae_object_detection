@@ -22,14 +22,14 @@ import subprocess
 import sys
 import time
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.experiment_analysis import discovery as analysis_discovery
-from scripts.experiment_analysis import execution as analysis_execution
-from scripts.experiment_analysis import results as analysis_results
-from scripts.experiment_analysis import state as analysis_state
+from scripts.experiments.analysis import discovery as analysis_discovery
+from scripts.experiments.analysis import execution as analysis_execution
+from scripts.experiments.analysis import results as analysis_results
+from scripts.experiments.analysis import state as analysis_state
 from configs.experiment_paths import (
     DISTANCE_QUARTILE_EXPERIMENT_DIR,
     TARGET_DROP_EXPERIMENT_DIR,

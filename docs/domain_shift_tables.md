@@ -100,7 +100,7 @@ checkpoints that did not store loss parameters are explicitly named with
 To rebuild/update the tables from completed evaluation TXT files:
 
 ```bash
-python -m tools.maintenance.rebuild_domain_shift_tables
+python -m scripts.maintenance.rebuild_domain_shift_tables
 ```
 
 The importer validates the stored best-BEV and best-3D epochs before accepting a

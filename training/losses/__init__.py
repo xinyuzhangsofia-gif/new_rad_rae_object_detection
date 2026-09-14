@@ -1,14 +1,8 @@
-"""Compatibility facade for detector training losses.
+"""Canonical detector training loss API and implementations."""
 
-Configuration-to-loss-mode resolution remains in
-``training_utils.configuration.resolve_loss_mode``.  Numerical implementations
-live in the responsibility-based ``training_utils.loss_components`` package;
-historical imports from this module continue to resolve to those exact
-functions.
-"""
+DEFAULT_NUM_CLASSES = 2
 
-from training_utils.loss_components import DEFAULT_NUM_CLASSES
-from training_utils.loss_components.centerpoint import (
+from training.losses.centerpoint import (
     cartesian_centerpoint_detection_loss,
     centerpoint_detection_loss,
     centerpoint_gwd_loss,
@@ -16,7 +10,7 @@ from training_utils.loss_components.centerpoint import (
     centerpoint_quality_loss,
     dense_centerpoint_outputs_to_boxes,
 )
-from training_utils.loss_components.common import (
+from training.losses.common import (
     boxes_3d_to_ra_xyxy,
     build_normalized_ignore_mask,
     build_raw_ignore_mask,
@@ -26,26 +20,26 @@ from training_utils.loss_components.common import (
     masked_l1_loss,
     pairwise_box_iou_2d,
 )
-from training_utils.loss_components.gwd import (
+from training.losses.gwd import (
     _box_to_gaussian_batch,
     _matrix_sqrt_batch,
     gaussian_wasserstein_distance_batch,
     normalized_rae_boxes_to_gwd_boxes,
 )
-from training_utils.loss_components.radenet import (
+from training.losses.radenet import (
     _gather_regression_at_centers,
     _normalize_radenet_loss_term,
     radenet_continuous_focal_loss,
     radenet_detection_loss,
 )
-from training_utils.loss_components.targets import (
+from training.losses.targets import (
     _raw_index_to_feature_index,
     build_cartesian_centerpoint_targets,
     build_centerpoint_targets,
     build_radenet_gaussian_heatmap,
     normalized_boxes_to_centerpoint_targets,
 )
-from training_utils.loss_components.yolox import yolox_detection_loss
+from training.losses.yolox import yolox_detection_loss
 
 
 __all__ = [

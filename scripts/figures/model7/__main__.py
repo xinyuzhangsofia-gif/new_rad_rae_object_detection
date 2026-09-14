@@ -8,11 +8,11 @@ import sys
 
 
 FIGURES = {
-    "architecture": "tools.figures.model7.architecture",
-    "architecture-3d": "tools.figures.model7.architecture_3d",
-    "multiview": "tools.figures.model7.multiview_overview",
-    "overall": "tools.figures.model7.overall_process",
-    "overall-pptx": "tools.figures.model7.overall_process_pptx",
+    "architecture": "scripts.figures.model7.architecture",
+    "architecture-3d": "scripts.figures.model7.architecture_3d",
+    "multiview": "scripts.figures.model7.multiview_overview",
+    "overall": "scripts.figures.model7.overall_process",
+    "overall-pptx": "scripts.figures.model7.overall_process_pptx",
 }
 
 

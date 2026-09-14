@@ -5,8 +5,8 @@ import sys
 import tempfile
 import unittest
 
-from scripts import evaluate_quartile_experiments as quartile
-from scripts.experiment_analysis import discovery, execution, results
+from scripts.experiments import evaluate_quartile_experiments as quartile
+from scripts.experiments.analysis import discovery, execution, results
 
 
 ROW = {

@@ -1,7 +1,22 @@
+import random
+
+import numpy as np
 import torch
 
 
 NUM_CLASSES = 2
+
+
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def parse_gpu_ids(gpu_ids_text):

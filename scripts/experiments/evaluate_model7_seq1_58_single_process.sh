@@ -3,7 +3,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONDA_BIN="${MVRSS_CONDA_BIN:-/home/local/miniconda3/condabin/conda}"
 CHECKPOINT_ROOT="checkpoints/object_detection/20260815_134341_021343__model_7__seq1-58"
 REPORT_DIR="evaluation_plots/model7_seq1-58_axis_aligned"

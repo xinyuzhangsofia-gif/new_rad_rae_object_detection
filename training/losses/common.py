@@ -8,6 +8,17 @@ import torch.nn.functional as F
 from data.coordinates import get_rae_scope_start_and_shape
 
 
+def gather_topk_features(features, indices):
+    channels = features.shape[-1]
+    gather_indices = indices.unsqueeze(-1).expand(-1, -1, channels)
+    return features.gather(dim=1, index=gather_indices)
+
+
+def inverse_sigmoid(x):
+    x = x.clamp(min=1e-4, max=1.0 - 1e-4)
+    return torch.log(x / (1.0 - x))
+
+
 def boxes_3d_to_ra_xyxy(boxes):
     r = boxes[:, 0]
     a = boxes[:, 1]
@@ -206,4 +217,3 @@ def masked_l1_loss(pred, target, mask):
     mask = mask.expand_as(pred)
     denom = torch.clamp(mask.sum(), min=1.0)
     return F.l1_loss(pred * mask, target * mask, reduction="sum") / denom
-

@@ -4,8 +4,8 @@ from pathlib import Path
 import tempfile
 from unittest import mock
 
-from scripts import evaluate_quartile_experiments as quartile_launcher
-from scripts.experiment_analysis import discovery
+from scripts.experiments import evaluate_quartile_experiments as quartile_launcher
+from scripts.experiments.analysis import discovery
 
 
 @contextmanager

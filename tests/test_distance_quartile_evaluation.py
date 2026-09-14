@@ -15,7 +15,9 @@ from eval.reporting import (
     format_eval_table,
     save_eval_table_txt,
 )
-from scripts.evaluate_quartile_experiments import parse_quartile_metadata
+from scripts.experiments.evaluate_quartile_experiments import (
+    parse_quartile_metadata,
+)
 
 
 def _boxes_at_x(*x_values):

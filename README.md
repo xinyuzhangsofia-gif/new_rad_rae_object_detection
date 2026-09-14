@@ -103,13 +103,18 @@ not a Polar-GT input branch or a Polar AP evaluator.
 ## Code layout
 
 ```text
+train.py, train_resume.py, evaluation.py, visualize.py
+                         Main runnable workflows
 configs/                 Editable settings
 data/                    Paths, labels, geometry, datasets, loaders, splits
 models/                  Model1–16 and model factory
 training_utils/          Training workflow, losses, checkpoints, experiment queue
 eval/                    Evaluation workflow, decoding, metrics, reporting
-scripts/                 Data preparation and experiment launchers
-tools/                   Analysis, paper figures, and maintenance
+scripts/data/            Dataset preparation and conversion utilities
+scripts/experiments/     Experiment launchers, tables, and analysis infrastructure
+scripts/analysis/        Standalone dataset and result analysis
+scripts/figures/         Paper, architecture, and result figures
+scripts/maintenance/     Repository, runtime, and log maintenance
 visualization_based_gt/  Sensor/GT rendering and reproducible figure recipes
 tests/                   Regression tests
 split/, experiments/     Versioned split/control manifests and experiment families
@@ -145,20 +150,21 @@ CenterPoint, RADE-Net, and YOLOX decoding plus filtering/NMS. Evaluation passes
 the resulting canonical detections to metrics, while `visualize.py` and the
 active multi-sensor checkpoint predictor only convert them for drawing.
 
-Small main entry points `train.py` and `evaluation.py` remain supported.
+The root entry points `train.py`, `train_resume.py`, `evaluation.py`, and
+`visualize.py` remain supported.
 Removed root configuration aliases must be replaced with imports from
 `configs/` and `data/`; see the migration map in the
 [中文逐文件指南](docs/code_guide.md).
 
-Standalone tools use module commands, without extra root wrappers:
+Standalone scripts use module commands, without extra root wrappers:
 
 ```bash
-python -m tools.figures.model7 --help
-python -m tools.figures.model7 architecture
-python -m tools.figures.plot_sedan_cartesian_to_ra_center_area --help
-python -m tools.analysis.plot_weather_road_frames --help
-python -m tools.analysis.generate_group1_domain_shift_summary --help
-python -m tools.maintenance.rebuild_domain_shift_tables --help
+python -m scripts.figures.model7 --help
+python -m scripts.figures.model7 architecture
+python -m scripts.figures.plot_sedan_cartesian_to_ra_center_area --help
+python -m scripts.analysis.plot_weather_road_frames --help
+python -m scripts.analysis.generate_group1_domain_shift_summary --help
+python -m scripts.maintenance.rebuild_domain_shift_tables --help
 ```
 
 ## Experiments and generated files

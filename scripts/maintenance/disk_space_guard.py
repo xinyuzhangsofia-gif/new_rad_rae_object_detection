@@ -12,7 +12,7 @@ import subprocess
 import time
 
 
-DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET_SCRIPTS = (
     "train.py",
     "train_resume.py",

@@ -12,7 +12,7 @@ from configs.experiment_paths import (
     TARGET_DROP_EXPERIMENT_DIR,
     resolve_recorded_experiment_path,
 )
-from scripts import evaluate_quartile_experiments as quartile_launcher
+from scripts.experiments import evaluate_quartile_experiments as quartile_launcher
 from training_utils.experiments.tables import (
     load_domain_shift_experiments,
     resolve_experiment_sheet_paths,

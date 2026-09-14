@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from zipfile import ZipFile
 
-from scripts.sync_experiment_xlsx_to_txt import (
+from scripts.experiments.sync_experiment_xlsx_to_txt import (
     normalize_workbook_layout,
     read_xlsx_matrix,
     render_xlsx_as_txt,

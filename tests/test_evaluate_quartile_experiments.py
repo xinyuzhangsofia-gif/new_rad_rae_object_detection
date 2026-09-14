@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts import evaluate_quartile_experiments as launcher
+from scripts.experiments import evaluate_quartile_experiments as launcher
 from tests.experiment_analysis_fixtures import temporary_checkpoint_records
 
 

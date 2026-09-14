@@ -766,7 +766,7 @@ def update_experiment_sheet_result(
     if resolved_path.suffix.lower() == ".txt":
         workbook_path = resolved_path.with_suffix(".xlsx")
         if workbook_path.is_file():
-            from scripts.sync_experiment_xlsx_to_txt import (
+            from scripts.experiments.sync_experiment_xlsx_to_txt import (
                 sync_result_matrix_to_workbook,
             )
 
@@ -791,5 +791,4 @@ def validate_experiment_sheet_is_full(sheet_path):
             + ", ".join(incomplete)
         )
     return True
-
 

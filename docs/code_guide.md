@@ -37,12 +37,12 @@ training_utils/losses.py → loss_components/ 数值实现
     ├─ centerpoint.py → Polar/Cartesian CenterPoint、quality 与 QFL
     ├─ radenet.py → RADE-Net focal、GWD/L1 及 detached-mean 归一化
     └─ yolox.py → YOLOX objectness/classification/GWD/L1 加权
-scripts/evaluate_*_experiments.py → scripts/experiment_analysis/
+scripts/experiments/evaluate_quartile_experiments.py → scripts/experiments/analysis/
     ├─ discovery.py → 表行、完成检查点、source/target 成对任务发现
     ├─ execution.py → evaluation.py 命令、CUDA 环境、subprocess 与 GPU 队列
     ├─ results.py → 报告 metadata 匹配、候选发现与 freshness
     └─ state.py → 分析状态原子写、launcher 锁及运行字段
-tools/ → 独立统计、论文图和维护工具
+scripts/{analysis,figures,maintenance}/ → 独立统计、论文图和维护工具
 ```
 
 训练和断点续训是配置驱动，不支持把 `--help` 当作无副作用的检查命令；入口导入测试不会启动训练。独立评估与多数工具提供 argparse 帮助。
@@ -106,7 +106,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 | `data/ignore_overrides.py` | 加载并严格校验逐帧、逐目标 ignore 规则。 |
 | `loaders/kradar_dataset.py` | 原始 MAT DREA 投影；`KRadarDataset` 返回三种标准投影，`KRadarSensorDataset` 额外提供 RA/RE 图和帧号查询。 |
 | `configs/training.py`、`configs/coordinates.py`、`training_utils/configuration.py` | 选择 Cartesian GT 根目录/类别，拒绝 Polar 输入，解析 ignore 配置，再传给数据工厂。 |
-| `scripts/build_cartesian_gt_dataset.py` | 离线转换官方标签并生成逐帧副本、平铺 GT 和匹配清单；不是每个训练 epoch 执行。 |
+| `scripts/data/build_cartesian_gt_dataset.py` | 离线转换官方标签并生成逐帧副本、平铺 GT 和匹配清单；不是每个训练 epoch 执行。 |
 
 普通训练只支持两种划分：`split_mode="kradar_file"` 按 K-Radar 的 `split/train.txt` / `split/test.txt` 精确选帧；`split_mode="sequence"` 按显式训练/验证序列选帧，并保留 first/last 部分选择。训练 loader 仍打乱顺序，验证 loader 仍不打乱。实验队列的受控匹配是独立层，不改变这两种普通划分的成员语义。
 
@@ -122,7 +122,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 
 平铺文件必须以 `# frame_idx,object_label,x,y,z,x_width,y_width,z_width,yaw_deg,class` 开头；表头中的空格可以不同。没有类型表头或带 Polar 列名的文件会报错，而不是把相同数量的字段静默当作米制框。训练和评估要求每个序列存在该平铺文件；缺少文件时会直接报出预期的 `gt.txt` 路径，不再自动读取逐帧格式。
 
-移除了 `scripts/build_polar_gt_from_cartesian.py` 以及 `tools/figures/plot_sedan_polar_{bbox_scatter,center_range_area,ra_center_scatter}.py` 三个旧图工具。`plot_sedan_cartesian_to_ra_center_area.py` 保留：其输入是 Cartesian，只把中心转换到 R-A 视图显示。此次删除的源码有清理前归档，磁盘数据集没有删除。
+移除了 `scripts/data/build_polar_gt_from_cartesian.py` 以及 `scripts/figures/plot_sedan_polar_{bbox_scatter,center_range_area,ra_center_scatter}.py` 三个旧图工具。`plot_sedan_cartesian_to_ra_center_area.py` 保留：其输入是 Cartesian，只把中心转换到 R-A 视图显示。此次删除的源码有清理前归档，磁盘数据集没有删除。
 
 Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单作为历史资产保留，未重新生成。模型内部 RAE 网格和 Polar 雷达显示仍保留；Polar AP 与 `eval_coordinate_mode="both"` 已删除。
 
@@ -131,8 +131,8 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 ## 本次已经做了什么
 
 - 删除 13 个只转发旧模块名的文件，把项目内部导入直接指向正式实现。未修改模型结构、损失公式、坐标计算或指标选择规则。
-- 删除根目录表格重建包装器和旧三 GPU shell 包装器。正式实现分别是 `python -m tools.maintenance.rebuild_domain_shift_tables` 和 `scripts/evaluate_model7_seq1_58_single_process.sh`。
-- 将原来混在 `analysis_plots/` 输出目录里的两个统计程序移动到 `tools/analysis/`，保留原输出目录。
+- 删除根目录表格重建包装器和旧三 GPU shell 包装器。正式实现分别是 `python -m scripts.maintenance.rebuild_domain_shift_tables` 和 `scripts/experiments/evaluate_model7_seq1_58_single_process.sh`。
+- 独立统计程序位于 `scripts/analysis/`，保留原输出目录。
 - 删除仅验证已移除别名的两份测试及另一个别名断言；保留入口与工具路径测试。将三项依赖已删除实验状态的测试改为临时检查点/状态夹具；不改变生产状态恢复逻辑。
 - 将图表、报告、视频、事件日志、缓存和本机编辑器设置从 Git 索引中移除并加入忽略规则。此次取消跟踪共 1,662 项，本地仍存在的文件未被删除。
 - 合并重复的结构说明；保留实验表生成规则、数据划分和控制清单。
@@ -164,7 +164,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | `zxy_label_utils` | `data.labels` |
 | `training_utils.radenet_utils` | `data.geometry` |
 
-已删除的 `plot_sedan_*.py` 根目录文件只是转发入口，真正读取 GT、统计和作图的是 `tools/figures/plot_sedan_*.py`。Model7 图统一使用 `python -m tools.figures.model7 <子命令>`；不要再为每个图增加一个 root/draw 包装器。
+已删除的 `plot_sedan_*.py` 根目录文件只是转发入口，真正读取 GT、统计和作图的是 `scripts/figures/plot_sedan_*.py`。Model7 图统一使用 `python -m scripts.figures.model7 <子命令>`；不要再为每个图增加一个 root/draw 包装器。
 
 ### 实验状态的边界
 
@@ -181,7 +181,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 1 | `configs/data.py`、`data/paths.py`、训练/评估/可视化配置 | RAD/RAE 与 Cartesian GT 默认根路径已集中；接下来统一原始传感器、旧配方的标定/输出设置。当前保留本机默认值，换机器前需设置环境变量或参数。 |
 | 已完成 | `visualize.py`、`eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py`、`checkpoint_predictor.py` | 检查点解释/模型重建集中在 `eval/checkpoints.py`，前向推理集中在 `eval/inference.py`，解码与 NMS 集中在 `eval/decoding.py`；可视化只保留绘图坐标转换和兼容转发。 |
 | 已完成（队列） | `training_utils/experiment_queue.py` 与 `training_utils/experiments/` | 队列内部职责已分离，唯一执行路径是 seed 两阶段屏障；根模块保留当前编排所需导出，四分位独立重评脚本不与队列合并。 |
-| 已完成（分析脚本） | `scripts/evaluate_quartile_experiments.py` 与 `scripts/experiment_analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；保留四分位 CLI 的科学定义、输出 state schema 与表聚合。Source Drop 执行逻辑已删除。 |
+| 已完成（分析脚本） | `scripts/experiments/evaluate_quartile_experiments.py` 与 `scripts/experiments/analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；保留四分位 CLI 的科学定义、输出 state schema 与表聚合。Source Drop 执行逻辑已删除。 |
 | 已完成（报告） | `eval/reporting.py` 与 `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | facade 保留旧导入；输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
 | 已完成（实验目录） | `experiments/{target_drop,distance_quartiles}/` | 两个活动实验族使用唯一语义路径；`distance_ranges` 与 `source_drop` 只保留历史归档资产。 |
 | 4 | `visualization_based_gt/generate_*.py` 等特定序列脚本 | 将序列、帧、epoch、标题等变为一套渲染入口的参数/预设；先保存参考图片与视频元数据，避免改变论文图。 |
@@ -326,39 +326,29 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 文件 | 行数 | 功能 | 处理建议 |
 | --- | ---: | --- | --- |
 | [scripts/__init__.py](../scripts/__init__.py) | 1 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
-| [scripts/add_domain_table_context.py](../scripts/add_domain_table_context.py) | 76 | 向已有域偏移表添加或刷新说明上下文。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
-| [scripts/build_cartesian_gt_dataset.py](../scripts/build_cartesian_gt_dataset.py) | 445 | 将官方 LiDAR 坐标修订标签转换为雷达对齐的 Cartesian 逐帧及扁平 GT。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
-| [scripts/build_curated_tensorboard_logdir.py](../scripts/build_curated_tensorboard_logdir.py) | 383 | 链接训练事件并导入评估 TXT 指标，构建干净的 TensorBoard 目录。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
-| [scripts/disk_space_guard.py](../scripts/disk_space_guard.py) | 224 | 监控磁盘空间，低于阈值时安全停止本项目训练/评估进程。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
-| [scripts/evaluate_quartile_experiments.py](../scripts/evaluate_quartile_experiments.py) | — | 定义 GT 距离四分位、相对 TD 和该 CLI；通过共享基础设施运行评估。 | 保留边界、计数和相对下降公式。 |
-| [scripts/experiment_analysis/discovery.py](../scripts/experiment_analysis/discovery.py) | — | 读取实验行、按现有 updated_at 规则选择完成检查点，并从同一行建立 source/target 任务。 | 不解释模型权重；检查点 payload 仍由 `eval/checkpoints.py` 负责。 |
-| [scripts/experiment_analysis/execution.py](../scripts/experiment_analysis/execution.py) | — | 构造 evaluation.py 公共参数、校验/分配 GPU、设置 CUDA 环境、管理子进程/日志/失败。 | 不包含四分位计算。 |
-| [scripts/experiment_analysis/results.py](../scripts/experiment_analysis/results.py) | — | 校验 checkpoint/branch/weather/seed metadata，并按原命名搜索报告。 | metric 文本解析仍留在四分位脚本。 |
-| [scripts/experiment_analysis/state.py](../scripts/experiment_analysis/state.py) | — | 原子写 TXT/JSON、非阻塞 launcher 锁、PID 命令确认、公共 runtime 字段。 | 各脚本继续定义自己的 state settings/version。 |
-| [scripts/sync_experiment_xlsx_to_txt.py](../scripts/sync_experiment_xlsx_to_txt.py) | 1052 | 无需 Excel 即可读取 XLSX 内部结构、统一布局/样式并同步成对齐 TXT，也支持监视模式。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
-
-### tools
-
-| 文件 | 行数 | 功能 | 处理建议 |
-| --- | ---: | --- | --- |
-| [tools/__init__.py](../tools/__init__.py) | 5 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
-| [tools/analysis/__init__.py](../tools/analysis/__init__.py) | 1 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
-| [tools/analysis/analyze_highway_sequence_stats.py](../tools/analysis/analyze_highway_sequence_stats.py) | 398 | 汇总高速/非高速序列的目标与忽略统计，并绘制比较图表。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
-| [tools/analysis/generate_experiment_data_summary.py](../tools/analysis/generate_experiment_data_summary.py) | 200 | 从天气实验表和受控划分统计中计算源训练、目标训练和测试的帧数与有效 Sedan BBox 数。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
-| [tools/analysis/generate_group1_domain_shift_summary.py](../tools/analysis/generate_group1_domain_shift_summary.py) | 373 | 生成 Group1 的源/目标/测试帧数与类别统计，可读取精确划分清单。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
-| [tools/analysis/grafic_visualization.py](../tools/analysis/grafic_visualization.py) | 446 | 绘制距离四分位实验的 BEV/3D AP 相对和绝对下降曲线。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
-| [tools/analysis/plot_weather_road_frames.py](../tools/analysis/plot_weather_road_frames.py) | 459 | 按天气与道路类型统计真实雷达帧，输出 CSV、文本表和分布图。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
-| [tools/figures/__init__.py](../tools/figures/__init__.py) | 1 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
-| [tools/figures/model7/__init__.py](../tools/figures/model7/__init__.py) | 1 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
-| [tools/figures/model7/__main__.py](../tools/figures/model7/__main__.py) | 43 | 统一分派 architecture、architecture-3d、multiview、overall 和 overall-pptx 子命令。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
-| [tools/figures/model7/architecture.py](../tools/figures/model7/architecture.py) | 2315 | 读取当前 Model7 配置，绘制二维架构图；也提供其他图复用的绘图函数。 | 保留真实绘图逻辑；按输出一致性测试提取共用图元。 |
-| [tools/figures/model7/architecture_3d.py](../tools/figures/model7/architecture_3d.py) | 1320 | 绘制 2.5D 网络架构，并提供立方体等图形组件。 | 保留真实绘图逻辑；按输出一致性测试提取共用图元。 |
-| [tools/figures/model7/multiview_overview.py](../tools/figures/model7/multiview_overview.py) | 738 | 绘制 RADE 投影、RAD/RAE 双视图及 Model7 网络概览。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
-| [tools/figures/model7/overall_process.py](../tools/figures/model7/overall_process.py) | 782 | 绘制简化 RADE → RAD/RAE → Model7 流程，含真实数据样例。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
-| [tools/figures/model7/overall_process_pptx.py](../tools/figures/model7/overall_process_pptx.py) | 640 | 将整体流程导出为可编辑 PowerPoint；需要可选 python-pptx 依赖。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
-| [tools/figures/plot_sedan_cartesian_to_ra_center_area.py](../tools/figures/plot_sedan_cartesian_to_ra_center_area.py) | 184 | 将 Cartesian Sedan 中心转为 Polar RA 索引并绘制中心/面积分布。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
-| [tools/maintenance/__init__.py](../tools/maintenance/__init__.py) | 1 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
-| [tools/maintenance/rebuild_domain_shift_tables.py](../tools/maintenance/rebuild_domain_shift_tables.py) | 248 | 从已完成的评估报告和检查点元数据重建域偏移比较表。 | 保留正式实现；通过 python -m 调用，不再新增转发文件。 |
+| [scripts/data/build_cartesian_gt_dataset.py](../scripts/data/build_cartesian_gt_dataset.py) | 445 | 将官方 LiDAR 坐标修订标签转换为雷达对齐的 Cartesian 逐帧及扁平 GT。 | 数据准备入口；路径尽量由参数传入。 |
+| [scripts/experiments/add_domain_table_context.py](../scripts/experiments/add_domain_table_context.py) | 76 | 向已有域偏移表添加或刷新说明上下文。 | 与实验表语义放在一起。 |
+| [scripts/experiments/evaluate_quartile_experiments.py](../scripts/experiments/evaluate_quartile_experiments.py) | — | 定义 GT 距离四分位、相对 TD 和该 CLI；通过共享基础设施运行评估。 | 保留边界、计数和相对下降公式。 |
+| [scripts/experiments/analysis/discovery.py](../scripts/experiments/analysis/discovery.py) | — | 读取实验行、按现有 updated_at 规则选择完成检查点，并从同一行建立 source/target 任务。 | 不解释模型权重；检查点 payload 仍由 `eval/checkpoints.py` 负责。 |
+| [scripts/experiments/analysis/execution.py](../scripts/experiments/analysis/execution.py) | — | 构造 evaluation.py 公共参数、校验/分配 GPU、设置 CUDA 环境、管理子进程/日志/失败。 | 不包含四分位计算。 |
+| [scripts/experiments/analysis/results.py](../scripts/experiments/analysis/results.py) | — | 校验 checkpoint/branch/weather/seed metadata，并按原命名搜索报告。 | metric 文本解析仍留在四分位脚本。 |
+| [scripts/experiments/analysis/state.py](../scripts/experiments/analysis/state.py) | — | 原子写 TXT/JSON、非阻塞 launcher 锁、PID 命令确认、公共 runtime 字段。 | 四分位脚本定义自己的 state settings/version。 |
+| [scripts/experiments/sync_experiment_xlsx_to_txt.py](../scripts/experiments/sync_experiment_xlsx_to_txt.py) | 1052 | 无需 Excel 即可读取 XLSX 内部结构、统一布局/样式并同步成对齐 TXT，也支持监视模式。 | 与实验表语义放在一起。 |
+| [scripts/analysis/analyze_highway_sequence_stats.py](../scripts/analysis/analyze_highway_sequence_stats.py) | 398 | 汇总高速/非高速序列的目标与忽略统计，并绘制比较图表。 | 通过 python -m 调用，不增加转发文件。 |
+| [scripts/analysis/generate_experiment_data_summary.py](../scripts/analysis/generate_experiment_data_summary.py) | 200 | 从天气实验表和受控划分统计中计算源训练、目标训练和测试的帧数与有效 Sedan BBox 数。 | 通过 python -m 调用，不增加转发文件。 |
+| [scripts/analysis/generate_group1_domain_shift_summary.py](../scripts/analysis/generate_group1_domain_shift_summary.py) | 373 | 生成 Group1 的源/目标/测试帧数与类别统计，可读取精确划分清单。 | 通过 python -m 调用，不增加转发文件。 |
+| [scripts/analysis/grafic_visualization.py](../scripts/analysis/grafic_visualization.py) | 446 | 绘制距离四分位实验的 BEV/3D AP 相对和绝对下降曲线。 | 通过 python -m 调用，不增加转发文件。 |
+| [scripts/analysis/plot_weather_road_frames.py](../scripts/analysis/plot_weather_road_frames.py) | 459 | 按天气与道路类型统计真实雷达帧，输出 CSV、文本表和分布图。 | 通过 python -m 调用，不增加转发文件。 |
+| [scripts/figures/model7/__main__.py](../scripts/figures/model7/__main__.py) | 43 | 统一分派 architecture、architecture-3d、multiview、overall 和 overall-pptx 子命令。 | 通过 python -m 调用，不增加转发文件。 |
+| [scripts/figures/model7/architecture.py](../scripts/figures/model7/architecture.py) | 2315 | 读取当前 Model7 配置，绘制二维架构图；也提供其他图复用的绘图函数。 | 保留真实绘图逻辑。 |
+| [scripts/figures/model7/architecture_3d.py](../scripts/figures/model7/architecture_3d.py) | 1320 | 绘制 2.5D 网络架构，并提供立方体等图形组件。 | 保留真实绘图逻辑。 |
+| [scripts/figures/model7/multiview_overview.py](../scripts/figures/model7/multiview_overview.py) | 738 | 绘制 RADE 投影、RAD/RAE 双视图及 Model7 网络概览。 | 保留正式实现。 |
+| [scripts/figures/model7/overall_process.py](../scripts/figures/model7/overall_process.py) | 782 | 绘制简化 RADE → RAD/RAE → Model7 流程，含真实数据样例。 | 保留正式实现。 |
+| [scripts/figures/model7/overall_process_pptx.py](../scripts/figures/model7/overall_process_pptx.py) | 640 | 将整体流程导出为可编辑 PowerPoint；需要可选 python-pptx 依赖。 | 保留正式实现。 |
+| [scripts/figures/plot_sedan_cartesian_to_ra_center_area.py](../scripts/figures/plot_sedan_cartesian_to_ra_center_area.py) | 184 | 将 Cartesian Sedan 中心转为 Polar RA 索引并绘制中心/面积分布。 | 通过 python -m 调用，不增加转发文件。 |
+| [scripts/maintenance/build_curated_tensorboard_logdir.py](../scripts/maintenance/build_curated_tensorboard_logdir.py) | 383 | 链接训练事件并导入评估 TXT 指标，构建干净的 TensorBoard 目录。 | 日志整理维护入口。 |
+| [scripts/maintenance/disk_space_guard.py](../scripts/maintenance/disk_space_guard.py) | 224 | 监控磁盘空间，低于阈值时安全停止本项目训练/评估进程。 | 运行维护入口。 |
+| [scripts/maintenance/rebuild_domain_shift_tables.py](../scripts/maintenance/rebuild_domain_shift_tables.py) | 248 | 从已完成的评估报告和检查点元数据重建域偏移比较表。 | 通过 python -m 调用，不增加转发文件。 |
 
 ### visualization_based_gt
 
@@ -441,7 +431,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 
 | 文件/目录 | 用途与处理 |
 | --- | --- |
-| `scripts/evaluate_model7_seq1_58_single_process.sh` | 实际串行评估配方；保留。项目路径、Conda 路径、检查点、GPU/epoch 为本机设定，运行前检查。 |
+| `scripts/experiments/evaluate_model7_seq1_58_single_process.sh` | 实际串行评估配方；保留。项目路径、Conda 路径、检查点、GPU/epoch 为本机设定，运行前检查。 |
 | `Rotated_IoU/cuda_op/sort_vert.cpp` | CUDA 顶点排序的 C++/PyBind 接口，保留。 |
 | `Rotated_IoU/cuda_op/sort_vert_kernel.cu` | CUDA 排序 kernel，保留。 |
 | `Rotated_IoU/cuda_op/sort_vert.h` | 排序接口声明，保留。 |

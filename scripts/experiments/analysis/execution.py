@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from scripts.experiment_analysis.state import state_counts
+from scripts.experiments.analysis.state import state_counts
 
 
 def build_evaluation_command(
