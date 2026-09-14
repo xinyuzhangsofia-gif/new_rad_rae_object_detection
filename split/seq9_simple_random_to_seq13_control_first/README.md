@@ -1,4 +1,4 @@
-# seq9 simple random to seq13 control
+# seq9 simple random to seq13 control (historical pre-generated asset)
 
 This is the simplified version:
 - choose one continuous seq9 window

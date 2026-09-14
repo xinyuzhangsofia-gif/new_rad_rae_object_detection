@@ -124,7 +124,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 
 移除了 `scripts/build_polar_gt_from_cartesian.py` 以及 `tools/figures/plot_sedan_polar_{bbox_scatter,center_range_area,ra_center_scatter}.py` 三个旧图工具。`plot_sedan_cartesian_to_ra_center_area.py` 保留：其输入是 Cartesian，只把中心转换到 R-A 视图显示。此次删除的源码有清理前归档，磁盘数据集没有删除。
 
-Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距离分箱根据 Cartesian 中心推导，旧 Polar 统计不保证数值相同。已有控制清单未重生成。模型内部 RAE 网格和 Polar 雷达显示仍保留；Polar AP 与 `eval_coordinate_mode="both"` 已删除。
+Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单作为历史资产保留，未重新生成。模型内部 RAE 网格和 Polar 雷达显示仍保留；Polar AP 与 `eval_coordinate_mode="both"` 已删除。
 
 当前支持的 Cartesian 训练组合是 Model7（CenterPoint / RADE-Net）、Model15、Model16。其余模型实现仍保留为历史结构；这次没有改造所有模型的检测头或损失。
 
@@ -329,8 +329,6 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [scripts/add_domain_table_context.py](../scripts/add_domain_table_context.py) | 76 | 向已有域偏移表添加或刷新说明上下文。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
 | [scripts/build_cartesian_gt_dataset.py](../scripts/build_cartesian_gt_dataset.py) | 445 | 将官方 LiDAR 坐标修订标签转换为雷达对齐的 Cartesian 逐帧及扁平 GT。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
 | [scripts/build_curated_tensorboard_logdir.py](../scripts/build_curated_tensorboard_logdir.py) | 383 | 链接训练事件并导入评估 TXT 指标，构建干净的 TensorBoard 目录。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
-| [scripts/build_seq9_matched_control_override.py](../scripts/build_seq9_matched_control_override.py) | 989 | 通过窗口搜索、类别容量、最大流分配构造优化的序列 9 控制集及忽略清单。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
-| [scripts/build_seq9_simple_random_control.py](../scripts/build_seq9_simple_random_control.py) | 434 | 通过随机试验构造更简单的序列 9 类别匹配控制集。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
 | [scripts/disk_space_guard.py](../scripts/disk_space_guard.py) | 224 | 监控磁盘空间，低于阈值时安全停止本项目训练/评估进程。 | 保留独立的数据转换/维护能力；路径尽量由参数传入。 |
 | [scripts/evaluate_quartile_experiments.py](../scripts/evaluate_quartile_experiments.py) | — | 定义 GT 距离四分位、相对 TD 和该 CLI；通过共享基础设施运行评估。 | 保留边界、计数和相对下降公式。 |
 | [scripts/experiment_analysis/discovery.py](../scripts/experiment_analysis/discovery.py) | — | 读取实验行、按现有 updated_at 规则选择完成检查点，并从同一行建立 source/target 任务。 | 不解释模型权重；检查点 payload 仍由 `eval/checkpoints.py` 负责。 |

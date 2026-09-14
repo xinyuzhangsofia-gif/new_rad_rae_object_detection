@@ -1,4 +1,4 @@
-# seq9 matched to seq13 control
+# seq9 matched to seq13 control (historical pre-generated asset)
 
 This directory stores a continuous-frame control split plus an object-level
 ignore override. It does not edit the raw K-Radar gt.txt files.

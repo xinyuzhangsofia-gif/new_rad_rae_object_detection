@@ -27,8 +27,6 @@ from data.paths import get_cartesian_gt_path
 from data.splits import _build_frame_infos
 from eval.checkpoints import apply_checkpoint_config_defaults
 from eval.evaluation_config import parse_args as parse_evaluation_args
-from scripts import build_seq9_matched_control_override as matched_control
-from scripts import build_seq9_simple_random_control as random_control
 from training_utils.configuration import apply_training_coordinate_mode
 from visualize import parse_args as parse_visualization_args
 from loaders.kradar_dataset import KRadarDataset, KRadarSensorDataset
@@ -231,12 +229,6 @@ class CartesianDataTests(unittest.TestCase):
         self.assertEqual(val[0]["gt_labels"].tolist(), [0])
         self.assertIsInstance(train_loader.sampler, RandomSampler)
         self.assertIsInstance(val_loader.sampler, SequentialSampler)
-
-    def test_control_bins_now_read_cartesian_centers(self):
-        obj = {"cls": "Sedan", "box_metric": torch.tensor([3., 4., 12., 4., 2., 1., 0.])}
-        specs = matched_control.build_category_specs(80, 144)
-        self.assertEqual(matched_control.category_key_for_object(obj, specs), "sedan_ridx_0_80")
-        self.assertEqual(random_control.object_category_key(obj, 80, 144), "sedan_ridx_0_80")
 
     def test_all_gt_and_radar_defaults_share_configured_roots(self):
         from configs.evaluation import EVAL_CONFIG
