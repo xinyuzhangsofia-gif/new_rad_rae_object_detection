@@ -146,7 +146,7 @@ def parse_args():
         "end_epoch": None,
         "batch_size": 100,
         "split_mode": "kradar_file",
-        "split_dir": "split",
+        "split_dir": "experiments/controlled_splits",
         "train_sequences": None,
         "val_sequences": None,
         "eval_val_sequences": None,

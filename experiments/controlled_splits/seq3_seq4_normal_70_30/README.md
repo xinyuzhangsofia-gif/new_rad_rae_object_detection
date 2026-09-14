@@ -66,7 +66,7 @@ So:
 
 ## Relation to old split format
 
-The old `split/train.txt` in this project contains lines like:
+The legacy manifest now at `experiments/controlled_splits/train.txt` contains lines like:
 
 ```text
 1,00033_00001.txt
@@ -88,7 +88,7 @@ Use:
 
 ```python
 "split_mode": "kradar_file",
-"split_dir": "split/seq3_seq4_normal_70_30",
+"split_dir": "experiments/controlled_splits/seq3_seq4_normal_70_30",
 ```
 
 Do not use `split_mode="sequence"` for this experiment.

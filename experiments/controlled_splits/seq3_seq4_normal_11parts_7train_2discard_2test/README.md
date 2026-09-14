@@ -109,5 +109,5 @@ Use:
 
 ```python
 "split_mode": "kradar_file",
-"split_dir": "split/seq3_seq4_normal_11parts_7train_2discard_2test",
+"split_dir": "experiments/controlled_splits/seq3_seq4_normal_11parts_7train_2discard_2test",
 ```

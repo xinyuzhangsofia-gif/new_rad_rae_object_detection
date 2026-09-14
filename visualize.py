@@ -1124,7 +1124,10 @@ def main():
         )
     seed = checkpoint_config.get("seed", 42)
     split_mode = checkpoint_config.get("split_mode", "kradar_file")
-    split_dir = checkpoint_config.get("split_dir", "split")
+    split_dir = checkpoint_config.get(
+        "split_dir",
+        "experiments/controlled_splits",
+    )
     train_sequences = checkpoint_config.get("train_sequences")
     val_sequences = checkpoint_config.get("val_sequences")
     args.gt_object_ignore_override_path = resolve_gt_object_ignore_override_path(

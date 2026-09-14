@@ -42,7 +42,7 @@ DOMAIN_SHIFT_CONFIG = {
 
     # Optional controlled source-domain split.
     "train_control_split_enabled": False,
-    "controlled_split_base_dir": "split",
+    "controlled_split_base_dir": "experiments/controlled_splits",
     "control_window_position": "last",
     "control_range_m_bins": (
         (0.0, 20.0),

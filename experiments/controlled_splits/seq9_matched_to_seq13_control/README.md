@@ -35,8 +35,8 @@ Set the following in train/eval/visualize config when you want this control expe
 
 ```python
 "split_mode": "kradar_file",
-"split_dir": "split/seq9_matched_to_seq13_control",
-"gt_object_ignore_override_path": "split/seq9_matched_to_seq13_control/object_ignore_override.json",
+"split_dir": "experiments/controlled_splits/seq9_matched_to_seq13_control",
+"gt_object_ignore_override_path": "experiments/controlled_splits/seq9_matched_to_seq13_control/object_ignore_override.json",
 ```
 
 If you want to merge these selected seq9 frames into a larger custom split,

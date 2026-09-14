@@ -212,7 +212,11 @@ def build_training_data(args, cfg):
         ignore_class_names=args.ignore_class_names,
         gt_object_ignore_override_path=args.gt_object_ignore_override_path,
         split_mode=args.split_mode,
-        split_dir=getattr(args, "split_dir", "split"),
+        split_dir=getattr(
+            args,
+            "split_dir",
+            "experiments/controlled_splits",
+        ),
         scope_mode=args.train_scope,
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,

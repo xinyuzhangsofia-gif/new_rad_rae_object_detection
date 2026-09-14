@@ -171,7 +171,9 @@ class ReportingArchitectureTests(unittest.TestCase):
             "target_train_sequences": (22,),
             "target_test_sequences": (46, 47),
             "include_bus_as_target": False,
-            "gt_object_ignore_override_path": "split/override.json",
+            "gt_object_ignore_override_path": (
+                "experiments/controlled_splits/override.json"
+            ),
             "train_control_split_enabled": True,
         }
         metadata = build_eval_table_metadata(

@@ -68,7 +68,7 @@ TRAIN_CONFIG = {
 
     # Ordinary train/validation split.
     "split_mode": "kradar_file",
-    "split_dir": "split",
+    "split_dir": "experiments/controlled_splits",
     "train_sequences": None,
     "val_sequences": None,
 

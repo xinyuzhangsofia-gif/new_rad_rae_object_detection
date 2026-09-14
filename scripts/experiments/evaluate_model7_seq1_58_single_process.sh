@@ -31,7 +31,7 @@ for epoch in $(seq 5 100); do
         --end-epoch "$epoch" \
         --epoch-step 1 \
         --split-mode kradar_file \
-        --split-dir split \
+        --split-dir experiments/controlled_splits \
         --batch-size 32 \
         --num-workers 0 \
         --gpu-ids 0 \

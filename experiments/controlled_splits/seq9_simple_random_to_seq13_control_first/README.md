@@ -11,24 +11,24 @@ This is the simplified version:
 
 - source sequence: `9`
 - target sequence: `13`
-- window position: `last`
-- start_file_idx: `16`
-- end_file_idx: `1205`
-- start_frame_name: `00040`
-- end_frame_name: `01229`
-- selected random seed: `1565`
+- window position: `first`
+- start_file_idx: `0`
+- end_file_idx: `1189`
+- start_frame_name: `00024`
+- end_frame_name: `01213`
+- selected random seed: `291`
 
 ## Use
 
 ```python
 "split_mode": "kradar_file",
-"split_dir": "split/seq9_simple_random_to_seq13_control",
-"gt_object_ignore_override_path": "split/seq9_simple_random_to_seq13_control/object_ignore_override.json",
+"split_dir": "experiments/controlled_splits/seq9_simple_random_to_seq13_control_first",
+"gt_object_ignore_override_path": "experiments/controlled_splits/seq9_simple_random_to_seq13_control_first/object_ignore_override.json",
 ```
 
 ## Summary
 
 - target empty/non-empty: `974/216`
-- achieved empty/non-empty: `885/305`
+- achieved empty/non-empty: `877/313`
 - target boxes in bins: `389`
 - achieved boxes in bins: `389`

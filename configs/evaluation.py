@@ -26,7 +26,7 @@ EVAL_CONFIG = {
 
     "model_type": "auto",
     "split_mode": "sequence",
-    "split_dir": "split",
+    "split_dir": "experiments/controlled_splits",
     "val_sequences": None,
     "eval_scope": None,
 

@@ -94,7 +94,7 @@ The old Polar reader/root option and four Polar-GT generation/plotting tools
 have been removed. Polar or untyped flat GT is rejected; changing a header or
 checkpoint coordinate flag does not convert the data. Shared statistics tools
 now read Cartesian labels, so their results may differ from old Polar-based
-summaries. Existing split/control manifests were not regenerated.
+summaries. Existing Controlled Split manifests were not regenerated.
 
 RAD/RAE tensors, internal RAE grid conversions, and polar-view rendering
 remain available. These are representations of radar data or Cartesian boxes,
@@ -130,7 +130,8 @@ experiments/
 ├── target_drop/         Primary weather Source-vs-Target / Target Drop tables
 ├── distance_ranges/     Archived fixed-range result assets (evaluator removed)
 ├── distance_quartiles/  Equal-count GT-distance quartile analysis
-└── source_drop/         Archived historical Source Drop results and controls
+├── source_drop/         Archived historical Source Drop results and controls
+└── controlled_splits/   Generated split manifests, reports, statistics, and overrides
 ```
 
 Within `data/`, responsibilities are explicit: `labels.py` reads Cartesian GT,
@@ -148,10 +149,15 @@ data/split/
 └── controlled/      Controlled Split generation and runtime loading
 ```
 
+`data/split/` contains split implementation code. Generated Controlled Split
+assets used by domain-shift experiments live separately under
+`experiments/controlled_splits/`.
+
 Supported ordinary split modes are:
 
-1. `kradar_file`: uses the predefined K-Radar `split/train.txt` and
-   `split/test.txt` manifests.
+1. `kradar_file`: uses the predefined K-Radar
+   `experiments/controlled_splits/train.txt` and
+   `experiments/controlled_splits/test.txt` manifests.
 2. `sequence`: uses explicit training and validation sequence IDs, including
    the existing first/last sequence-part selection.
 

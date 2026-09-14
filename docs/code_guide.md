@@ -86,7 +86,7 @@ K-Radar-RAD/<sequence>/rad/*.npy + rae/*.npy
     + 当前 Cartesian gt/gt.txt
     → KRadarGTDetectionDataset：匹配 GT、类别/ignore 处理、生成框张量
     → KRadarMultiSequenceGTDetectionDataset：合并多个序列
-    → build_kradar_file_split_indices：按 split/train.txt 和 split/test.txt 选帧
+    → build_kradar_file_split_indices：按 experiments/controlled_splits/train.txt 和 experiments/controlled_splits/test.txt 选帧
     → DataLoader + detection_collate：组装 batch
     → prepare_model_inputs：转设备、调整维度 → model(rad, rae)
 ```
@@ -114,7 +114,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 | `configs/training.py`、`configs/coordinates.py`、`training/configuration.py` | 选择 Cartesian GT 根目录/类别，拒绝 Polar 输入，解析 ignore 配置，再传给数据工厂。 |
 | `scripts/data/build_cartesian_gt_dataset.py` | 离线转换官方标签并生成逐帧副本、平铺 GT 和匹配清单；不是每个训练 epoch 执行。 |
 
-普通训练只支持两种划分：`split_mode="kradar_file"` 按 K-Radar 的 `split/train.txt` / `split/test.txt` 精确选帧；`split_mode="sequence"` 按显式训练/验证序列选帧，并保留 first/last 部分选择。训练 loader 仍打乱顺序，验证 loader 仍不打乱。实验队列的受控匹配是独立层，不改变这两种普通划分的成员语义。
+普通训练只支持两种划分：`split_mode="kradar_file"` 按 K-Radar 的 `experiments/controlled_splits/train.txt` / `experiments/controlled_splits/test.txt` 精确选帧；`split_mode="sequence"` 按显式训练/验证序列选帧，并保留 first/last 部分选择。训练 loader 仍打乱顺序，验证 loader 仍不打乱。实验队列的受控匹配是独立层，不改变这两种普通划分的成员语义。`data/split/` 仅保存划分实现代码；生成的 Controlled Split manifests、统计和 overrides 保存在 `experiments/controlled_splits/`。
 
 `detection_collate` 将 RAD/RAE 堆叠成 batch，但每帧目标数不同，GT 框/类别仍使用列表。`prepare_model_inputs` 将 `[B,R,A,D/E]` 变成 `[B,D/E,R,A]` 并转到指定设备；不要在整理文件时改变轴顺序或 GT 张量含义。
 
@@ -173,7 +173,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 
 ### 实验状态的边界
 
-实验定义表与 `split/` 是复现输入，保留版本管理。`experiments/source_drop/control_specs/` 仅作为不可替代的历史归档保留，不再被运行时代码读取。队列状态/锁是运行状态，不随源代码提交；锁只应在 worker 已停止时删除。若本机存在与表同目录的未跟踪 state/lock，迁移仓库时也须随对应表移动。
+实验定义表与 `experiments/controlled_splits/` 是复现输入，保留版本管理。`experiments/source_drop/control_specs/` 仅作为不可替代的历史归档保留，不再被运行时代码读取。队列状态/锁是运行状态，不随源代码提交；锁只应在 worker 已停止时删除。若本机存在与表同目录的未跟踪 state/lock，迁移仓库时也须随对应表移动。
 
 实验族统一位于语义目录：`experiments/target_drop/` 保存主天气 Target Drop 表，`experiments/distance_quartiles/` 保存等数量 GT 距离四分位/相对 TD；`experiments/distance_ranges/` 与 `experiments/source_drop/` 仅保存已归档历史结果（执行功能已删除）。仍受支持的旧四分位 state 路径只在读取时映射，不保留旧目录副本。
 
@@ -451,8 +451,8 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | `sequence_information.csv` | 58 个序列的统计与天气/道路等元数据；帧/目标数来自当前 Cartesian-radar 标签，环境标签保留原注释。 |
 | `experiments/{target_drop,distance_quartiles}/` 中实验 TXT/XLSX、README | 活动实验定义/汇总格式与说明，是调度和论文复现上下文。 |
 | `experiments/{distance_ranges,source_drop}/` | 历史归档结果；对应执行入口已删除，不参与活动配置。 |
-| `split/**/{train,test,discard}.txt` | 精确帧划分；合并或重生成会影响样本归属，保留。 |
-| `split/**/{control_config,object_ignore_override,stats}.json` 等 | 控制划分、对象忽略与复用统计，保留；可能需要和实验定义一起发布。 |
+| `experiments/controlled_splits/**/{train,test,discard}.txt` | 精确帧划分；合并或重生成会影响样本归属，保留。 |
+| `experiments/controlled_splits/**/{control_config,object_ignore_override,stats}.json` 等 | 控制划分、对象忽略与复用统计，保留；可能需要和实验定义一起发布。 |
 | `experiments/source_drop/control_specs/**` | 已归档正常天气控制测试集及索引/统计，保留。这些不是可随意删除的缓存，运行时代码不再读取。 |
 | `evaluation_plots/`、`evaluation_results/`、`figures/`、`analysis_plots/` 的结果 | 生成产物；本地保留，不跟踪。历史结果分析需要自行准备相应结果文件。 |
 | `checkpoints/`、`runs*/`、TensorBoard、缓存、编译产物 | 运行生成或本机内容；不纳入源码。第三方 CUDA 扩展需按当前环境构建。 |

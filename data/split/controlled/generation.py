@@ -193,7 +193,11 @@ def prepare_controlled_train_data(args):
             )
 
     output_dir, should_generate = _select_output_dir(
-        getattr(args, "controlled_split_base_dir", "split"),
+        getattr(
+            args,
+            "controlled_split_base_dir",
+            "experiments/controlled_splits",
+        ),
         request,
     )
     if should_generate:
@@ -423,4 +427,3 @@ def prepare_controlled_train_data(args):
     args.control_range_m_bins = tuple(tuple(pair) for pair in range_m_bins)
     args.control_class_names = tuple(control_class_names)
     return args
-
