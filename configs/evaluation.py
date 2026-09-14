@@ -39,6 +39,7 @@ EVAL_CONFIG = {
     "group_checkpoint_plot_best_only": True,
     "custom_iou_range_eval_enabled": False,  # skip per-epoch custom IoU AP
     "custom_iou_thresholds": "0.30:0.05:0.50",
+    "coco_style_eval_enabled": False,
     # Opt in with --distance-quartile-eval-enabled true. Quartile boundaries
     # are derived from eligible evaluation GT centers for every checkpoint.
     "distance_quartile_eval_enabled": False,

@@ -194,11 +194,11 @@ def parse_args():
         "official_eval_iou_mode": "easy",
         "custom_iou_range_eval_enabled": False,
         "custom_iou_thresholds": DEFAULT_CUSTOM_IOU_THRESHOLDS.tolist(),
+        "coco_style_eval_enabled": False,
         "distance_quartile_eval_enabled": False,
         "distance_quartile_bins": None,
         "nuscenes_style_eval_enabled": False,
         "official_detection_metrics_enabled": True,
-        "official_ap03_only": False,
         "group_checkpoint_plot_best_only": False,
         "ap_score_thresh": 0.01,
         "score_thresh": 0.3,
@@ -351,6 +351,10 @@ def parse_args():
         default=cfg_defaults["custom_iou_thresholds"],
     )
     parser.add_argument(
+        "--coco-style-eval-enabled",
+        default=cfg_defaults["coco_style_eval_enabled"],
+    )
+    parser.add_argument(
         "--distance-quartile-eval-enabled",
         default=cfg_defaults["distance_quartile_eval_enabled"],
         help=(
@@ -474,8 +478,10 @@ def parse_args():
             "distance_quartile_bins requires "
             "distance_quartile_eval_enabled=true."
         )
-    # COCO-style AP is intentionally disabled; custom IoU evaluation is used.
-    args.coco_style_eval_enabled = False
+    args.coco_style_eval_enabled = normalize_bool_flag(
+        args.coco_style_eval_enabled,
+        name="coco_style_eval_enabled",
+    )
     args.nuscenes_style_eval_enabled = normalize_bool_flag(
         args.nuscenes_style_eval_enabled,
         name="nuscenes_style_eval_enabled",

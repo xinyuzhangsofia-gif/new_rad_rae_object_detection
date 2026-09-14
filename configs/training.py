@@ -49,7 +49,6 @@ TRAIN_CONFIG = {
     "training_eval_enabled": True,
     "training_eval_train_set_enabled": False,
     "training_eval_best_metric_key": "auto",
-    "training_eval_official_enabled": None,
     "training_eval_official_version": "revised",
     "training_eval_iou_backend": "gpu",
     "training_eval_iou_mode": "easy",

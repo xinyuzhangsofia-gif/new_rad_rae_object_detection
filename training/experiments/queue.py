@@ -556,19 +556,6 @@ def run_domain_shift_experiment_queue(base_config):
         evaluation_workers = int(
             base_config.get("experiment_queue_eval_workers", 18)
         )
-        queue_order = str(
-            base_config.get(
-                "experiment_queue_order",
-                "seed_then_weather",
-            )
-        ).strip().lower()
-        if queue_order != "seed_then_weather":
-            raise ValueError(
-                "The experiment queue requires "
-                "experiment_queue_order='seed_then_weather', got "
-                f"{queue_order!r}."
-            )
-
         prepared_tables = []
         total_rows = 0
         total_pending = 0
@@ -597,7 +584,7 @@ def run_domain_shift_experiment_queue(base_config):
             "Multi-weather experiment queue: "
             f"tables={len(prepared_tables)}, rows={total_rows}, "
             f"branches={branches}, pending={total_pending}, "
-            f"skip_completed={skip_completed}, order={queue_order}, "
+            f"skip_completed={skip_completed}, order=seed_then_weather, "
             "execution=seed_two_phase",
             flush=True,
         )

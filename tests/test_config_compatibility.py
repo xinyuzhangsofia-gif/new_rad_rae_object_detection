@@ -54,6 +54,10 @@ class ConfigCompatibilityTests(unittest.TestCase):
         self.assertNotIn("checkpoint_layout", TRAIN_CONFIG)
         self.assertNotIn("train_ratio", TRAIN_CONFIG)
         self.assertNotIn("train_ratio", EVAL_CONFIG)
+        self.assertNotIn("training_eval_official_enabled", TRAIN_CONFIG)
+        self.assertNotIn("experiment_queue_order", EXPERIMENT_QUEUE_CONFIG)
+        self.assertNotIn("official_ap03_only", EVAL_CONFIG)
+        self.assertFalse(EVAL_CONFIG["coco_style_eval_enabled"])
 
     def test_evaluation_workflow_configuration_is_explicitly_separated(self):
         self.assertTrue(TRAIN_CONFIG["training_eval_enabled"])

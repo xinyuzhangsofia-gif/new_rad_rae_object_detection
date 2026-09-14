@@ -1,3 +1,4 @@
+import io
 import json
 import math
 import os
@@ -29,6 +30,7 @@ from eval.metrics_runner import (
     init_kradar_eval_state,
     run_kradar_eval_revised,
 )
+from eval.runner import evaluate_checkpoint_result
 
 
 def metric_box(x, object_label=1, cls="Sedan"):
@@ -366,6 +368,101 @@ class RevisedOfficialNeutralSemanticsTests(unittest.TestCase):
             ),
             (1, 0, 0),
         )
+
+
+class StandaloneCocoConfigurationTests(unittest.TestCase):
+    def test_coco_style_is_opt_in_and_ap03_only_is_not_configurable(self):
+        with mock.patch.object(sys, "argv", ["evaluation.py"]):
+            default_args = parse_args()
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["evaluation.py", "--coco-style-eval-enabled", "true"],
+        ):
+            enabled_args = parse_args()
+
+        self.assertFalse(default_args.coco_style_eval_enabled)
+        self.assertTrue(enabled_args.coco_style_eval_enabled)
+        self.assertFalse(default_args.official_ap03_only)
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["evaluation.py", "--official-ap03-only", "true"],
+        ), mock.patch("sys.stderr", new=io.StringIO()), self.assertRaises(
+            SystemExit
+        ):
+            parse_args()
+
+    def test_coco_style_value_reaches_checkpoint_evaluation(self):
+        args = SimpleNamespace(
+            num_classes=1,
+            official_class_name_map={0: "sed"},
+            max_detections=64,
+            heatmap_nms_kernel=3,
+            heatmap_score_mode="peak_times_local_mean",
+            yolox_nms_iou=0.65,
+            eval_scope="full",
+            official_eval_enabled=True,
+            official_eval_version="revised",
+            official_eval_iou_backend="cpu",
+            official_eval_iou_mode="easy",
+            official_detection_metrics_enabled=True,
+            custom_iou_range_eval_enabled=False,
+            custom_iou_thresholds=(0.3, 0.5),
+            coco_style_eval_enabled=True,
+            nuscenes_style_eval_enabled=False,
+            ap_score_thresh=0.01,
+            detection_score_thresh=0.3,
+            eval_ignore_suppress_enabled=False,
+            eval_ignore_expand_ratio=1.5,
+            eval_ignore_suppress_margin=1.0,
+            box_coordinate_mode="cartesian",
+            distance_quartile_eval_enabled=False,
+            distance_quartile_bins=None,
+            evaluation_primary_geometry="cartesian",
+            eval_coordinate_mode="auto",
+            effective_eval_coordinate_mode="cartesian",
+            official_geometry_source="direct",
+            metric_class_names=("sed",),
+            class_display_name_map={"sed": "Sedan"},
+        )
+        metrics = {
+            "official_main_metric_key": "official_bev_mAP_0.3",
+            "official_bev_mAP_0.3": 1.0,
+        }
+        with mock.patch(
+            "eval.runner.load_model_checkpoint"
+        ), mock.patch(
+            "eval.runner.evaluate_checkpoint_with_kradar_revised",
+            return_value=metrics,
+        ) as evaluate:
+            evaluate_checkpoint_result(
+                model=object(),
+                checkpoint_path="checkpoint.pth",
+                epoch=1,
+                validation_loader=object(),
+                device="cpu",
+                model_type="model7",
+                args=args,
+            )
+            self.assertTrue(
+                evaluate.call_args.kwargs["coco_style_eval_enabled"]
+            )
+
+            evaluate_checkpoint_result(
+                model=object(),
+                checkpoint_path="checkpoint.pth",
+                epoch=1,
+                validation_loader=object(),
+                device="cpu",
+                model_type="model7",
+                args=args,
+                coco_style_eval_enabled=False,
+            )
+            self.assertFalse(
+                evaluate.call_args.kwargs["coco_style_eval_enabled"]
+            )
 
 
 class FixedQuartileConfigurationTests(unittest.TestCase):

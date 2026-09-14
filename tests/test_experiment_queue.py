@@ -662,7 +662,6 @@ class ExperimentQueueTests(unittest.TestCase):
                             str(first_sheet),
                             str(second_sheet),
                         ),
-                        "experiment_queue_order": "seed_then_weather",
                         "experiment_queue_seed_order": (42, 43, 44),
                         "experiment_queue_branches": ("source",),
                         "experiment_queue_skip_completed_branches": False,
@@ -733,7 +732,6 @@ class ExperimentQueueTests(unittest.TestCase):
                 run_domain_shift_experiment_queue(
                     {
                         "experiment_sheet_paths": tuple(map(str, sheets)),
-                        "experiment_queue_order": "seed_then_weather",
                         "experiment_queue_seed_order": (42, 43),
                         "experiment_queue_branches": ("source", "target"),
                         "experiment_queue_skip_completed_branches": False,
