@@ -1,40 +1,12 @@
 import torch
-import torch.nn.functional as F
-
-
-def boxes_3d_to_ra_xyxy(boxes):
-    r = boxes[:, 0]
-    a = boxes[:, 1]
-    r_w = boxes[:, 3]
-    a_w = boxes[:, 4]
-
-    r_min = r - r_w / 2.0
-    r_max = r + r_w / 2.0
-    a_min = a - a_w / 2.0
-    a_max = a + a_w / 2.0
-
-    return torch.stack([r_min, a_min, r_max, a_max], dim=-1)
-
-
-def box_iou_2d(boxes1, boxes2):
-    if boxes1.numel() == 0 or boxes2.numel() == 0:
-        return torch.zeros((boxes1.shape[0], boxes2.shape[0]), device=boxes1.device)
-
-    left_top = torch.max(boxes1[:, None, :2], boxes2[None, :, :2])
-    right_bottom = torch.min(boxes1[:, None, 2:], boxes2[None, :, 2:])
-    wh = (right_bottom - left_top).clamp(min=0)
-    inter = wh[:, :, 0] * wh[:, :, 1]
-
-    area1 = (
-        (boxes1[:, 2] - boxes1[:, 0]).clamp(min=0)
-        * (boxes1[:, 3] - boxes1[:, 1]).clamp(min=0)
-    )
-    area2 = (
-        (boxes2[:, 2] - boxes2[:, 0]).clamp(min=0)
-        * (boxes2[:, 3] - boxes2[:, 1]).clamp(min=0)
-    )
-    union = area1[:, None] + area2[None, :] - inter + 1e-6
-    return inter / union
+from training_utils.loss_components.common import (
+    boxes_3d_to_ra_xyxy,
+    pairwise_box_iou_2d as box_iou_2d,
+)
+from training_utils.loss_components.matching import (
+    pairwise_center_candidate_mask,
+    simota_assign,
+)
 
 
 def box_giou_2d(boxes1, boxes2):
@@ -125,133 +97,6 @@ def yolox_grid_centers(outputs):
         dim=-1,
     )
     return centers.reshape(batch_size, height * width, 2), height, width
-
-
-def pairwise_center_candidate_mask(grid_centers, gt_boxes, height, width, center_radius=2.5):
-    if gt_boxes.numel() == 0:
-        return torch.zeros((grid_centers.shape[0], 0), dtype=torch.bool, device=grid_centers.device)
-
-    r = grid_centers[:, 0:1]
-    a = grid_centers[:, 1:2]
-    gt_r = gt_boxes[:, 0].unsqueeze(0)
-    gt_a = gt_boxes[:, 1].unsqueeze(0)
-    gt_rw = gt_boxes[:, 3].unsqueeze(0)
-    gt_aw = gt_boxes[:, 4].unsqueeze(0)
-
-    in_boxes = (
-        (r >= gt_r - gt_rw / 2.0)
-        & (r <= gt_r + gt_rw / 2.0)
-        & (a >= gt_a - gt_aw / 2.0)
-        & (a <= gt_a + gt_aw / 2.0)
-    )
-
-    center_r = center_radius / max(height, 1)
-    center_a = center_radius / max(width, 1)
-    in_centers = (
-        (r >= gt_r - center_r)
-        & (r <= gt_r + center_r)
-        & (a >= gt_a - center_a)
-        & (a <= gt_a + center_a)
-    )
-    return in_boxes | in_centers
-
-
-def simota_assign(
-        pred_boxes,
-        cls_logits,
-        objectness_logits,
-        grid_centers,
-        gt_boxes,
-        gt_labels,
-        num_classes,
-        height,
-        width,
-        center_radius=2.5,
-        candidate_topk=10,
-    ):
-    valid_gt = (gt_labels >= 0) & (gt_labels < num_classes)
-    gt_boxes = gt_boxes[valid_gt]
-    gt_labels = gt_labels[valid_gt]
-    num_gt = gt_boxes.shape[0]
-    if num_gt == 0:
-        empty = torch.empty(0, dtype=torch.long, device=pred_boxes.device)
-        return empty, empty, empty, pred_boxes.new_empty(0)
-
-    candidate_pair_mask = pairwise_center_candidate_mask(
-        grid_centers=grid_centers,
-        gt_boxes=gt_boxes,
-        height=height,
-        width=width,
-        center_radius=center_radius,
-    )
-    candidate_mask = candidate_pair_mask.any(dim=1)
-    if candidate_mask.sum() == 0:
-        candidate_mask = torch.ones_like(candidate_mask)
-        candidate_pair_mask = torch.ones(
-            (pred_boxes.shape[0], num_gt),
-            dtype=torch.bool,
-            device=pred_boxes.device,
-        )
-
-    candidate_indices = candidate_mask.nonzero(as_tuple=False).squeeze(1)
-    candidate_boxes = pred_boxes[candidate_indices]
-    candidate_cls_logits = cls_logits[candidate_indices]
-    candidate_obj_logits = objectness_logits[candidate_indices]
-    pair_candidate_mask = candidate_pair_mask[candidate_indices]
-
-    pair_ious = box_iou_2d(
-        boxes_3d_to_ra_xyxy(candidate_boxes),
-        boxes_3d_to_ra_xyxy(gt_boxes),
-    )
-    iou_cost = -torch.log(pair_ious.clamp(min=1e-8))
-
-    gt_onehot = F.one_hot(gt_labels, num_classes=num_classes).float()
-    cls_prob = (
-        candidate_cls_logits.sigmoid().unsqueeze(1)
-        * candidate_obj_logits.sigmoid().view(-1, 1, 1)
-    ).sqrt().clamp(min=1e-4, max=1.0 - 1e-4)
-    cls_prob = cls_prob.expand(-1, num_gt, -1)
-    cls_targets = gt_onehot.unsqueeze(0).expand(candidate_boxes.shape[0], num_gt, num_classes)
-    cls_cost = F.binary_cross_entropy(
-        cls_prob,
-        cls_targets,
-        reduction="none",
-    ).sum(dim=-1)
-
-    cost = cls_cost + (3.0 * iou_cost)
-    cost = cost + (~pair_candidate_mask).float() * 100000.0
-
-    matching_matrix = torch.zeros_like(cost, dtype=torch.bool)
-    dynamic_ks = torch.clamp(
-        pair_ious.topk(k=min(candidate_topk, pair_ious.shape[0]), dim=0).values.sum(dim=0).int(),
-        min=1,
-    )
-    for gt_idx in range(num_gt):
-        num_match = int(dynamic_ks[gt_idx].item())
-        _, pos_idx = torch.topk(
-            cost[:, gt_idx],
-            k=min(num_match, cost.shape[0]),
-            largest=False,
-        )
-        matching_matrix[pos_idx, gt_idx] = True
-
-    anchor_matching_gt = matching_matrix.sum(dim=1)
-    if (anchor_matching_gt > 1).any():
-        multi_match = anchor_matching_gt > 1
-        _, min_cost_gt = cost[multi_match].min(dim=1)
-        matching_matrix[multi_match] = False
-        matching_matrix[multi_match, min_cost_gt] = True
-
-    foreground = matching_matrix.sum(dim=1) > 0
-    matched_pred_indices = candidate_indices[foreground]
-    if matched_pred_indices.numel() == 0:
-        empty = torch.empty(0, dtype=torch.long, device=pred_boxes.device)
-        return empty, empty, empty, pred_boxes.new_empty(0)
-
-    matched_gt_indices = matching_matrix[foreground].float().argmax(dim=1)
-    matched_labels = gt_labels[matched_gt_indices]
-    matched_ious = (matching_matrix[foreground].float() * pair_ious[foreground]).sum(dim=1)
-    return matched_pred_indices, matched_gt_indices, matched_labels, matched_ious
 
 
 def nms_2d(boxes, scores, iou_thresh):

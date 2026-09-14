@@ -29,6 +29,14 @@ training_utils/experiment_queue.py → training_utils/experiments/
     ├─ state.py → task key、JSON 状态、原子写、锁与中断恢复
     ├─ scheduling.py → 任务展开、进程保护、GPU 容量与选择
     └─ execution.py → 子配置/命令、subprocess、日志及结果收集
+training_utils/losses.py → loss_components/ 数值实现
+    ├─ common.py → 通用框/IoU、Gaussian、ignore mask、focal 与 masked L1
+    ├─ targets.py → CenterPoint / RADE-Net 热力图与回归目标
+    ├─ gwd.py → 框转换与 Gaussian Wasserstein Distance
+    ├─ matching.py → YOLOX SimOTA 候选与动态分配
+    ├─ centerpoint.py → Polar/Cartesian CenterPoint、quality 与 QFL
+    ├─ radenet.py → RADE-Net focal、GWD/L1 及 detached-mean 归一化
+    └─ yolox.py → YOLOX objectness/classification/GWD/L1 加权
 scripts/evaluate_*_experiments.py → scripts/experiment_analysis/
     ├─ discovery.py → 表行、完成检查点、source/target 成对任务发现
     ├─ execution.py → evaluation.py 命令、CUDA 环境、subprocess 与 GPU 队列
@@ -118,6 +126,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 - 将域偏移实验队列按职责拆为 `schema`、`tables`、`state`、`scheduling` 和 `execution`；`experiment_queue.py` 保留高层循环及历史导入兼容面。任务身份版本、表顺序、恢复检查点、GPU 排序、worker 命令和失败状态写入规则均未改变。
 - 三个独立实验分析入口共享完成检查点发现、命令公共段、CUDA/subprocess 队列、锁/原子状态及报告 metadata/freshness 校验；距离区间、GT 四分位、相对 TD、受控正常域和 Source Drop 仍由各脚本定义。
 - 将 `eval/reporting.py` 改为兼容 facade；路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现。`domain_shift_tables.py` 继续负责域注册、模型配置身份、三张比较表和记录更新，避免反向依赖。
+- 在移动数值实现前固化 loss golden 值与梯度；`training_utils/losses.py` 改为历史导入 facade，CenterPoint、RADE-Net、YOLOX、GWD、目标生成和 SimOTA 各有唯一职责模块。损失键、权重、归一化、空目标和梯度保持不变。
 
 “功能保持”指保留正式实现与计算行为，**不包括继续支持已明确删除的旧导入、旧工具命令及 Polar GT/检查点输入**。仓库外的 notebook 和脚本若使用下面的旧名，需要同步更新；未声称验证所有外部调用或历史完整对象 pickle。
 
@@ -160,7 +169,8 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | 已完成（报告） | `eval/reporting.py` 与 `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | facade 保留旧导入；输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
 | 已完成（实验目录） | `experiments/{target_drop,distance_ranges,distance_quartiles,source_drop}/` | 四类实验资产移入唯一语义路径；文件内容、task/state identity、脚本默认值及内部结果布局不变。 |
 | 4 | `visualization_based_gt/generate_*.py` 等特定序列脚本 | 将序列、帧、epoch、标题等变为一套渲染入口的参数/预设；先保存参考图片与视频元数据，避免改变论文图。 |
-| 5 | `training_utils/losses.py`、`data/splits.py` | 按真实职责整理函数与注释；只抽取多处复用的实现，不用更多小文件替代长文件。 |
+| 已完成（损失） | `training_utils/losses.py` 与 `training_utils/loss_components/` | facade 保留历史导入；通用数学、目标、GWD、SimOTA 和三个 loss family 分责，配置模式解析仍由 `training_utils.configuration` 唯一负责。 |
+| 5 | `data/splits.py` | 按真实职责整理函数与注释；只抽取多处复用的实现，不用更多小文件替代长文件。 |
 | 6 | `legacy_module.py`、旧可视化器、原始 MAT 加载器 | 先确认历史模型和图像复现需求；无静态 import 不等于无功能，不自动删除。 |
 
 两个 MAT 接口现在都在 `loaders/kradar_dataset.py`。标准接口仍叫 `KRadarDataset`；需要旧可视化的 `rea`、`ra_map`、`re_map` 字段时使用 `KRadarSensorDataset`。项目内三处旧可视化调用已迁移，当前训练仍使用 `data.dataset.KRadarRADRAEDataset`。Model1–16 也不是重复备份，其结构/权重键需要分别保留。
@@ -249,7 +259,14 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [training_utils/experiments/execution.py](../training_utils/experiments/execution.py) | — | 训练 child config、历史 resume 覆盖、worker/评估命令、subprocess 日志和结果收集。 | 继续调用 `experiment_worker.py` 与 Step 2 共享训练工作流。 |
 | [training_utils/experiment_worker.py](../training_utils/experiment_worker.py) | 92 | 私有子进程入口；运行一个序列化实验训练任务并原子写入结果。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [training_utils/logging_utils.py](../training_utils/logging_utils.py) | 331 | 打印 epoch 历史，并向 TensorBoard 写入配置和指标。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [training_utils/losses.py](../training_utils/losses.py) | 1379 | 实现 RADE-Net、CenterPoint、QFL、质量、GWD、忽略区域和 YOLOX 的目标生成与损失。 | 保留计算与接口；先按职责整理函数，再做有回归覆盖的提取。 |
+| [training_utils/losses.py](../training_utils/losses.py) | 76 | 损失公开兼容 facade，重新导出旧函数名。 | 不包含算法副本；模式选择在 `training_utils.configuration`。 |
+| [training_utils/loss_components/common.py](../training_utils/loss_components/common.py) | 209 | 共享框/IoU、Gaussian、ignore mask、focal 和 masked L1 张量运算。 | CenterPoint、RADE-Net 和 YOLOX 的单一共享实现。 |
+| [training_utils/loss_components/targets.py](../training_utils/loss_components/targets.py) | 242 | CenterPoint Polar/Cartesian 及 RADE-Net 目标张量构造。 | 保留 floor/round、Gaussian 半径、类别和向量顺序。 |
+| [training_utils/loss_components/gwd.py](../training_utils/loss_components/gwd.py) | 85 | GWD 框转换、矩阵平方根和距离公式。 | 保留 tau、clamp 和 epsilon。 |
+| [training_utils/loss_components/matching.py](../training_utils/loss_components/matching.py) | 142 | YOLOX SimOTA 候选、cost、dynamic-k 及冲突解决。 | `yolox_utils` 只做兼容转发，不保留算法副本。 |
+| [training_utils/loss_components/centerpoint.py](../training_utils/loss_components/centerpoint.py) | 517 | Polar/Cartesian CenterPoint 回归、quality/QFL、权重及返回字典。 | 保留所有 loss key 和梯度路径。 |
+| [training_utils/loss_components/radenet.py](../training_utils/loss_components/radenet.py) | 241 | RADE-Net continuous focal、GWD/L1、原官方 detached-mean 归一化。 | 保留 backprop scalar 与 reported total 的原有区别。 |
+| [training_utils/loss_components/yolox.py](../training_utils/loss_components/yolox.py) | 150 | YOLOX 解码后的 SimOTA、objectness、classification、GWD/L1 及加权。 | 继续复用 `yolox_utils` 的解码，不改前景归一化。 |
 | [training_utils/other_helping_functions.py](../training_utils/other_helping_functions.py) | 421 | 设置随机种子、记录历史、解析最佳指标并管理候选/窗口/全局最佳检查点。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [training_utils/post_training_evaluation.py](../training_utils/post_training_evaluation.py) | 266 | 释放训练显存、选择评估 GPU，并在训练成功后启动独立评估。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [training_utils/resume.py](../training_utils/resume.py) | — | 恢复模型、优化器/调度器、轮次、最佳指标及已有运行目录。 | 仅保留断点续训特有策略。 |
@@ -257,7 +274,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [training_utils/runtime.py](../training_utils/runtime.py) | 30 | 解析 GPU ID 并选择 CPU、单 GPU 或 DataParallel。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [training_utils/torch_load.py](../training_utils/torch_load.py) | 18 | 安全加载 PyTorch 检查点的兼容封装。 | 保留：多个调用方共享检查点加载兼容逻辑。 |
 | [training_utils/training_loop.py](../training_utils/training_loop.py) | 303 | 执行单个训练 epoch 和验证损失，并路由到不同模型损失。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [training_utils/yolox_utils.py](../training_utils/yolox_utils.py) | 347 | 实现 YOLOX 网格解码、IoU/GIoU、SimOTA 分配、NMS 和检测转换。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
+| [training_utils/yolox_utils.py](../training_utils/yolox_utils.py) | 192 | YOLOX 网格解码、GIoU、NMS 和检测转换；兼容导出 SimOTA。 | SimOTA 数值实现仅在 `loss_components/matching.py`。 |
 
 ### eval
 
