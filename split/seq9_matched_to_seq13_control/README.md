@@ -34,7 +34,7 @@ ignore override. It does not edit the raw K-Radar gt.txt files.
 Set the following in train/eval/visualize config when you want this control experiment:
 
 ```python
-"split_mode": "file",
+"split_mode": "kradar_file",
 "split_dir": "split/seq9_matched_to_seq13_control",
 "gt_object_ignore_override_path": "split/seq9_matched_to_seq13_control/object_ignore_override.json",
 ```

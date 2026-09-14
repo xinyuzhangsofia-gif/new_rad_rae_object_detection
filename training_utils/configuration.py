@@ -41,13 +41,9 @@ WEATHER_GROUP_NAMES = {
     "heavysnow": "heavy_snow",
     "lightsnow": "light_snow",
 }
-# ``order`` remains a low-level DataLoader mode but was never accepted by the
-# normal training entry point, so it is intentionally not enabled here.
 SUPPORTED_TRAINING_SPLIT_MODES = (
-    "random",
-    "file",
+    "kradar_file",
     "sequence",
-    "sequence_tail",
 )
 
 

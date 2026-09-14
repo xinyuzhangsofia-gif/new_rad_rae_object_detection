@@ -21,7 +21,7 @@ This is the simplified version:
 ## Use
 
 ```python
-"split_mode": "file",
+"split_mode": "kradar_file",
 "split_dir": "split/seq9_simple_random_to_seq13_control_first",
 "gt_object_ignore_override_path": "split/seq9_simple_random_to_seq13_control_first/object_ignore_override.json",
 ```

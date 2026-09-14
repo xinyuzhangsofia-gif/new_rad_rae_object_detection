@@ -28,7 +28,6 @@ EVAL_CONFIG = {
     "split_mode": "sequence",
     "split_dir": "split",
     "val_sequences": None,
-    "train_ratio": None,
     "eval_scope": None,
 
     # Official K-Radar KITTI-style metric settings.

@@ -45,13 +45,15 @@ class ConfigCompatibilityTests(unittest.TestCase):
             "box_coordinate_mode": "cartesian",
             "loss_mode": "centerpoint",
             "model_type": "model7",
-            "split_mode": "file",
+            "split_mode": "kradar_file",
             "include_bus_as_target": True,
             "checkpoint_base_dir": "checkpoints",
             "checkpoint_layout": "legacy",
             "checkpoint_filename_style": "compact",
         }
         self.assertEqual({key: TRAIN_CONFIG[key] for key in expected}, expected)
+        self.assertNotIn("train_ratio", TRAIN_CONFIG)
+        self.assertNotIn("train_ratio", EVAL_CONFIG)
 
     def test_evaluation_runtime_and_output_paths_are_aggregated(self):
         for key, value in EVALUATION_RUNTIME_CONFIG.items():

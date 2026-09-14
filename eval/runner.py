@@ -450,7 +450,6 @@ def build_eval_context(args):
         ) = build_train_val_dataloaders(
             cfg=cfg,
             batch_size=args.batch_size,
-            train_ratio=args.train_ratio,
             seed=args.seed,
             num_workers=args.num_workers,
             limit_samples=args.limit_samples,

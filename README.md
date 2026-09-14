@@ -78,7 +78,7 @@ export MVRSS_LIDAR2RADAR_CALIB_PATH=/path/to/lidar2radar_calib.yml
 export MVRSS_KRADAR_TOOLS_ROOT=/path/to/official/K-Radar/repository
 ```
 
-Each sequence pairs `rad/<frame>.npy` with `rae/<frame>.npy` and prefers
+Each sequence pairs `rad/<frame>.npy` with `rae/<frame>.npy` and requires
 `<sequence>/gt/gt.txt`. The flat file must start with this explicit header:
 
 ```text
@@ -87,8 +87,8 @@ Each sequence pairs `rad/<frame>.npy` with `rae/<frame>.npy` and prefers
 
 Dimensions are full lengths in metres; the reader converts yaw from degrees
 to radians. `frame_idx` is the one-based position in the sorted paired radar
-files, not the numeric radar filename. If the flat file is absent, the
-radar-aligned per-frame Cartesian format remains supported.
+files, not the numeric radar filename. A missing flat file is an error;
+training and evaluation do not fall back to per-frame Cartesian labels.
 
 The old Polar reader/root option and four Polar-GT generation/plotting tools
 have been removed. Polar or untyped flat GT is rejected; changing a header or
@@ -130,6 +130,13 @@ Within `data/`, responsibilities are explicit: `labels.py` reads Cartesian GT,
 `geometry.py` converts and filters boxes, `dataset.py` assembles samples, and
 `dataloader.py` collates samples and builds loaders. Raw MAT sensor projections
 live separately in `loaders/kradar_dataset.py`.
+
+Supported ordinary split modes are:
+
+1. `kradar_file`: uses the predefined K-Radar `split/train.txt` and
+   `split/test.txt` manifests.
+2. `sequence`: uses explicit training and validation sequence IDs, including
+   the existing first/last sequence-part selection.
 
 Checkpoint prediction also has one shared path. `eval/checkpoints.py` interprets
 checkpoint metadata, reconstructs models, and loads state dictionaries;

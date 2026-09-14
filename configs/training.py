@@ -60,8 +60,7 @@ TRAIN_CONFIG = {
     "train_scope": SCOPE_FULL,
 
     # Ordinary train/validation split.
-    "train_ratio": 0.7,
-    "split_mode": "file",
+    "split_mode": "kradar_file",
     "split_dir": "split",
     "train_sequences": None,
     "val_sequences": None,

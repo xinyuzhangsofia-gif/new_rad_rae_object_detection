@@ -19,7 +19,7 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
     def test_normal_and_resume_use_the_canonical_split_modes(self):
         self.assertEqual(
             SUPPORTED_TRAINING_SPLIT_MODES,
-            ("random", "file", "sequence", "sequence_tail"),
+            ("kradar_file", "sequence"),
         )
         for split_mode in SUPPORTED_TRAINING_SPLIT_MODES:
             with self.subTest(split_mode=split_mode):
@@ -28,12 +28,22 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
                 self.assertEqual(runner.build_train_args(normal).split_mode, split_mode)
                 self.assertEqual(resume.build_resume_args(resumed).split_mode, split_mode)
 
-        for builder, config in (
-            (runner.build_train_args, dict(TRAIN_CONFIG, split_mode="order")),
-            (resume.build_resume_args, dict(RESUME_CONFIG, split_mode="order")),
+        for builder, base_config in (
+            (runner.build_train_args, TRAIN_CONFIG),
+            (resume.build_resume_args, RESUME_CONFIG),
         ):
-            with self.assertRaisesRegex(ValueError, "split_mode must be one of"):
-                builder(config)
+            for removed_mode in (
+                "file",
+                "random",
+                "order",
+                "sequence_tail",
+                "sequence-tail",
+            ):
+                with self.subTest(
+                    builder=builder.__name__,
+                    split_mode=removed_mode,
+                ), self.assertRaisesRegex(ValueError, "split_mode must be one of"):
+                    builder(dict(base_config, split_mode=removed_mode))
 
     def test_normal_and_resume_build_the_same_optimizer_and_scheduler(self):
         args = SimpleNamespace(
@@ -406,7 +416,6 @@ class SharedEpochWorkflowTests(unittest.TestCase):
             max_detections=64,
             num_classes=2,
             model_type="model7",
-            train_ratio=0.7,
             seed=42,
             limit_samples=None,
         )

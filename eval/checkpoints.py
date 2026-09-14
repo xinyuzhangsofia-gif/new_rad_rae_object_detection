@@ -763,8 +763,6 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         args.max_detections = int(config["max_detections"])
     elif should_inherit_from_checkpoint("max_detections") and config.get("num_boxes") is not None:
         args.max_detections = int(config["num_boxes"])
-    if should_inherit_from_checkpoint("train_ratio") and config.get("train_ratio") is not None:
-        args.train_ratio = float(config["train_ratio"])
     if (
         should_inherit_from_checkpoint("include_bus_as_target")
         and inferred_include_bus_as_target is not None

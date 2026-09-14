@@ -52,7 +52,7 @@ def get_dataset_sequences_for_split(
     train_sequences=None,
     val_sequences=None,
 ):
-    if split_mode not in {"sequence", "sequence_tail"}:
+    if split_mode == "kradar_file":
         sequences = getattr(cfg, "sequences", None)
         if sequences is None:
             sequences = (cfg.sequence,)
@@ -61,12 +61,12 @@ def get_dataset_sequences_for_split(
             raise ValueError("cfg.sequences must not be empty")
         return sequences
 
+    if split_mode != "sequence":
+        raise ValueError(f"Unknown split_mode: {split_mode}")
+
     train_sequences = normalize_sequence_list(train_sequences, name="train_sequences")
     if train_sequences is None:
         raise ValueError("sequence split requires train_sequences.")
-    if split_mode == "sequence_tail":
-        return unique_sequences(train_sequences)
-
     val_sequences = normalize_sequence_list(val_sequences, name="val_sequences")
     if val_sequences is None:
         raise ValueError("sequence split requires val_sequences.")

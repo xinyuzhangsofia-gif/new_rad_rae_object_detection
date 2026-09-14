@@ -108,6 +108,6 @@ The `.txt` suffix is only a split-file convention.
 Use:
 
 ```python
-"split_mode": "file",
+"split_mode": "kradar_file",
 "split_dir": "split/seq3_seq4_normal_11parts_7train_2discard_2test",
 ```

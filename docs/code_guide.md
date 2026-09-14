@@ -54,7 +54,7 @@ tools/ → 独立统计、论文图和维护工具
 训练、续训、独立评估及检查点可视化现在只接受 Cartesian 输入。`require_cartesian_data` 会拒绝 Polar 模式/检查点；不能通过修改模式标记把旧权重当成 Cartesian 权重使用。
 
 - `box_coordinate_mode="cartesian"`，训练读取 `/home/local/xinyu/K-Radar-GT-cartesian-radar-v2/<sequence>/gt/gt.txt`。已检查 1–58 序列的平铺文件均存在。
-- `data.labels.load_cartesian_gt` 统一选择标签格式：优先调用 `read_cartesian_gt_txt`；只有上述平铺文件不存在，才调用 `read_kradar_revised_label_dir` 读取序列目录中的逐帧 TXT。
+- `data.labels.load_cartesian_gt` 只读取上述平铺文件；文件不存在时报告预期的 `gt.txt` 路径。`read_kradar_revised_label_dir` 仍保留给逐帧标签工具使用。
 - 数据根目录的 `README.txt` 记录来源为官方 K-Radar revised v2.1 visibility 标签；生成脚本将 LiDAR 坐标转换到雷达坐标，平铺训练标签仅保留 `R` / `LR` 可见目标。
 - 同根目录逐帧 TXT 保留传感器对应信息，供当前多传感器可视化使用。可视化的 `info_label_root=CURRENT_GT_ROOT` 是独立设置，并非动态跟随训练配置。
 - `configs/data.py::DataConfig.choose_info_label="info_label_rev2"` 用于原始标签路径辅助函数，不决定上述训练 GT。它容易造成误解，不应作为当前训练标签版本的依据。
@@ -68,32 +68,32 @@ K-Radar-RAD/<sequence>/rad/*.npy + rae/*.npy
     + 当前 Cartesian gt/gt.txt
     → KRadarGTDetectionDataset：匹配 GT、类别/ignore 处理、生成框张量
     → KRadarMultiSequenceGTDetectionDataset：合并多个序列
-    → build_file_split_indices：按 split/train.txt 和 split/test.txt 选帧
+    → build_kradar_file_split_indices：按 split/train.txt 和 split/test.txt 选帧
     → DataLoader + detection_collate：组装 batch
     → prepare_model_inputs：转设备、调整维度 → model(rad, rae)
 ```
 
 平铺 GT 第一列 `frame_idx` 从 1 开始，解析后 `file_idx=frame_idx-1`；它是排序后 RAD/RAE 共有文件的序号，**不是雷达文件名中的数字**。例如序列 1 的 `frame_idx=1` 对应 `00033.npy`；对应关系见各序列的 `frame_manifest.csv`。因此不能随意改变配对排序、删掉中间帧或单独重排标签。
 
-Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_width, yaw_deg, class`。尺寸是完整米制尺寸，读取时不再乘 2；yaw 转成弧度，构成 `[x,y,z,l,w,h,yaw]`。逐帧官方格式存半尺寸，属于另一个读取分支。
+Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_width, yaw_deg, class`。尺寸是完整米制尺寸，读取时不再乘 2；yaw 转成弧度，构成 `[x,y,z,l,w,h,yaw]`。逐帧官方格式存半尺寸，仅由独立工具读取，不是训练/评估 fallback。
 
 ### 相关文件与关键函数
 
 | 文件 | 本主线内的职责/函数 |
 | --- | --- |
 | `data/dataset.py` | `KRadarRADRAEDataset`、`KRadarGTDetectionDataset`、`KRadarMultiSequenceGTDetectionDataset`：配对帧、应用类别/ignore 规则并返回样本。 |
-| `data/dataloader.py` | `detection_collate`、数据集工厂、训练/评估 DataLoader、划分索引与 `prepare_model_inputs`。 |
-| `data/labels.py` | `load_cartesian_gt` 选择当前格式；各 `read_*` 函数只解析对应 Cartesian 标签。 |
+| `data/dataloader.py` | `detection_collate`、数据集工厂、训练/评估 DataLoader 与 `prepare_model_inputs`。 |
+| `data/labels.py` | `load_cartesian_gt` 读取规范的平铺 GT；各 `read_*` 函数只解析对应 Cartesian 标签。 |
 | `data/paths.py` | `get_rad_rae_npy_root_dir`、`get_cartesian_gt_path` 及原始传感器路径；统一解释“文件在哪里”。 |
 | `data/coordinates.py` | `crop_rad_rae_to_scope`、`global_rae_boxes_to_local_scope`、`normalize_rae_boxes_for_scope` 及雷达轴/FOV。 |
 | `data/geometry.py` | Cartesian/RAE 框转换、FOV/scope 判断及框张量构造；供 Dataset、模型损失和评估共享。 |
-| `data/splits.py` | `prepare_controlled_train_data`：实验用受控样本选择和分布匹配，不是普通 train/test 划分的唯一入口。 |
+| `data/splits.py` | 划分公共兼容入口；实现分别位于 `data/split/` 的 manifests、sequences、standard 和 controlled 模块。 |
 | `data/ignore_overrides.py` | 加载并严格校验逐帧、逐目标 ignore 规则。 |
 | `loaders/kradar_dataset.py` | 原始 MAT DREA 投影；`KRadarDataset` 返回三种标准投影，`KRadarSensorDataset` 额外提供 RA/RE 图和帧号查询。 |
 | `configs/training.py`、`configs/coordinates.py`、`training_utils/configuration.py` | 选择 Cartesian GT 根目录/类别，拒绝 Polar 输入，解析 ignore 配置，再传给数据工厂。 |
 | `scripts/build_cartesian_gt_dataset.py` | 离线转换官方标签并生成逐帧副本、平铺 GT 和匹配清单；不是每个训练 epoch 执行。 |
 
-当前普通训练 `split_mode="file"`，以 `split/train.txt` / `split/test.txt` 为准，不重新按 `train_ratio=0.7` 随机划分；实验队列和受控划分均关闭。目标类别为 Sedan 与 Bus or Truck；保留 `object_label=-1`，启用超范围 GT 过滤。训练 loader 打乱顺序，验证 loader 不打乱。
+普通训练只支持两种划分：`split_mode="kradar_file"` 按 K-Radar 的 `split/train.txt` / `split/test.txt` 精确选帧；`split_mode="sequence"` 按显式训练/验证序列选帧，并保留 first/last 部分选择。训练 loader 仍打乱顺序，验证 loader 仍不打乱。实验队列的受控匹配是独立层，不改变这两种普通划分的成员语义。
 
 `detection_collate` 将 RAD/RAE 堆叠成 batch，但每帧目标数不同，GT 框/类别仍使用列表。`prepare_model_inputs` 将 `[B,R,A,D/E]` 变成 `[B,D/E,R,A]` 并转到指定设备；不要在整理文件时改变轴顺序或 GT 张量含义。
 
@@ -105,7 +105,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 
 在启动命令前设置 `MVRSS_RADAR_ROOT` 和 `MVRSS_CARTESIAN_GT_ROOT`，或编辑 `configs/data.py` 的 `RADAR_NPY_ROOT` / `CARTESIAN_GT_ROOT`。训练/评估配置、数据路径、当前 GT 可视化及相关统计工具共享这些默认值；仍可通过已有参数指定其他 Cartesian 根目录。
 
-平铺文件必须以 `# frame_idx,object_label,x,y,z,x_width,y_width,z_width,yaw_deg,class` 开头；表头中的空格可以不同。没有类型表头或带 Polar 列名的文件会报错，而不是把相同数量的字段静默当作米制框。缺少平铺文件时才使用雷达坐标系逐帧格式；损坏的平铺文件不会触发静默 fallback。
+平铺文件必须以 `# frame_idx,object_label,x,y,z,x_width,y_width,z_width,yaw_deg,class` 开头；表头中的空格可以不同。没有类型表头或带 Polar 列名的文件会报错，而不是把相同数量的字段静默当作米制框。训练和评估要求每个序列存在该平铺文件；缺少文件时会直接报出预期的 `gt.txt` 路径，不再自动读取逐帧格式。
 
 移除了 `scripts/build_polar_gt_from_cartesian.py` 以及 `tools/figures/plot_sedan_polar_{bbox_scatter,center_range_area,ra_center_scatter}.py` 三个旧图工具。`plot_sedan_cartesian_to_ra_center_area.py` 保留：其输入是 Cartesian，只把中心转换到 R-A 视图显示。此次删除的源码有清理前归档，磁盘数据集没有删除。
 
@@ -127,6 +127,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 - 三个独立实验分析入口共享完成检查点发现、命令公共段、CUDA/subprocess 队列、锁/原子状态及报告 metadata/freshness 校验；距离区间、GT 四分位、相对 TD、受控正常域和 Source Drop 仍由各脚本定义。
 - 将 `eval/reporting.py` 改为兼容 facade；路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现。`domain_shift_tables.py` 继续负责域注册、模型配置身份、三张比较表和记录更新，避免反向依赖。
 - 在移动数值实现前固化 loss golden 值与梯度；`training_utils/losses.py` 改为历史导入 facade，CenterPoint、RADE-Net、YOLOX、GWD、目标生成和 SimOTA 各有唯一职责模块。损失键、权重、归一化、空目标和梯度保持不变。
+- 将 Controlled Split 从单文件迁移到 `data/split/controlled/`：`matching.py` 保留科学匹配与随机试验，`generation.py` 负责编排、复用、override 和 manifest，`reporting.py` 负责配置/统计/比较报告，`runtime.py` 只在训练时应用已有清单；包入口与 `data/splits.py` 保留历史导入。
 
 “功能保持”指保留正式实现与计算行为，**不包括继续支持已明确删除的旧导入、旧工具命令及 Polar GT/检查点输入**。仓库外的 notebook 和脚本若使用下面的旧名，需要同步更新；未声称验证所有外部调用或历史完整对象 pickle。
 
@@ -170,7 +171,7 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | 已完成（实验目录） | `experiments/{target_drop,distance_ranges,distance_quartiles,source_drop}/` | 四类实验资产移入唯一语义路径；文件内容、task/state identity、脚本默认值及内部结果布局不变。 |
 | 4 | `visualization_based_gt/generate_*.py` 等特定序列脚本 | 将序列、帧、epoch、标题等变为一套渲染入口的参数/预设；先保存参考图片与视频元数据，避免改变论文图。 |
 | 已完成（损失） | `training_utils/losses.py` 与 `training_utils/loss_components/` | facade 保留历史导入；通用数学、目标、GWD、SimOTA 和三个 loss family 分责，配置模式解析仍由 `training_utils.configuration` 唯一负责。 |
-| 5 | `data/splits.py` | 按真实职责整理函数与注释；只抽取多处复用的实现，不用更多小文件替代长文件。 |
+| 已完成（数据划分） | `data/splits.py`、`data/split/` | 普通划分按 manifest、sequence、dispatcher 分责；Controlled Split 再按 matching、generation、reporting、runtime 分责。兼容 facade、精确成员、seed 和生成文件保持不变。 |
 | 6 | `legacy_module.py`、旧可视化器、原始 MAT 加载器 | 先确认历史模型和图像复现需求；无静态 import 不等于无功能，不自动删除。 |
 
 两个 MAT 接口现在都在 `loaders/kradar_dataset.py`。标准接口仍叫 `KRadarDataset`；需要旧可视化的 `rea`、`ra_map`、`re_map` 字段时使用 `KRadarSensorDataset`。项目内三处旧可视化调用已迁移，当前训练仍使用 `data.dataset.KRadarRADRAEDataset`。Model1–16 也不是重复备份，其结构/权重键需要分别保留。
@@ -212,13 +213,13 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | --- | ---: | --- | --- |
 | [data/__init__.py](../data/__init__.py) | 1 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
 | [data/coordinates.py](../data/coordinates.py) | 377 | 雷达轴、RAE 范围、坐标转换、裁剪和归一化。 | 保留坐标定义职责。 |
-| [data/dataloader.py](../data/dataloader.py) | 1024 | 拼接样本、创建数据集/DataLoader、解析划分并准备模型输入。 | 保留单一 DataLoader 入口；可变长度 GT 不应直接 stack。 |
+| [data/dataloader.py](../data/dataloader.py) | — | 拼接样本、创建数据集/DataLoader 并准备模型输入。 | 保留单一 DataLoader 入口；普通划分委托给 `data/split/`。 |
 | [data/dataset.py](../data/dataset.py) | 354 | 三个数据集类；只负责雷达/GT 配对、类别及 ignore 策略和样本字段。 | 已按职责精简；35 个样本字段保持不变。 |
 | [data/geometry.py](../data/geometry.py) | 433 | 供数据、训练和评估共享的 RAE 网格、米制 Cartesian 转换、FOV 与框张量构造。 | 保留共享数学实现，避免 Dataset 内重复。 |
 | [data/ignore_overrides.py](../data/ignore_overrides.py) | 153 | 加载并严格校验逐目标忽略规则。 | 保留独立策略边界。 |
 | [data/labels.py](../data/labels.py) | 237 | 选择并解析平铺/逐帧 Cartesian 标签。 | 保留唯一标签读取入口。 |
 | [data/paths.py](../data/paths.py) | 141 | 解析雷达、Cartesian 标签和原始传感器路径。 | 保留唯一共享路径入口。 |
-| [data/splits.py](../data/splits.py) | 1139 | 受控序列划分和逐目标忽略规则。 | 保留计算与接口；标签选择已复用 `data.labels`。 |
+| [data/splits.py](../data/splits.py) | — | 普通/受控划分的公共兼容入口。 | `manifests.py` 负责 K-Radar 文件清单，`sequences.py` 负责显式序列与 first/last，`standard.py` 只分派两种模式；`controlled/{matching,generation,reporting,runtime}.py` 分别负责科学匹配、生成编排、输出和训练时应用。 |
 
 ### models
 
@@ -409,7 +410,6 @@ Group1、道路统计及两个序列 9 控制脚本已改读 Cartesian GT；距�
 | [tests/test_cartesian_data.py](../tests/test_cartesian_data.py) | 296 | Cartesian-only 输入约束、样本/batch 语义、MAT 接口职责、路径覆盖和拒绝旧检查点。 | 保留：确保数据模块整理不改变行为。 |
 | [tests/test_axis_aligned_iou.py](../tests/test_axis_aligned_iou.py) | 28 | 轴对齐 IoU 几何与评估接口兼容性。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_checkpoint_selection.py](../tests/test_checkpoint_selection.py) | 284 | 候选/全局最佳指标选择和检查点替换。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
-| [tests/test_chronological_split.py](../tests/test_chronological_split.py) | 53 | 各序列时间尾部训练/验证划分及边界间隔。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_controlled_sequences.py](../tests/test_controlled_sequences.py) | 306 | 受控窗口匹配、目标屏蔽、统计、签名和复用。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_coordinate_modes.py](../tests/test_coordinate_modes.py) | 424 | Polar/Cartesian 配置、范围转换、目标、解码和数据集语义。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_distance_quartile_evaluation.py](../tests/test_distance_quartile_evaluation.py) | 217 | 四分位指标接线、报告键、绘图和输出元数据。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |

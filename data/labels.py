@@ -6,7 +6,6 @@ from collections import defaultdict
 import glob
 import os
 
-from configs.data import CARTESIAN_GT_ROOT
 from .paths import get_cartesian_gt_path
 
 
@@ -224,14 +223,8 @@ def read_kradar_revised_label_dir(
 
 
 def load_cartesian_gt(sequence, cartesian_gt_root=None):
-    """Load the active Cartesian label format and report its mapping key."""
+    """Load the canonical flat Cartesian GT and report its mapping key."""
     flat_path = get_cartesian_gt_path(sequence, cartesian_gt_root)
-    if os.path.isfile(flat_path):
-        return "file_idx", read_cartesian_gt_txt(flat_path)
-
-    per_frame = read_kradar_revised_label_dir(
-        label_root=cartesian_gt_root or CARTESIAN_GT_ROOT,
-        sequence=sequence,
-        radar_visibility_tokens=("R", "LR"),
-    )
-    return "frame_name", per_frame
+    if not os.path.isfile(flat_path):
+        raise FileNotFoundError(f"Cartesian GT file not found: {flat_path}")
+    return "file_idx", read_cartesian_gt_txt(flat_path)

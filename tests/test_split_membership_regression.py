@@ -2,6 +2,7 @@
 
 from contextlib import redirect_stdout
 import io
+import inspect
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,17 +10,17 @@ import unittest
 from data.dataloader import (
     apply_train_control_split_indices,
     build_exact_frame_manifest_indices,
-    build_file_split_indices,
-    build_order_split_indices,
-    build_random_split_indices,
+    build_kradar_file_split_indices,
+    build_split_indices,
     build_sequence_split_indices,
-    build_sequence_tail_split_indices,
     get_dataset_sequences_for_split,
     normalize_sequence_list,
     read_split_file,
     split_line_to_sequence_and_frame_names,
     unique_sequences,
 )
+from data import dataloader
+from data.split import standard
 from data.splits import (
     _bin_key,
     _build_override_frames,
@@ -88,90 +89,77 @@ class StandardSplitMembershipGoldenTests(unittest.TestCase):
     def setUp(self):
         self.dataset = DummyMultiSequenceDataset()
 
-    def assert_membership(self, actual, expected_indices, expected_identities):
-        self.assertEqual(actual, expected_indices)
-        self.assertEqual(
-            [self.dataset.identity(index) for index in actual],
-            expected_identities,
-        )
+    def dispatch(self, split_mode, **overrides):
+        kwargs = {
+            "limit_samples": None,
+            "split_dir": "split",
+            "allowed_sequences": (1, 2, 9),
+            "train_sequences": (1,),
+            "val_sequences": (2,),
+            "train_sequence_half_selection": None,
+            "train_sequence_half_ratio": 0.5,
+        }
+        kwargs.update(overrides)
+        return build_split_indices(self.dataset, split_mode, **kwargs)
 
-    def test_training_and_low_level_mode_distinction(self):
+    def test_only_kradar_file_and_sequence_are_supported(self):
         self.assertEqual(
             SUPPORTED_TRAINING_SPLIT_MODES,
-            ("random", "file", "sequence", "sequence_tail"),
+            ("kradar_file", "sequence"),
         )
         for mode in SUPPORTED_TRAINING_SPLIT_MODES:
             self.assertEqual(validate_training_split_mode(mode), mode)
-        for low_level_only_or_alias in ("order", "sequence-tail"):
-            with self.subTest(mode=low_level_only_or_alias), self.assertRaisesRegex(
+        for removed_mode in (
+            "file",
+            "random",
+            "order",
+            "sequence_tail",
+            "sequence-tail",
+        ):
+            with self.subTest(mode=removed_mode), self.assertRaisesRegex(
                 ValueError,
                 "split_mode must be one of",
             ):
-                validate_training_split_mode(low_level_only_or_alias)
+                validate_training_split_mode(removed_mode)
+            with self.subTest(mode=removed_mode), self.assertRaisesRegex(
+                ValueError,
+                "Unknown split_mode",
+            ):
+                get_dataset_sequences_for_split(
+                    type("Cfg", (), {"sequences": (1, 2)})(),
+                    removed_mode,
+                )
+            with self.subTest(mode=removed_mode), self.assertRaisesRegex(
+                ValueError,
+                "Unknown split_mode",
+            ):
+                self.dispatch(removed_mode)
 
-    def test_random_split_seed_42_exact_membership_and_order(self):
-        train, val = build_random_split_indices(self.dataset, 0.6, 42, None)
-        self.assert_membership(
-            train,
-            [2, 4, 3, 7, 8, 14, 9, 10, 11],
-            [
-                (1, "s1f2"), (1, "s1f4"), (1, "s1f3"),
-                (2, "s2f2"), (2, "s2f3"),
-                (9, "s9f5"), (9, "s9f0"), (9, "s9f1"), (9, "s9f2"),
-            ],
-        )
-        self.assert_membership(
-            val,
-            [0, 1, 5, 6, 12, 13, 15],
-            [
-                (1, "s1f0"), (1, "s1f1"),
-                (2, "s2f0"), (2, "s2f1"),
-                (9, "s9f3"), (9, "s9f4"), (9, "s9f6"),
-            ],
-        )
-
-    def test_random_split_seed_7_and_global_limit_are_exact(self):
-        self.assertEqual(
-            build_random_split_indices(self.dataset, 0.6, 7, None),
-            (
-                [0, 1, 3, 8, 6, 10, 14, 12, 9],
-                [2, 4, 5, 7, 11, 13, 15],
-            ),
-        )
-        self.assertEqual(
-            build_random_split_indices(self.dataset, 0.6, 42, 8),
-            ([2, 4, 3, 5], [0, 1, 7, 6]),
-        )
-
-    def test_order_split_preserves_per_sequence_cutoff_and_order(self):
-        self.assertEqual(
-            build_order_split_indices(self.dataset, 0.6, None),
-            (
-                [0, 1, 2, 5, 6, 9, 10, 11, 12],
-                [3, 4, 7, 8, 13, 14, 15],
-            ),
-        )
-
-    def test_sequence_tail_odd_lengths_boundary_and_limit_are_exact(self):
-        self.assertEqual(
-            build_sequence_tail_split_indices(
-                self.dataset,
-                val_ratio=0.3,
-                boundary_drop_frames=1,
-            ),
-            ([0, 1, 5, 9, 10, 11], [3, 4, 7, 8, 13, 14, 15]),
-        )
-        self.assertEqual(
-            build_sequence_tail_split_indices(
-                self.dataset,
-                val_ratio=0.3,
-                boundary_drop_frames=0,
-                limit_samples=8,
-            ),
-            ([0, 1, 2, 5, 6], [3, 4, 7]),
-        )
+        dataloader_parameters = inspect.signature(
+            dataloader.build_train_val_dataloaders
+        ).parameters
+        dispatcher_parameters = inspect.signature(build_split_indices).parameters
+        for obsolete_parameter in (
+            "train_ratio",
+            "sequence_tail_val_ratio",
+            "sequence_tail_boundary_drop_frames",
+        ):
+            self.assertNotIn(obsolete_parameter, dataloader_parameters)
+            self.assertNotIn(obsolete_parameter, dispatcher_parameters)
+        for removed_function in (
+            "build_file_split_indices",
+            "build_random_split_indices",
+            "build_order_split_indices",
+            "build_sequence_tail_split_indices",
+        ):
+            self.assertFalse(hasattr(dataloader, removed_function))
+            self.assertFalse(hasattr(standard, removed_function))
 
     def test_sequence_split_full_first_last_string_ids_and_order(self):
+        self.assertEqual(
+            self.dispatch("sequence"),
+            ([0, 1, 2, 3, 4], [5, 6, 7, 8]),
+        )
         self.assertEqual(
             build_sequence_split_indices(
                 self.dataset, (1, 9), (2,), None,
@@ -217,16 +205,12 @@ class StandardSplitMembershipGoldenTests(unittest.TestCase):
         self.assertEqual(unique_sequences((2, 1, 2), (3, 1)), (2, 1, 3))
         cfg = type("Cfg", (), {"sequences": (8, 7)})()
         self.assertEqual(
-            get_dataset_sequences_for_split(cfg, "random"),
+            get_dataset_sequences_for_split(cfg, "kradar_file"),
             (8, 7),
         )
         self.assertEqual(
             get_dataset_sequences_for_split(cfg, "sequence", (2, 1, 2), (3, 1)),
             (2, 1, 3),
-        )
-        self.assertEqual(
-            get_dataset_sequences_for_split(cfg, "sequence_tail", (3, 9), None),
-            (3, 9),
         )
 
     def test_sequence_split_error_contracts(self):
@@ -239,8 +223,6 @@ class StandardSplitMembershipGoldenTests(unittest.TestCase):
                 self.dataset, (1,), (2,), None,
                 train_sequence_half_selection={1: "middle"},
             )
-        with self.assertRaisesRegex(ValueError, "val_ratio must be between"):
-            build_sequence_tail_split_indices(self.dataset, val_ratio=1.0)
 
 
 class ManifestMembershipGoldenTests(unittest.TestCase):
@@ -273,7 +255,7 @@ class ManifestMembershipGoldenTests(unittest.TestCase):
             (1, [".txt"]),
         )
 
-    def test_file_split_grouping_duplicates_missing_and_limit_are_exact(self):
+    def test_kradar_file_split_grouping_duplicates_missing_and_limit_are_exact(self):
         (self.root / "train.txt").write_text(
             "# comment\n1,a2.txt\n2,b1_old.txt\n1,a2.txt\n"
             "2,missing.txt\n3,outside.txt\n",
@@ -290,7 +272,7 @@ class ManifestMembershipGoldenTests(unittest.TestCase):
         )
         output = io.StringIO()
         with redirect_stdout(output):
-            train, val = build_file_split_indices(
+            train, val = build_kradar_file_split_indices(
                 self.dataset,
                 self.root,
                 (2, 1),
@@ -299,7 +281,19 @@ class ManifestMembershipGoldenTests(unittest.TestCase):
         self.assertEqual((train, val), ([5, 1], [3, 2]))
         self.assertIn("skipped 1 samples", output.getvalue())
         self.assertEqual(
-            build_file_split_indices(self.dataset, self.root, (2, 1), 1),
+            build_split_indices(
+                self.dataset,
+                "kradar_file",
+                limit_samples=None,
+                split_dir=self.root,
+                allowed_sequences=(2, 1),
+                train_sequences=None,
+                val_sequences=None,
+            ),
+            ([5, 1], [3, 2]),
+        )
+        self.assertEqual(
+            build_kradar_file_split_indices(self.dataset, self.root, (2, 1), 1),
             ([5], [3]),
         )
 
@@ -320,9 +314,14 @@ class ManifestMembershipGoldenTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "manifest is empty"):
             build_exact_frame_manifest_indices(self.dataset, manifest)
 
-    def test_missing_file_split_error_contract(self):
+    def test_missing_kradar_file_split_error_contract(self):
         with self.assertRaisesRegex(FileNotFoundError, "Training split file not found"):
-            build_file_split_indices(self.dataset, self.root / "missing", (1, 2), None)
+            build_kradar_file_split_indices(
+                self.dataset,
+                self.root / "missing",
+                (1, 2),
+                None,
+            )
 
     def test_control_manifest_filters_only_named_sequences_without_reordering(self):
         control_dir = self.root / "control"

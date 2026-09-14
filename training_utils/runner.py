@@ -189,16 +189,6 @@ def print_training_configuration(args, loss_mode):
             f"{args.train_sequence_half_selection}, "
             f"ratio={args.train_sequence_half_ratio:g}"
         )
-    if args.split_mode == "sequence_tail":
-        tail_ratio = getattr(args, "sequence_tail_val_ratio", 0.1)
-        boundary_frames = getattr(
-            args, "sequence_tail_boundary_drop_frames", 0
-        )
-        print(
-            "Chronological internal validation: "
-            f"last {tail_ratio:.1%} per train sequence, "
-            f"drop {boundary_frames} boundary frame(s)"
-        )
     if args.gt_object_ignore_override_path is not None:
         print(f"GT object ignore override: {args.gt_object_ignore_override_path}")
     if use_official_model15_lr_mode(args.model_type):
@@ -210,7 +200,6 @@ def build_training_data(args, cfg):
     result = build_train_val_dataloaders(
         cfg=cfg,
         batch_size=args.batch_size,
-        train_ratio=args.train_ratio,
         seed=args.seed,
         num_workers=args.num_workers,
         limit_samples=args.limit_samples,
@@ -230,10 +219,6 @@ def build_training_data(args, cfg):
         val_sequences=args.val_sequences,
         train_control_split_enabled=args.train_control_split_enabled,
         train_control_split_dir=args.train_control_split_dir,
-        sequence_tail_val_ratio=getattr(args, "sequence_tail_val_ratio", 0.1),
-        sequence_tail_boundary_drop_frames=getattr(
-            args, "sequence_tail_boundary_drop_frames", 0
-        ),
         box_coordinate_mode=args.box_coordinate_mode,
         cartesian_gt_root=args.cartesian_gt_root,
         ignore_object_label_minus_one=args.ignore_object_label_minus_one,
@@ -382,10 +367,6 @@ def write_training_run_config(
             args, "train_control_split_enabled", False
         ),
         train_control_split_dir=getattr(args, "train_control_split_dir", None),
-        sequence_tail_val_ratio=getattr(args, "sequence_tail_val_ratio", None),
-        sequence_tail_boundary_drop_frames=getattr(
-            args, "sequence_tail_boundary_drop_frames", None
-        ),
         centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
         quality_loss_weight=args.quality_loss_weight,
         quality_loss_active=model_uses_separate_quality_loss(args.model_type),

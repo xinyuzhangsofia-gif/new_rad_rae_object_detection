@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Build a K-Radar Cartesian GT root keyed by radar tesseract frame names.
 
-The output keeps radar-aligned per-frame revised labels and also writes a flat
-``<sequence>/gt/gt.txt``. The Cartesian dataset prefers this flat file, parsed
-by ``read_cartesian_gt_txt``; per-frame labels are its fallback when the flat
-file is absent and are also used by sensor visualization.
+The output keeps radar-aligned per-frame revised labels for sensor visualization
+and also writes the canonical training/evaluation file
+``<sequence>/gt/gt.txt``, parsed by ``read_cartesian_gt_txt``.
 
 Flat Cartesian format::
 

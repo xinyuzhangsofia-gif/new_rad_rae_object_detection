@@ -394,7 +394,7 @@ def main() -> None:
         "## Use",
         "",
         "```python",
-        "\"split_mode\": \"file\",",
+        "\"split_mode\": \"kradar_file\",",
         f"\"split_dir\": \"{output_dir.as_posix()}\",",
         f"\"gt_object_ignore_override_path\": \"{(output_dir / 'object_ignore_override.json').as_posix()}\",",
         "```",

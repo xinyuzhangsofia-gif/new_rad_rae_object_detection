@@ -87,7 +87,7 @@ The loader has been updated to support both:
 Use:
 
 ```python
-"split_mode": "file",
+"split_mode": "kradar_file",
 "split_dir": "split/seq3_seq4_normal_70_30",
 ```
 

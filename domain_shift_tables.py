@@ -340,6 +340,8 @@ def build_model_configuration(
             quality_loss_weight if quality_loss_active else None
         ),
         "train_scope": checkpoint_config.get("train_scope"),
+        # Historical report metadata only; this does not configure or dispatch
+        # an ordinary train/validation split.
         "train_ratio": checkpoint_config.get("train_ratio"),
         "seed": seed,
     }

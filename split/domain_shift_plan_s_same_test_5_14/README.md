@@ -41,6 +41,6 @@ This split stores the file-based split for **plan S**.
 ## How to use
 
 ```python
-"split_mode": "file",
+"split_mode": "kradar_file",
 "split_dir": "split/domain_shift_plan_s_same_test_5_14",
 ```

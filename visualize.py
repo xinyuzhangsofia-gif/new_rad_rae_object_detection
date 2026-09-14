@@ -1122,9 +1122,8 @@ def main():
         raise ValueError(
             f"Invalid visualization scope {args.vis_scope!r}; expected one of {SCOPE_CHOICES}."
         )
-    train_ratio = checkpoint_config.get("train_ratio", 0.7)
     seed = checkpoint_config.get("seed", 42)
-    split_mode = checkpoint_config.get("split_mode", "file")
+    split_mode = checkpoint_config.get("split_mode", "kradar_file")
     split_dir = checkpoint_config.get("split_dir", "split")
     train_sequences = checkpoint_config.get("train_sequences")
     val_sequences = checkpoint_config.get("val_sequences")
@@ -1205,7 +1204,6 @@ def main():
         _, val_dataset, _, _ = build_train_val_dataloaders(
             cfg=cfg,
             batch_size=1,
-            train_ratio=train_ratio,
             seed=seed,
             num_workers=0,
             limit_samples=None,

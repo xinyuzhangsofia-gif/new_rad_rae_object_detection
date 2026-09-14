@@ -107,7 +107,12 @@ def split_entries_to_indices(split_by_sequence, sequence_lookup, split_name):
     return indices
 
 
-def build_file_split_indices(full_dataset, split_dir, allowed_sequences, limit_samples):
+def build_kradar_file_split_indices(
+    full_dataset,
+    split_dir,
+    allowed_sequences,
+    limit_samples,
+):
     train_split_path = os.path.join(split_dir, "train.txt")
     val_split_path = os.path.join(split_dir, "test.txt")
 

@@ -240,7 +240,6 @@ class CheckpointSelectionTests(unittest.TestCase):
             num_classes=1,
             model_type="model7",
             run_model_type="model7_sedan_only",
-            train_ratio=0.9,
             training_eval_enabled=False,
             best_metric_key="auto",
             seed=42,

@@ -19,7 +19,7 @@ RESUME_CONFIG_OVERRIDES = {
         "20260815_134341_021894__model_7__seq1-58"
     ),
     # These values describe the split used by this specific interrupted run.
-    "split_mode": "file",
+    "split_mode": "kradar_file",
     "split_dir": "split",
     "train_sequences": None,
     "val_sequences": None,

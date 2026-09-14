@@ -783,7 +783,7 @@ def build_readme_text(
         "Set the following in train/eval/visualize config when you want this control experiment:",
         "",
         "```python",
-        f"\"split_mode\": \"file\",",
+        f"\"split_mode\": \"kradar_file\",",
         f"\"split_dir\": \"{output_dir.as_posix()}\",",
         f"\"gt_object_ignore_override_path\": \"{override_path.as_posix()}\",",
         "```",

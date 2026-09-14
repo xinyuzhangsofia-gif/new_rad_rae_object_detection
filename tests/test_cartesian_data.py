@@ -80,6 +80,19 @@ class CartesianDataTests(unittest.TestCase):
         self.assertEqual(objects[0][1]["object_label"], -1)
         self.assertEqual(objects[1][0]["object_label"], 5)
 
+    def test_load_cartesian_gt_keeps_canonical_flat_file_behavior(self):
+        key_mode, objects = labels.load_cartesian_gt(1, self.gt_root)
+        self.assertEqual(key_mode, "file_idx")
+        torch.testing.assert_close(
+            objects[0][0]["box_metric"],
+            torch.tensor(
+                [10, 0, 0, 4, 2, 1.5, math.pi / 2],
+                dtype=torch.float32,
+            ),
+        )
+        self.assertEqual(objects[0][0]["object_label"], 1)
+        self.assertEqual(objects[1][0]["gt_frame_idx"], 2)
+
     def test_polar_and_untyped_flat_files_are_rejected(self):
         for header in (
             "# frame_idx,object_label,a_idx,r_idx,a_width,r_width,e_idx,e_width,yaw_deg,class\n",
@@ -117,7 +130,7 @@ class CartesianDataTests(unittest.TestCase):
                     self.cfg, 1, box_coordinate_mode="polar"
                 ),
                 lambda: dataloader.build_train_val_dataloaders(
-                    self.cfg, 1, 0.7, 42, 0, None, box_coordinate_mode="polar"
+                    self.cfg, 1, 42, 0, None, box_coordinate_mode="polar"
                 ),
                 lambda: dataloader.build_evaluation_dataloader(
                     self.cfg, 1, 0, val_sequences=(1,), box_coordinate_mode="polar"
@@ -137,7 +150,7 @@ class CartesianDataTests(unittest.TestCase):
                 self.dataset()
             fallback.assert_not_called()
 
-    def test_radar_aligned_per_frame_cartesian_fallback_is_preserved(self):
+    def test_missing_flat_gt_does_not_fall_back_to_per_frame_labels(self):
         alternate_root = self.root / "per_frame"
         sequence_dir = alternate_root / "1"
         sequence_dir.mkdir(parents=True)
@@ -146,16 +159,14 @@ class CartesianDataTests(unittest.TestCase):
             "*, R, 1, Sedan, 10, 0, 0, 90, 2, 1, 0.75\n"
             "*, L, 2, Sedan, 20, 0, 0, 0, 2, 1, 0.75\n"
         )
-        dataset = KRadarGTDetectionDataset(
-            KRadarRADRAEDataset(str(self.radar_root), 1),
-            cartesian_gt_root=alternate_root,
-        )
-        self.assertIsNone(dataset.gt_by_file_idx)
-        self.assertEqual(dataset[0]["gt_labels"].tolist(), [0])
-        torch.testing.assert_close(
-            dataset[0]["gt_metric_boxes"][0],
-            torch.tensor([10, 0, 0, 4, 2, 1.5, math.pi / 2], dtype=torch.float32),
-        )
+        expected_path = Path(get_cartesian_gt_path(1, alternate_root))
+        with mock.patch("data.labels.read_kradar_revised_label_dir") as fallback:
+            with self.assertRaisesRegex(
+                FileNotFoundError,
+                rf"Cartesian GT file not found: {expected_path}",
+            ):
+                labels.load_cartesian_gt(1, alternate_root)
+            fallback.assert_not_called()
 
     def test_collation_and_model_input_axes_are_unchanged(self):
         dataset = self.dataset()
@@ -196,7 +207,7 @@ class CartesianDataTests(unittest.TestCase):
             standard["rad"].shape,
         )
 
-    def test_file_split_and_train_only_ignores_are_preserved(self):
+    def test_kradar_file_split_and_train_only_ignores_are_preserved(self):
         split = self.root / "split"
         split.mkdir()
         (split / "train.txt").write_text("1,00033.txt\n")
@@ -208,8 +219,8 @@ class CartesianDataTests(unittest.TestCase):
         }}}}))
         with mock.patch.object(dataloader, "get_rad_rae_npy_root_dir", return_value=str(self.radar_root)):
             train, val, train_loader, val_loader = dataloader.build_train_val_dataloaders(
-                self.cfg, 1, 0.01, 42, 0, None,
-                split_mode="file", split_dir=str(split),
+                self.cfg, 1, 42, 0, None,
+                split_mode="kradar_file", split_dir=str(split),
                 cartesian_gt_root=self.gt_root,
                 gt_object_ignore_override_path=str(override),
             )

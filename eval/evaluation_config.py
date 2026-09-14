@@ -151,8 +151,7 @@ def parse_args():
         "start_epoch": None,
         "end_epoch": None,
         "batch_size": 100,
-        "train_ratio": 0.7,
-        "split_mode": "file",
+        "split_mode": "kradar_file",
         "split_dir": "split",
         "train_sequences": None,
         "val_sequences": None,
@@ -238,8 +237,11 @@ def parse_args():
     parser.add_argument("--start-epoch", type=int, default=cfg_defaults["start_epoch"])
     parser.add_argument("--end-epoch", type=int, default=cfg_defaults["end_epoch"])
     parser.add_argument("--batch-size", type=int, default=cfg_defaults["batch_size"])
-    parser.add_argument("--train-ratio", type=float, default=cfg_defaults["train_ratio"])
-    parser.add_argument("--split-mode", default=cfg_defaults["split_mode"], choices=["random", "order", "file", "sequence"])
+    parser.add_argument(
+        "--split-mode",
+        default=cfg_defaults["split_mode"],
+        choices=["kradar_file", "sequence"],
+    )
     parser.add_argument("--split-dir", default=cfg_defaults["split_dir"])
     parser.add_argument("--train-sequences", default=cfg_defaults["train_sequences"])
     parser.add_argument("--val-sequences", default=cfg_defaults["val_sequences"])

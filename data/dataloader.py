@@ -19,12 +19,9 @@ from .paths import get_rad_rae_npy_root_dir
 from .splits import (
     apply_train_control_split_indices,
     build_exact_frame_manifest_indices,
-    build_file_split_indices,
-    build_order_split_indices,
-    build_random_split_indices,
+    build_kradar_file_split_indices,
     build_sequence_index_lookup,
     build_sequence_split_indices,
-    build_sequence_tail_split_indices,
     build_split_indices,
     get_dataset_sequences_for_split,
     normalize_sequence_list,
@@ -150,7 +147,6 @@ def build_detection_dataset_for_sequence(
 def build_train_val_dataloaders(
     cfg,
     batch_size,
-    train_ratio,
     seed,
     num_workers,
     limit_samples,
@@ -160,15 +156,13 @@ def build_train_val_dataloaders(
     ignore_unmapped_classes=True,
     ignore_class_names=None,
     gt_object_ignore_override_path=None,
-    split_mode="random",
+    split_mode="kradar_file",
     split_dir="split",
     scope_mode=SCOPE_FULL,
     train_sequences=None,
     val_sequences=None,
     train_control_split_enabled=False,
     train_control_split_dir=None,
-    sequence_tail_val_ratio=0.1,
-    sequence_tail_boundary_drop_frames=0,
     box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
     cartesian_gt_root=None,
     ignore_object_label_minus_one=False,
@@ -255,8 +249,6 @@ def build_train_val_dataloaders(
     train_indices, val_indices = build_split_indices(
         full_dataset=full_dataset,
         split_mode=split_mode,
-        train_ratio=train_ratio,
-        seed=seed,
         limit_samples=limit_samples,
         split_dir=split_dir,
         allowed_sequences=dataset_sequences,
@@ -264,8 +256,6 @@ def build_train_val_dataloaders(
         val_sequences=val_sequences,
         train_sequence_half_selection=train_sequence_half_selection,
         train_sequence_half_ratio=train_sequence_half_ratio,
-        sequence_tail_val_ratio=sequence_tail_val_ratio,
-        sequence_tail_boundary_drop_frames=sequence_tail_boundary_drop_frames,
     )
 
     if train_control_split_enabled:
@@ -276,7 +266,7 @@ def build_train_val_dataloaders(
         )
 
     if len(train_indices) == 0:
-        raise ValueError("Training split is empty. Increase --limit-samples or train_ratio.")
+        raise ValueError("Training split is empty. Increase --limit-samples.")
 
     # Keep generated object ignores out of validation, even for file splits
     # where train and validation frames can belong to the same sequence.

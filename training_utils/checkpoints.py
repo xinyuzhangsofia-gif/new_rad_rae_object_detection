@@ -436,7 +436,6 @@ def build_checkpoint_payload(
             "train_control_split_enabled": getattr(args, "train_control_split_enabled", False),
             "train_control_split_dir": getattr(args, "train_control_split_dir", None),
             "init_from_checkpoint": getattr(args, "init_from_checkpoint", None),
-            "train_ratio": args.train_ratio,
             "train_scope": getattr(args, "train_scope", "full"),
             "box_coordinate_mode": getattr(
                 args,
@@ -528,12 +527,6 @@ def build_checkpoint_payload(
             "train_sequence_half_ratio": getattr(
                 args,
                 "train_sequence_half_ratio",
-                None,
-            ),
-            "sequence_tail_val_ratio": getattr(args, "sequence_tail_val_ratio", None),
-            "sequence_tail_boundary_drop_frames": getattr(
-                args,
-                "sequence_tail_boundary_drop_frames",
                 None,
             ),
             "controled_sequences": getattr(args, "controled_sequences", None),
