@@ -104,6 +104,14 @@ class ConfigCompatibilityTests(unittest.TestCase):
         self.assertEqual(config.root_dir, data.RAW_KRADAR_ROOT)
         self.assertEqual(config.raw_radar_root, data.RAW_RADAR_ROOT)
 
+    def test_ordinary_and_controlled_split_asset_roots_are_separate(self):
+        self.assertEqual(TRAIN_CONFIG["split_dir"], "data/manifests/kradar")
+        self.assertEqual(EVAL_CONFIG["split_dir"], "data/manifests/kradar")
+        self.assertEqual(
+            DOMAIN_SHIFT_CONFIG["controlled_split_base_dir"],
+            "experiments/controlled_splits",
+        )
+
     def test_all_machine_dependent_roots_support_environment_overrides(self):
         names = (
             "MVRSS_RADAR_ROOT",

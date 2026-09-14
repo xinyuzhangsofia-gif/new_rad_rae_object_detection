@@ -1126,7 +1126,7 @@ def main():
     split_mode = checkpoint_config.get("split_mode", "kradar_file")
     split_dir = checkpoint_config.get(
         "split_dir",
-        "experiments/controlled_splits",
+        "data/manifests/kradar",
     )
     train_sequences = checkpoint_config.get("train_sequences")
     val_sequences = checkpoint_config.get("val_sequences")

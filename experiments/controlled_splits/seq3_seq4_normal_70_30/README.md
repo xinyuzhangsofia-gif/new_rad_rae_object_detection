@@ -66,7 +66,7 @@ So:
 
 ## Relation to old split format
 
-The legacy manifest now at `experiments/controlled_splits/train.txt` contains lines like:
+The legacy manifest now at `data/manifests/kradar/train.txt` contains lines like:
 
 ```text
 1,00033_00001.txt

@@ -86,7 +86,7 @@ K-Radar-RAD/<sequence>/rad/*.npy + rae/*.npy
     + 当前 Cartesian gt/gt.txt
     → KRadarGTDetectionDataset：匹配 GT、类别/ignore 处理、生成框张量
     → KRadarMultiSequenceGTDetectionDataset：合并多个序列
-    → build_kradar_file_split_indices：按 experiments/controlled_splits/train.txt 和 experiments/controlled_splits/test.txt 选帧
+    → build_kradar_file_split_indices：按 data/manifests/kradar/train.txt 和 data/manifests/kradar/test.txt 选帧
     → DataLoader + detection_collate：组装 batch
     → prepare_model_inputs：转设备、调整维度 → model(rad, rae)
 ```
@@ -109,12 +109,13 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 | `data/split/manifests.py` | 解析 K-Radar 预定义 train/test manifest 并保留精确帧顺序。 |
 | `data/split/sequences.py` | 显式序列划分、序列规范化与 first/last 选择。 |
 | `data/split/controlled/` | 受控划分的匹配、生成、报告和训练时加载。 |
+| `data/manifests/kradar/` | `kradar_file` 使用的固定 train/test 帧清单；不是划分实现代码。 |
 | `data/ignore_overrides.py` | 加载并严格校验逐帧、逐目标 ignore 规则。 |
 | `loaders/kradar_dataset.py` | 原始 MAT DREA 投影；`KRadarDataset` 返回三种标准投影，`KRadarSensorDataset` 额外提供 RA/RE 图和帧号查询。 |
 | `configs/training.py`、`configs/coordinates.py`、`training/configuration.py` | 选择 Cartesian GT 根目录/类别，拒绝 Polar 输入，解析 ignore 配置，再传给数据工厂。 |
 | `scripts/data/build_cartesian_gt_dataset.py` | 离线转换官方标签并生成逐帧副本、平铺 GT 和匹配清单；不是每个训练 epoch 执行。 |
 
-普通训练只支持两种划分：`split_mode="kradar_file"` 按 K-Radar 的 `experiments/controlled_splits/train.txt` / `experiments/controlled_splits/test.txt` 精确选帧；`split_mode="sequence"` 按显式训练/验证序列选帧，并保留 first/last 部分选择。训练 loader 仍打乱顺序，验证 loader 仍不打乱。实验队列的受控匹配是独立层，不改变这两种普通划分的成员语义。`data/split/` 仅保存划分实现代码；生成的 Controlled Split manifests、统计和 overrides 保存在 `experiments/controlled_splits/`。
+普通训练只支持两种划分：`split_mode="kradar_file"` 按 K-Radar 的 `data/manifests/kradar/train.txt` / `data/manifests/kradar/test.txt` 精确选帧；`split_mode="sequence"` 按显式训练/验证序列选帧，并保留 first/last 部分选择。训练 loader 仍打乱顺序，验证 loader 仍不打乱。实验队列的受控匹配是独立层，不改变这两种普通划分的成员语义。`data/split/` 仅保存划分实现代码，`data/manifests/kradar/` 保存固定普通帧清单，而生成的 Controlled Split manifests、统计和 overrides 保存在 `experiments/controlled_splits/`。
 
 `detection_collate` 将 RAD/RAE 堆叠成 batch，但每帧目标数不同，GT 框/类别仍使用列表。`prepare_model_inputs` 将 `[B,R,A,D/E]` 变成 `[B,D/E,R,A]` 并转到指定设备；不要在整理文件时改变轴顺序或 GT 张量含义。
 

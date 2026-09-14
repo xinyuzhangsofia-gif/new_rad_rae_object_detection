@@ -135,9 +135,10 @@ experiments/
 ```
 
 Within `data/`, responsibilities are explicit: `labels.py` reads Cartesian GT,
-`geometry.py` converts and filters boxes, `dataset.py` assembles samples, and
-`dataloader.py` collates samples and builds loaders. Raw MAT sensor projections
-live separately in `loaders/kradar_dataset.py`.
+`geometry.py` converts and filters boxes, `dataset.py` assembles samples,
+`dataloader.py` collates samples and builds loaders, and
+`manifests/kradar/` stores the fixed ordinary train/test frame manifests. Raw
+MAT sensor projections live separately in `loaders/kradar_dataset.py`.
 
 All split logic has one canonical home:
 
@@ -153,11 +154,17 @@ data/split/
 assets used by domain-shift experiments live separately under
 `experiments/controlled_splits/`.
 
+```text
+data/manifests/kradar/
+├── train.txt        Fixed K-Radar training-frame manifest
+└── test.txt         Fixed K-Radar validation/test-frame manifest
+```
+
 Supported ordinary split modes are:
 
 1. `kradar_file`: uses the predefined K-Radar
-   `experiments/controlled_splits/train.txt` and
-   `experiments/controlled_splits/test.txt` manifests.
+   `data/manifests/kradar/train.txt` and
+   `data/manifests/kradar/test.txt` manifests.
 2. `sequence`: uses explicit training and validation sequence IDs, including
    the existing first/last sequence-part selection.
 

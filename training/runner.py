@@ -215,7 +215,7 @@ def build_training_data(args, cfg):
         split_dir=getattr(
             args,
             "split_dir",
-            "experiments/controlled_splits",
+            "data/manifests/kradar",
         ),
         scope_mode=args.train_scope,
         train_sequences=args.train_sequences,

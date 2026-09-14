@@ -157,7 +157,7 @@ def build_train_val_dataloaders(
     ignore_class_names=None,
     gt_object_ignore_override_path=None,
     split_mode="kradar_file",
-    split_dir="experiments/controlled_splits",
+    split_dir="data/manifests/kradar",
     scope_mode=SCOPE_FULL,
     train_sequences=None,
     val_sequences=None,

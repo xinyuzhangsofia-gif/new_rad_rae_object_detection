@@ -94,7 +94,7 @@ class OrdinarySplitMembershipGoldenTests(unittest.TestCase):
     def dispatch(self, split_mode, **overrides):
         kwargs = {
             "limit_samples": None,
-            "split_dir": "experiments/controlled_splits",
+            "split_dir": "data/manifests/kradar",
             "allowed_sequences": (1, 2, 9),
             "train_sequences": (1,),
             "val_sequences": (2,),
