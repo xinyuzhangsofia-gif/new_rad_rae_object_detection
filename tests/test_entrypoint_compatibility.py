@@ -15,12 +15,12 @@ from eval.metrics_runner import evaluate_train_val_iou
 from eval.inference import infer_and_decode
 from eval.reporting import attach_evaluation_main_metric
 from eval.workflow import main as evaluation_workflow_main
-from training_utils.runner import (
+from training.runner import (
     build_train_args,
     main as training_workflow_main,
 )
-from training_utils.training_loop import train_one_epoch, validate_loss
-from training_utils.resume import main as resume_training_workflow_main
+from training.loop import train_one_epoch, validate_loss
+from training.resume import main as resume_training_workflow_main
 
 
 class EntrypointCompatibilityTests(unittest.TestCase):

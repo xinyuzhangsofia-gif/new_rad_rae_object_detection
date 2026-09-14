@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from training_utils.experiment_queue import (
+from training.experiments.queue import (
     _run_seed_two_phase_experiment_queue,
     build_experiment_training_config,
     experiment_queue_lock,
@@ -17,7 +17,7 @@ from training_utils.experiment_queue import (
     select_parallel_evaluation_gpu,
     validate_parallel_gpu_strategy,
 )
-from training_utils.experiment_worker import run_training_job
+from training.experiments.worker import run_training_job
 
 
 class ExperimentQueueTests(unittest.TestCase):
@@ -262,7 +262,7 @@ class ExperimentQueueTests(unittest.TestCase):
                 ValueError,
                 "same effective training set",
             ), mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "ensure_no_other_top_level_train_process",
                 return_value=True,
             ):
@@ -354,7 +354,7 @@ class ExperimentQueueTests(unittest.TestCase):
                 for item in load_domain_shift_experiments(sheet_path)
                 if item.name == "第二组"
             )
-            from training_utils.experiment_queue import (
+            from training.experiments.queue import (
                 ExperimentQueueTask,
                 _load_queue_state,
                 _recover_parallel_queue_tasks,
@@ -429,7 +429,7 @@ class ExperimentQueueTests(unittest.TestCase):
                     for item in load_domain_shift_experiments(sheet_path)
                     if item.name == "第二组"
                 )
-                from training_utils.experiment_queue import (
+                from training.experiments.queue import (
                     ExperimentQueueTask,
                 )
 
@@ -508,26 +508,26 @@ class ExperimentQueueTests(unittest.TestCase):
                 for index in range(3)
             ]
             with mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "_launch_parallel_training_task",
                 side_effect=fake_train_launch,
             ), mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "_launch_parallel_evaluation_task",
                 side_effect=fake_eval_launch,
             ), mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "_read_training_job_result",
                 return_value=root,
             ), mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "_record_experiment_result",
                 side_effect=fake_record,
             ), mock.patch(
-                "training_utils.experiment_queue.query_gpu_status",
+                "training.experiments.queue.query_gpu_status",
                 return_value=gpu_status,
             ), mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "_refresh_completed_weather_summaries",
             ):
                 launched = _run_seed_two_phase_experiment_queue(
@@ -648,11 +648,11 @@ class ExperimentQueueTests(unittest.TestCase):
                 return launched
 
             with mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "ensure_no_other_top_level_train_process",
                 return_value=True,
             ), mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "_run_seed_two_phase_experiment_queue",
                 side_effect=fake_seed_queue,
             ):
@@ -722,11 +722,11 @@ class ExperimentQueueTests(unittest.TestCase):
                 return []
 
             with mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "ensure_no_other_top_level_train_process",
                 return_value=True,
             ), mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "_run_seed_two_phase_experiment_queue",
                 side_effect=fake_seed_queue,
             ):
@@ -778,11 +778,11 @@ class ExperimentQueueTests(unittest.TestCase):
                 ]
 
             with mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "ensure_no_other_top_level_train_process",
                 return_value=True,
             ), mock.patch(
-                "training_utils.experiment_queue."
+                "training.experiments.queue."
                 "_run_seed_two_phase_experiment_queue",
                 side_effect=fake_seed_queue,
             ):
@@ -806,7 +806,7 @@ class ExperimentQueueTests(unittest.TestCase):
                 for item in load_domain_shift_experiments(sheet_path)
                 if item.name == "第二组"
             )
-            from training_utils.experiment_queue import (
+            from training.experiments.queue import (
                 update_experiment_sheet_result,
             )
 
@@ -838,7 +838,7 @@ class ExperimentQueueTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_dir:
             sheet_path = self.write_txt_sheet(temporary_dir)
             experiments = load_domain_shift_experiments(sheet_path)
-            from training_utils.experiment_queue import (
+            from training.experiments.queue import (
                 update_experiment_sheet_result,
             )
 

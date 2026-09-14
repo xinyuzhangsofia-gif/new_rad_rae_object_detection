@@ -12,11 +12,11 @@ import torch
 from configs.training import RESUME_CONFIG, TRAIN_CONFIG
 from configs.resume import RESUME_CONFIG_OVERRIDES
 from eval import metrics_runner
-from training_utils import configuration, resume, runner
-from training_utils.checkpoints import build_checkpoint_payload
-from training_utils.configuration import SUPPORTED_TRAINING_SPLIT_MODES
-from training_utils.logging_utils import write_tensorboard_run_config
-from training_utils.other_helping_functions import BestCheckpointState
+from training import configuration, resume, runner
+from training.checkpoints import build_checkpoint_payload
+from training.configuration import SUPPORTED_TRAINING_SPLIT_MODES
+from training.logging_utils import write_tensorboard_run_config
+from training.checkpoints import BestCheckpointState
 
 
 class SharedTrainingConfigurationTests(unittest.TestCase):

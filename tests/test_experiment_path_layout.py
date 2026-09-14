@@ -13,11 +13,11 @@ from configs.experiment_paths import (
     resolve_recorded_experiment_path,
 )
 from scripts.experiments import evaluate_quartile_experiments as quartile_launcher
-from training_utils.experiments.tables import (
+from training.experiments.tables import (
     load_domain_shift_experiments,
     resolve_experiment_sheet_paths,
 )
-from training_utils.experiments.state import _queue_state_path
+from training.experiments.state import _queue_state_path
 
 
 class ExperimentPathLayoutTests(unittest.TestCase):

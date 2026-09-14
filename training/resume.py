@@ -8,14 +8,14 @@ import torch
 
 from configs.coordinates import require_cartesian_data
 from configs.training import RESUME_CONFIG
-from training_utils.checkpoints import save_replacing_named_checkpoint_copy
-from training_utils.runner import (
+from training.checkpoints import save_replacing_named_checkpoint_copy
+from training.runner import (
     build_training_args,
     create_training_checkpoint_directories,
     run_training,
     validate_training_args,
 )
-from training_utils.torch_load import load_torch_checkpoint
+from training.torch_load import load_torch_checkpoint
 
 
 def validate_resume_args(args):

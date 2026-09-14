@@ -27,7 +27,7 @@ from data.paths import get_cartesian_gt_path
 from data.splits import _build_frame_infos
 from eval.checkpoints import apply_checkpoint_config_defaults
 from eval.evaluation_config import parse_args as parse_evaluation_args
-from training_utils.configuration import apply_training_coordinate_mode
+from training.configuration import apply_training_coordinate_mode
 from visualize import parse_args as parse_visualization_args
 from loaders.kradar_dataset import KRadarDataset, KRadarSensorDataset
 

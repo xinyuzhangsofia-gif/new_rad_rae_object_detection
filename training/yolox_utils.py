@@ -1,9 +1,9 @@
 import torch
-from training_utils.loss_components.common import (
+from training.losses.common import (
     boxes_3d_to_ra_xyxy,
     pairwise_box_iou_2d as box_iou_2d,
 )
-from training_utils.loss_components.matching import (
+from training.losses.matching import (
     pairwise_center_candidate_mask,
     simota_assign,
 )

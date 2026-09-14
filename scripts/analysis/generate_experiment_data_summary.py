@@ -25,7 +25,7 @@ from data.splits import (
     _summarize_frames,
 )
 from configs.training import TRAIN_CONFIG
-from training_utils.experiment_queue import load_domain_shift_experiments
+from training.experiments.tables import load_domain_shift_experiments
 
 
 ROOT = Path(__file__).resolve().parents[2]

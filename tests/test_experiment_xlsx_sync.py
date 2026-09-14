@@ -11,7 +11,7 @@ from scripts.experiments.sync_experiment_xlsx_to_txt import (
     sync_result_matrix_to_workbook,
     sync_workbook,
 )
-from training_utils.experiment_queue import (
+from training.experiments.queue import (
     load_domain_shift_experiments,
     update_experiment_sheet_result,
 )

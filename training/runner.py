@@ -21,12 +21,16 @@ from data.dataloader import (
 from eval.evaluation_config import resolve_official_eval_class_name_map
 from eval.metrics_runner import evaluate_train_val_iou
 from models import MODEL_TYPES, build_model
-from training_utils.checkpoints import (
+from training.checkpoints import (
+    BestCheckpointState,
+    build_epoch_eval_metrics,
     checkpoint_run_relative_path,
     create_checkpoint_run_dirs,
     EXPERIMENT_NAME,
+    save_epoch_and_update_best_checkpoint,
+    save_global_best_checkpoint,
 )
-from training_utils.configuration import (
+from training.configuration import (
     apply_domain_shift_training_configuration,
     apply_model15_lr_defaults,
     apply_task_configuration,
@@ -40,23 +44,16 @@ from training_utils.configuration import (
     use_official_model15_lr_mode,
     validate_training_split_mode,
 )
-from training_utils.experiment_queue import run_domain_shift_experiment_queue
-from training_utils.logging_utils import (
+from training.experiments.queue import run_domain_shift_experiment_queue
+from training.logging_utils import (
     create_tensorboard_writer,
     print_epoch_evaluation_summary,
     write_tensorboard_metrics,
     write_tensorboard_run_config,
 )
-from training_utils.other_helping_functions import (
-    BestCheckpointState,
-    build_epoch_eval_metrics,
-    save_epoch_and_update_best_checkpoint,
-    save_global_best_checkpoint,
-    set_seed,
-)
-from training_utils.post_training_evaluation import run_post_training_evaluation
-from training_utils.runtime import select_device_and_gpus
-from training_utils.training_loop import train_one_epoch, validate_loss
+from training.post_training_evaluation import run_post_training_evaluation
+from training.runtime import select_device_and_gpus, set_seed
+from training.loop import train_one_epoch, validate_loss
 
 
 def validate_training_args(args):

@@ -5,13 +5,13 @@ from types import SimpleNamespace
 
 import torch
 
-from training_utils.torch_load import load_torch_checkpoint
-from training_utils.other_helping_functions import (
+from training.torch_load import load_torch_checkpoint
+from training.checkpoints import (
     BestCheckpointState,
     build_epoch_eval_metrics,
     save_epoch_and_update_best_checkpoint,
 )
-from training_utils.checkpoints import (
+from training.checkpoints import (
     create_checkpoint_run_dirs,
     format_checkpoint_filename,
     format_timestamp_model_sequence_run_name,

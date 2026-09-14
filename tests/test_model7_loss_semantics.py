@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import torch
 
-from training_utils.configuration import resolve_centerpoint_gwd_loss_weight
-from training_utils.losses import centerpoint_detection_loss
+from training.configuration import resolve_centerpoint_gwd_loss_weight
+from training.losses import centerpoint_detection_loss
 
 
 class Model7LossSemanticsTests(unittest.TestCase):

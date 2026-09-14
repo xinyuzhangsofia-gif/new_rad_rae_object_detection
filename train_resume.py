@@ -1,6 +1,6 @@
 """Compatibility entry point for the shared resume-training workflow."""
 
-from training_utils.resume import (
+from training.resume import (
     build_resume_args,
     initialize_best_state,
     load_resume_checkpoint as _load_resume_checkpoint,
@@ -9,7 +9,7 @@ from training_utils.resume import (
     restore_resume_training_state,
     validate_resume_args,
 )
-from training_utils.torch_load import load_torch_checkpoint
+from training.torch_load import load_torch_checkpoint
 
 
 def load_resume_checkpoint(

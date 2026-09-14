@@ -10,12 +10,12 @@ from evaluation import (
     outputs_to_detections,
 )
 from models import build_model
-from training_utils.configuration import (
+from training.configuration import (
     apply_training_coordinate_mode,
     resolve_loss_mode,
     resolve_model7_decoder_hidden_channels,
 )
-from training_utils.losses import (
+from training.losses import (
     cartesian_centerpoint_detection_loss,
     radenet_detection_loss,
 )

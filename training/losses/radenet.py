@@ -13,10 +13,10 @@ from data.geometry import (
     feature_indices_to_cartesian_xy,
     raw_local_rae_boxes_to_metric_boxes,
 )
-from training_utils.loss_components import DEFAULT_NUM_CLASSES
-from training_utils.loss_components.common import build_raw_ignore_mask
-from training_utils.loss_components.gwd import gaussian_wasserstein_distance_batch
-from training_utils.loss_components.targets import build_radenet_gaussian_heatmap
+from training.losses import DEFAULT_NUM_CLASSES
+from training.losses.common import build_raw_ignore_mask
+from training.losses.gwd import gaussian_wasserstein_distance_batch
+from training.losses.targets import build_radenet_gaussian_heatmap
 
 
 def radenet_continuous_focal_loss(

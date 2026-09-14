@@ -3,7 +3,7 @@
 import torch
 
 from data.coordinates import get_rae_scope_start_and_shape
-from training_utils.loss_components.common import draw_gaussian
+from training.losses.common import draw_gaussian
 
 
 def build_radenet_gaussian_heatmap(
@@ -239,4 +239,3 @@ def build_cartesian_centerpoint_targets(
             reg_mask[batch_idx, :, reg_y, reg_x] = 1.0
 
     return heatmap_targets, metric_targets, reg_mask
-

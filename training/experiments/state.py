@@ -9,8 +9,8 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from training_utils.experiments.schema import QUEUE_TASK_IDENTITY_VERSION
-from training_utils.experiments.tables import resolve_experiment_sheet_path
+from training.experiments.schema import QUEUE_TASK_IDENTITY_VERSION
+from training.experiments.tables import resolve_experiment_sheet_path
 
 
 @contextmanager
@@ -184,5 +184,4 @@ def _recover_parallel_queue_tasks(tasks, sheet_path):
         else:
             pending_train.append(task)
     return state_path, queue_state, pending_train, pending_evaluation
-
 

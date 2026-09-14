@@ -9,15 +9,15 @@ import sys
 import time
 from pathlib import Path
 
-from training_utils.experiments.schema import VALID_BRANCHES
-from training_utils.experiments.scheduling import _effective_train_signature
-from training_utils.experiments.state import _queue_task_slug
-from training_utils.experiments.tables import (
+from training.experiments.schema import VALID_BRANCHES
+from training.experiments.scheduling import _effective_train_signature
+from training.experiments.state import _queue_task_slug
+from training.experiments.tables import (
     _branch_half_selection,
     find_fresh_experiment_result,
     update_experiment_sheet_result,
 )
-from training_utils.post_training_evaluation import (
+from training.post_training_evaluation import (
     prepare_post_training_evaluation_launch,
 )
 
@@ -209,7 +209,7 @@ def _launch_parallel_training_task(
     command = [
         sys.executable,
         "-m",
-        "training_utils.experiment_worker",
+        "training.experiments.worker",
         "--config",
         str(config_path),
         "--result",
@@ -301,5 +301,4 @@ def _refresh_completed_weather_summaries(results_base_dir, report_paths):
             base_dir=base_path,
             weather_group=weather_name,
         )
-
 

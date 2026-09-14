@@ -7,7 +7,7 @@ import torch
 
 from data.coordinates import SCOPE_FULL, crop_rad_rae_to_scope
 from data.geometry import raw_local_rae_boxes_to_metric_boxes
-from training_utils.torch_load import load_torch_checkpoint
+from training.torch_load import load_torch_checkpoint
 from eval.checkpoints import (
     build_model_for_checkpoint,
     infer_checkpoint_box_coordinate_mode,

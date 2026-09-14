@@ -1,7 +1,7 @@
 """Golden numerical regression tests for the training loss contracts.
 
 The constants in this module were captured from the monolithic
-``training_utils.losses`` implementation before the Step 8 extraction.  Keep
+``training.losses`` implementation before the Step 8 extraction.  Keep
 them literal: deriving expected values through loss helpers would make these
 tests unable to detect numerical drift during responsibility-only moves.
 """
@@ -11,8 +11,8 @@ import unittest
 
 import torch
 
-from training_utils.configuration import resolve_loss_mode
-from training_utils.losses import (
+from training.configuration import resolve_loss_mode
+from training.losses import (
     build_centerpoint_targets,
     cartesian_centerpoint_detection_loss,
     centerpoint_detection_loss,
@@ -21,9 +21,9 @@ from training_utils.losses import (
     radenet_detection_loss,
     yolox_detection_loss,
 )
-from training_utils.loss_components import centerpoint, gwd, radenet, targets, yolox
-from training_utils.loss_components.matching import simota_assign
-from training_utils import yolox_utils
+from training.losses import centerpoint, gwd, radenet, targets, yolox
+from training.losses.matching import simota_assign
+from training import yolox_utils
 
 
 RTOL = 1e-6

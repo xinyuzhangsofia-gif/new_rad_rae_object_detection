@@ -7,7 +7,7 @@ from configs.coordinates import (
     validate_box_coordinate_mode,
 )
 from data.dataloader import prepare_model_inputs
-from training_utils.losses import (
+from training.losses import (
     cartesian_centerpoint_detection_loss,
     centerpoint_detection_loss,
     radenet_detection_loss,

@@ -6,11 +6,11 @@ from pathlib import Path
 import re
 
 from data.dataloader import normalize_sequence_list
-from training_utils.configuration import (
+from training.configuration import (
     normalize_train_sequence_half_ratio,
     normalize_train_sequence_half_selection,
 )
-from training_utils.checkpoints import format_sequence_run_name
+from training.checkpoints import format_sequence_run_name
 
 def sequence_name_for_filename(sequences, empty_name):
     sequences = normalize_sequence_list(sequences, name=empty_name)
@@ -448,4 +448,3 @@ def default_eval_table_txt_path(
 def resolve_yaml_output_path(plot_output_path):
     base, _ = os.path.splitext(plot_output_path)
     return f"{base}.yml"
-

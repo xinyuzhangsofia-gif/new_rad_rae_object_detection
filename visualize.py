@@ -30,7 +30,7 @@ from data.dataset import (
     CLASS_NAMES,
 )
 from data.dataloader import detection_collate
-from training_utils.configuration import (
+from training.configuration import (
     normalize_bool_flag,
     normalize_optional_path,
     resolve_gt_object_ignore_override_path,
@@ -39,7 +39,7 @@ from data.geometry import (
     metric_boxes_to_raw_local_rae,
     raw_local_rae_boxes_to_metric_boxes,
 )
-from training_utils.torch_load import load_torch_checkpoint
+from training.torch_load import load_torch_checkpoint
 from configs.data import CARTESIAN_GT_ROOT, DataConfig
 from eval.checkpoints import (
     build_model_for_checkpoint,

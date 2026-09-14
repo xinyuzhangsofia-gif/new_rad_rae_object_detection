@@ -6,11 +6,11 @@ from datetime import datetime
 
 import torch
 
-from training_utils.configuration import (
+from training.configuration import (
     normalize_train_sequence_half_ratio,
     normalize_train_sequence_half_selection,
 )
-from training_utils.torch_load import load_torch_checkpoint
+from training.torch_load import load_torch_checkpoint
 
 
 MODEL_RUN_NAME_PREFIXES = {

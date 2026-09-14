@@ -25,7 +25,7 @@ from data.geometry import (
     regression_cell_to_metric_box,
     regression_cell_to_normalized_rae_box,
 )
-from training_utils.yolox_utils import yolox_outputs_to_detections
+from training.yolox_utils import yolox_outputs_to_detections
 
 HEATMAP_SCORE_MODES = ("peak_times_local_mean", "peak_only")
 PREDICTION_MODES = ("raw", "final")

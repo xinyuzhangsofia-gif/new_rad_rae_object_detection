@@ -8,8 +8,8 @@ from pathlib import Path
 from unittest import mock
 
 from configs.domain_shift import EXPERIMENT_QUEUE_CONFIG
-import training_utils.experiment_queue as queue
-from training_utils.experiments import execution, scheduling, schema, state
+import training.experiments.queue as queue
+from training.experiments import execution, scheduling, schema, state
 
 
 class ExperimentQueueModuleTests(unittest.TestCase):
@@ -87,7 +87,7 @@ class ExperimentQueueModuleTests(unittest.TestCase):
             state._write_queue_state(state_path, previous)
 
             with mock.patch(
-                "training_utils.experiments.state.os.replace",
+                "training.experiments.state.os.replace",
                 side_effect=OSError("replace failed"),
             ), self.assertRaisesRegex(OSError, "replace failed"):
                 state._write_queue_state(
@@ -200,7 +200,7 @@ class ExperimentQueueModuleTests(unittest.TestCase):
             expected_command = [
                 sys.executable,
                 "-m",
-                "training_utils.experiment_worker",
+                "training.experiments.worker",
                 "--config",
                 str(session_dir / f"{runtime_slug}.config.pkl"),
                 "--result",

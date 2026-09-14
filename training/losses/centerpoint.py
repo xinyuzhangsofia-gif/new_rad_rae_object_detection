@@ -7,8 +7,8 @@ from data.geometry import (
     centerpoint_outputs_to_metric_regression,
     regression_cell_to_metric_box,
 )
-from training_utils.loss_components import DEFAULT_NUM_CLASSES
-from training_utils.loss_components.common import (
+from training.losses import DEFAULT_NUM_CLASSES
+from training.losses.common import (
     boxes_3d_to_ra_xyxy,
     build_normalized_ignore_mask,
     build_raw_ignore_mask,
@@ -16,11 +16,11 @@ from training_utils.loss_components.common import (
     masked_l1_loss,
     pairwise_box_iou_2d,
 )
-from training_utils.loss_components.gwd import (
+from training.losses.gwd import (
     gaussian_wasserstein_distance_batch,
     normalized_rae_boxes_to_gwd_boxes,
 )
-from training_utils.loss_components.targets import (
+from training.losses.targets import (
     build_cartesian_centerpoint_targets,
     build_centerpoint_targets,
 )

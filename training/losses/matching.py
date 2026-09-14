@@ -3,7 +3,7 @@
 import torch
 import torch.nn.functional as F
 
-from training_utils.loss_components.common import (
+from training.losses.common import (
     boxes_3d_to_ra_xyxy,
     pairwise_box_iou_2d,
 )

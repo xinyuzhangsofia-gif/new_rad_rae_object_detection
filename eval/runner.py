@@ -19,7 +19,7 @@ from domain_shift_tables import (
     build_model_configuration,
     update_domain_shift_tables,
 )
-from training_utils.configuration import apply_task_configuration, resolve_loss_mode
+from training.configuration import apply_task_configuration, resolve_loss_mode
 from configs.data import DataConfig
 
 from eval.checkpoints import (

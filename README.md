@@ -16,8 +16,8 @@ Run commands from the repository root after configuring local data and checkpoin
 
 Training and resume are configuration-driven: do not use `--help` as a dry run.
 Check the configured queue, GPU, sequences, and output locations before starting.
-Both commands execute the shared workflow in `training_utils/runner.py`;
-`training_utils/resume.py` only supplies checkpoint restoration, resume epochs,
+Both commands execute the shared workflow in `training/runner.py`;
+`training/resume.py` only supplies checkpoint restoration, resume epochs,
 and existing-run directory policies.
 
 ## Environment and local data
@@ -103,23 +103,25 @@ not a Polar-GT input branch or a Polar AP evaluator.
 ## Code layout
 
 ```text
-train.py, train_resume.py, evaluation.py, visualize.py
-                         Main runnable workflows
-configs/                 Editable settings
-data/                    Paths, labels, geometry, datasets, loaders, splits
-models/                  Model1–16 and model factory
-training_utils/          Training workflow, losses, checkpoints, experiment queue
-eval/                    Evaluation workflow, decoding, metrics, reporting
-scripts/data/            Dataset preparation and conversion utilities
-scripts/experiments/     Experiment launchers, tables, and analysis infrastructure
-scripts/analysis/        Standalone dataset and result analysis
-scripts/figures/         Paper, architecture, and result figures
-scripts/maintenance/     Repository, runtime, and log maintenance
-visualization_based_gt/  Sensor/GT rendering and reproducible figure recipes
-tests/                   Regression tests
-split/, experiments/     Versioned split/control manifests and experiment families
-docs/                    File inventory, cleanup guidance, and experiment rules
+train.py / train_resume.py   Main training entry points
+evaluation.py                Standalone evaluation entry point
+visualize.py                 Visualization entry point
+configs/                     Editable configuration
+data/                        Data pipeline
+models/                      Model1–16 and model factory
+training/                    Training implementation
+training/losses/             Loss implementations
+training/experiments/        Domain Shift experiment queue
+eval/                        Evaluation implementation
+scripts/                     Standalone auxiliary scripts
+experiments/                 Experiment manifests and assets
+tests/                       Regression tests
+docs/                        Documentation
 ```
+
+`python train.py` enters `training/runner.py`. The root entry points remain thin
+workflow facades; their implementations live in the responsibility-based packages
+shown above.
 
 The experiment families use semantic directories:
 

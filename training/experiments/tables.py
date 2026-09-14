@@ -6,7 +6,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-from training_utils.experiments.schema import (
+from training.experiments.schema import (
     DomainShiftExperiment,
     VALID_BRANCHES,
 )
@@ -791,4 +791,3 @@ def validate_experiment_sheet_is_full(sheet_path):
             + ", ".join(incomplete)
         )
     return True
-

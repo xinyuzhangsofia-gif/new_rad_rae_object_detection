@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from training_utils import logging_utils, other_helping_functions
-from training_utils.checkpoints import (
+from training import checkpoints, logging_utils
+from training.checkpoints import (
     checkpoint_run_relative_path,
     create_checkpoint_run_dirs,
 )
@@ -18,7 +18,7 @@ class TrainingLoggingTests(unittest.TestCase):
     def test_dead_in_memory_history_helpers_are_removed(self):
         self.assertFalse(hasattr(logging_utils, "print_training_history"))
         self.assertFalse(
-            hasattr(other_helping_functions, "append_training_history")
+            hasattr(checkpoints, "append_training_history")
         )
 
     def test_tensorboard_loss_detection_and_learning_rate_tags_are_preserved(self):

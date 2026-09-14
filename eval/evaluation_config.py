@@ -17,7 +17,7 @@ from configs.coordinates import (
 from eval.custom_iou_range import DEFAULT_CUSTOM_IOU_THRESHOLDS
 from eval.distance_quartiles import normalize_distance_quartile_bins
 from models import MODEL_TYPES
-from training_utils.torch_load import load_torch_checkpoint
+from training.torch_load import load_torch_checkpoint
 
 try:
     from configs.evaluation import EVAL_CONFIG

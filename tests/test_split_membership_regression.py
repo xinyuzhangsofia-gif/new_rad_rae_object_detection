@@ -31,7 +31,7 @@ from data.splits import (
     _select_sequence_part,
     _summarize_frames,
 )
-from training_utils.configuration import (
+from training.configuration import (
     SUPPORTED_TRAINING_SPLIT_MODES,
     validate_training_split_mode,
 )

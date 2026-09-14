@@ -8,7 +8,7 @@ from pathlib import Path
 
 import torch
 
-from training_utils.runtime import parse_gpu_ids
+from training.runtime import parse_gpu_ids
 
 
 def parse_gpu_status(output):

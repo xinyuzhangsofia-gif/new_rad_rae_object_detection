@@ -3,14 +3,14 @@
 import torch
 import torch.nn.functional as F
 
-from training_utils.loss_components import DEFAULT_NUM_CLASSES
-from training_utils.loss_components.common import build_normalized_ignore_mask
-from training_utils.loss_components.gwd import (
+from training.losses import DEFAULT_NUM_CLASSES
+from training.losses.common import build_normalized_ignore_mask
+from training.losses.gwd import (
     gaussian_wasserstein_distance_batch,
     normalized_rae_boxes_to_gwd_boxes,
 )
-from training_utils.loss_components.matching import simota_assign
-from training_utils.yolox_utils import decode_yolox_boxes, yolox_grid_centers
+from training.losses.matching import simota_assign
+from training.yolox_utils import decode_yolox_boxes, yolox_grid_centers
 
 
 def yolox_detection_loss(

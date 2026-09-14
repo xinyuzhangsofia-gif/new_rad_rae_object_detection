@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from training_utils.post_training_evaluation import (
+from training.post_training_evaluation import (
     parse_gpu_status,
     query_gpu_status,
     resolve_candidate_physical_gpu_ids,
@@ -21,10 +21,10 @@ class PostTrainingEvaluationTests(unittest.TestCase):
 
     def test_gpu_query_falls_back_to_torch_when_nvidia_smi_fails(self):
         with mock.patch(
-            "training_utils.post_training_evaluation.subprocess.run",
+            "training.post_training_evaluation.subprocess.run",
             side_effect=FileNotFoundError,
         ), mock.patch(
-            "training_utils.post_training_evaluation.query_torch_gpu_status",
+            "training.post_training_evaluation.query_torch_gpu_status",
             return_value=[{"index": 2, "free_memory_mb": 8000}],
         ) as torch_query:
             status = query_gpu_status(environ={})
@@ -98,19 +98,19 @@ class PostTrainingEvaluationTests(unittest.TestCase):
             )
 
         with mock.patch(
-            "training_utils.post_training_evaluation."
+            "training.post_training_evaluation."
             "select_post_training_evaluation_gpu",
             return_value=selected,
         ), mock.patch(
-            "training_utils.post_training_evaluation."
+            "training.post_training_evaluation."
             "release_training_cuda_memory",
         ), mock.patch(
-            "training_utils.post_training_evaluation.subprocess.run",
+            "training.post_training_evaluation.subprocess.run",
         ) as run_mock, mock.patch(
-            "training_utils.post_training_evaluation.Path.is_dir",
+            "training.post_training_evaluation.Path.is_dir",
             return_value=True,
         ), mock.patch(
-            "training_utils.post_training_evaluation.Path.is_file",
+            "training.post_training_evaluation.Path.is_file",
             return_value=True,
         ):
             run_mock.return_value.returncode = 0

@@ -16,7 +16,7 @@ from domain_shift_tables import (
 )
 from eval.checkpoints import infer_checkpoint_decoder_overrides
 from eval.result_serialization import load_evaluation_yaml
-from training_utils.torch_load import load_torch_checkpoint
+from training.torch_load import load_torch_checkpoint
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

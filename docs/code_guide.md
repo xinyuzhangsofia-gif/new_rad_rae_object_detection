@@ -1,18 +1,18 @@
 # 代码结构与精简指南
 
-本指南合并原中英文文件目录及迁移说明。此次检查覆盖清理前 183 个 Python 文件的语法结构、顶层函数/类、导入关系、入口和本机路径，并重点阅读入口、转发模块、迁移代码和相关测试。它不是对约 6.5 万行代码的逐行算法正确性证明。清理及 Cartesian-only 迁移后保留 164 个 Python 文件；下表逐一列出用途和后续处理建议。行数为本次整理时的快照。
+本指南合并原中英文文件目录及迁移说明。此次检查覆盖清理前 183 个 Python 文件的语法结构、顶层函数/类、导入关系、入口和本机路径，并重点阅读入口、转发模块、迁移代码和相关测试。它不是对约 6.5 万行代码的逐行算法正确性证明。当前保留 167 个生产 Python 文件（不计测试和运行产物）；下表逐一列出用途和后续处理建议。行数为本次整理时的快照。
 
 ## 从哪里开始
 
 ```text
-configs/training.py → train.py → training_utils/runner.py
+configs/training.py → train.py → training/runner.py
     ├─ configs/runtime.py → GPU、worker 和队列并发
     ├─ configs/domain_shift.py → 域偏移实验设计
     ├─ configs/resume.py → 断点续训覆盖项
     └─ configs/historical_overrides.py → 历史任务恢复状态
                                 ├─ data/ → 数据、GT、坐标及划分
                                 ├─ models/factory.py → model1 … model16
-                                └─ training_utils/ → 损失、训练、检查点、队列
+                                └─ training/ → 损失、训练、检查点、队列
 configs/evaluation.py → evaluation.py → eval/workflow.py → eval/
 eval/reporting.py → 报告兼容 facade
     ├─ report_paths.py → 输出目录、文件名及 plot/YAML/TXT 路径
@@ -23,13 +23,13 @@ eval/reporting.py → 报告兼容 facade
     ├─ domain_shift_summaries.py → source/target 配对、TD、天气及总汇总
     └─ result_metadata.py → 数据划分框数量 metadata
 visualize_cfg.py → visualize.py
-training_utils/experiment_queue.py → training_utils/experiments/
+training/experiments/queue.py → training/experiments/
     ├─ schema.py → 实验/任务数据结构与身份版本
     ├─ tables.py → 表发现、解析、校验、结果写回及 TXT/XLSX 同步接口
     ├─ state.py → task key、JSON 状态、原子写、锁与中断恢复
     ├─ scheduling.py → 任务展开、进程保护、GPU 容量与选择
     └─ execution.py → 子配置/命令、subprocess、日志及结果收集
-training_utils/losses.py → loss_components/ 数值实现
+training/losses/__init__.py → training/losses/ 数值实现
     ├─ common.py → 通用框/IoU、Gaussian、ignore mask、focal 与 masked L1
     ├─ targets.py → CenterPoint / RADE-Net 热力图与回归目标
     ├─ gwd.py → 框转换与 Gaussian Wasserstein Distance
@@ -56,7 +56,7 @@ scripts/{analysis,figures,maintenance}/ → 独立统计、论文图和维护工
 
 训练日志不再累计未消费的 Python `history` 列表。每个 epoch 的简洁控制台
 摘要、TensorBoard scalar 和 `run/config` metadata 继续由
-`training_utils/logging_utils.py` 写出。新 TensorBoard run 直接复用检查点目录
+`training/logging_utils.py` 写出。新 TensorBoard run 直接复用检查点目录
 相对于 `checkpoint_base_dir` 的语义路径，因此普通训练对应
 `runs/object_detection/<run>`，天气域偏移训练对应
 `runs/<weather>/<date>_train_<sequences>_test_<sequences>`；显式配置的
@@ -105,7 +105,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 | `data/splits.py` | 划分公共兼容入口；实现分别位于 `data/split/` 的 manifests、sequences、standard 和 controlled 模块。 |
 | `data/ignore_overrides.py` | 加载并严格校验逐帧、逐目标 ignore 规则。 |
 | `loaders/kradar_dataset.py` | 原始 MAT DREA 投影；`KRadarDataset` 返回三种标准投影，`KRadarSensorDataset` 额外提供 RA/RE 图和帧号查询。 |
-| `configs/training.py`、`configs/coordinates.py`、`training_utils/configuration.py` | 选择 Cartesian GT 根目录/类别，拒绝 Polar 输入，解析 ignore 配置，再传给数据工厂。 |
+| `configs/training.py`、`configs/coordinates.py`、`training/configuration.py` | 选择 Cartesian GT 根目录/类别，拒绝 Polar 输入，解析 ignore 配置，再传给数据工厂。 |
 | `scripts/data/build_cartesian_gt_dataset.py` | 离线转换官方标签并生成逐帧副本、平铺 GT 和匹配清单；不是每个训练 epoch 执行。 |
 
 普通训练只支持两种划分：`split_mode="kradar_file"` 按 K-Radar 的 `split/train.txt` / `split/test.txt` 精确选帧；`split_mode="sequence"` 按显式训练/验证序列选帧，并保留 first/last 部分选择。训练 loader 仍打乱顺序，验证 loader 仍不打乱。实验队列的受控匹配是独立层，不改变这两种普通划分的成员语义。
@@ -138,10 +138,10 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 - 合并重复的结构说明；保留实验表生成规则、数据划分和控制清单。
 - 数据输入改为 Cartesian-only，删除 Polar GT 专用分支/工具、集中路径、增加拒绝错误输入和数值回归测试。
 - 按单一职责整理数据模块：`dataset.py` 从 726 行降为 354 行；移动几何、标签选择、ignore 校验和 collate，并合并重复 MAT 读取逻辑。
-- 将域偏移实验队列按职责拆为 `schema`、`tables`、`state`、`scheduling` 和 `execution`；`experiment_queue.py` 只保留按 seed 的两阶段编排：当前 seed 全部训练完成后才并行评估，评估全部完成后才进入下一 seed。已删除串行和训练/评估交错执行模式及 `experiment_queue_execution_mode`；任务身份、表顺序、恢复、GPU、worker 命令和结果写回规则未改变。
+- 将域偏移实验队列按职责拆为 `schema`、`tables`、`state`、`scheduling` 和 `execution`；`training/experiments/queue.py` 只保留按 seed 的两阶段编排：当前 seed 全部训练完成后才并行评估，评估全部完成后才进入下一 seed。已删除串行和训练/评估交错执行模式及 `experiment_queue_execution_mode`；任务身份、表顺序、恢复、GPU、worker 命令和结果写回规则未改变。
 - 距离四分位实验入口共享完成检查点发现、命令公共段、CUDA/subprocess 队列、锁/原子状态及报告 metadata 校验；GT 四分位和相对 TD 仍由该脚本定义。固定距离与 Source Drop 执行入口均已删除。
 - 将 `eval/reporting.py` 改为兼容 facade；路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现。`domain_shift_tables.py` 继续负责域注册、模型配置身份、三张比较表和记录更新，避免反向依赖。
-- 在移动数值实现前固化 loss golden 值与梯度；`training_utils/losses.py` 改为历史导入 facade，CenterPoint、RADE-Net、YOLOX、GWD、目标生成和 SimOTA 各有唯一职责模块。损失键、权重、归一化、空目标和梯度保持不变。
+- 在移动数值实现前固化 loss golden 值与梯度；损失公开 API 和数值实现统一在 `training/losses/`，CenterPoint、RADE-Net、YOLOX、GWD、目标生成和 SimOTA 各有唯一职责模块。损失键、权重、归一化、空目标和梯度保持不变。
 - 将 Controlled Split 从单文件迁移到 `data/split/controlled/`：`matching.py` 保留科学匹配与随机试验，`generation.py` 负责编排、复用、override 和 manifest，`reporting.py` 负责配置/统计/比较报告，`runtime.py` 只在训练时应用已有清单；包入口与 `data/splits.py` 保留历史导入。
 
 “功能保持”指保留正式实现与计算行为，**不包括继续支持已明确删除的旧导入、旧工具命令及 Polar GT/检查点输入**。仓库外的 notebook 和脚本若使用下面的旧名，需要同步更新；未声称验证所有外部调用或历史完整对象 pickle。
@@ -158,11 +158,10 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | `eval_cfg` | `configs.evaluation` |
 | `object_ignore_overrides` | `data.ignore_overrides` |
 | `train_cfg` | `configs.training` |
-| `train_mode_utils` | `training_utils.configuration` |
+| `train_mode_utils` | `training.configuration` |
 | `zxy_config` | `configs.data` |
 | `zxy_data_path` | `data.paths` |
 | `zxy_label_utils` | `data.labels` |
-| `training_utils.radenet_utils` | `data.geometry` |
 
 已删除的 `plot_sedan_*.py` 根目录文件只是转发入口，真正读取 GT、统计和作图的是 `scripts/figures/plot_sedan_*.py`。Model7 图统一使用 `python -m scripts.figures.model7 <子命令>`；不要再为每个图增加一个 root/draw 包装器。
 
@@ -180,12 +179,12 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | --- | --- | --- |
 | 1 | `configs/data.py`、`data/paths.py`、训练/评估/可视化配置 | RAD/RAE 与 Cartesian GT 默认根路径已集中；接下来统一原始传感器、旧配方的标定/输出设置。当前保留本机默认值，换机器前需设置环境变量或参数。 |
 | 已完成 | `visualize.py`、`eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py`、`checkpoint_predictor.py` | 检查点解释/模型重建集中在 `eval/checkpoints.py`，前向推理集中在 `eval/inference.py`，解码与 NMS 集中在 `eval/decoding.py`；可视化只保留绘图坐标转换和兼容转发。 |
-| 已完成（队列） | `training_utils/experiment_queue.py` 与 `training_utils/experiments/` | 队列内部职责已分离，唯一执行路径是 seed 两阶段屏障；根模块保留当前编排所需导出，四分位独立重评脚本不与队列合并。 |
+| 已完成（队列） | `training/experiments/queue.py` 与 `training/experiments/` | 队列内部职责已分离，唯一执行路径是 seed 两阶段屏障；`queue.py` 是唯一高层编排入口，四分位独立重评脚本不与队列合并。 |
 | 已完成（分析脚本） | `scripts/experiments/evaluate_quartile_experiments.py` 与 `scripts/experiments/analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；保留四分位 CLI 的科学定义、输出 state schema 与表聚合。Source Drop 执行逻辑已删除。 |
 | 已完成（报告） | `eval/reporting.py` 与 `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | facade 保留旧导入；输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
 | 已完成（实验目录） | `experiments/{target_drop,distance_quartiles}/` | 两个活动实验族使用唯一语义路径；`distance_ranges` 与 `source_drop` 只保留历史归档资产。 |
 | 4 | `visualization_based_gt/generate_*.py` 等特定序列脚本 | 将序列、帧、epoch、标题等变为一套渲染入口的参数/预设；先保存参考图片与视频元数据，避免改变论文图。 |
-| 已完成（损失） | `training_utils/losses.py` 与 `training_utils/loss_components/` | facade 保留历史导入；通用数学、目标、GWD、SimOTA 和三个 loss family 分责，配置模式解析仍由 `training_utils.configuration` 唯一负责。 |
+| 已完成（损失） | `training/losses/` | `__init__.py` 提供公开 API，通用数学、目标、GWD、SimOTA 和三个 loss family 分责，配置模式解析仍由 `training.configuration` 唯一负责。 |
 | 已完成（数据划分） | `data/splits.py`、`data/split/` | 普通划分按 manifest、sequence、dispatcher 分责；Controlled Split 再按 matching、generation、reporting、runtime 分责。兼容 facade、精确成员、seed 和生成文件保持不变。 |
 | 6 | `legacy_module.py`、旧可视化器、原始 MAT 加载器 | 先确认历史模型和图像复现需求；无静态 import 不等于无功能，不自动删除。 |
 
@@ -202,8 +201,8 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [domain_shift_tables.py](../domain_shift_tables.py) | 1136 | 维护域注册、模型配置身份、best-BEV/best-3D/best-overall 比较表及 JSON 记录。 | 保留域表专属解释、原子更新、锁和旧表导入；不依赖报告 facade。 |
 | [evaluation.py](../evaluation.py) | 27 | 独立评估命令入口；评估工作流在 eval/workflow.py。 | 保留主要入口；不继续复制工作流。 |
 | [legacy_module.py](../legacy_module.py) | 373 | 历史 RAD/RAE 编码器、固定框检测器及卷积组件；未发现当前源码直接导入。 | 暂保留；确认不需历史模型/检查点后再归档。 |
-| [train.py](../train.py) | 13 | 训练命令入口，调用 training_utils/runner.py，并导出 worker 使用的接口。 | 保留主要入口；不继续复制工作流。 |
-| [train_resume.py](../train_resume.py) | — | 断点续训兼容入口；转发到 `training_utils/resume.py`。 | 保留现有命令和公开辅助函数。 |
+| [train.py](../train.py) | 13 | 训练命令入口，调用 `training/runner.py`，并导出 worker 使用的接口。 | 保留主要入口；不继续复制工作流。 |
+| [train_resume.py](../train_resume.py) | — | 断点续训入口；转发到 `training/resume.py` 与共享 runner。 | 保留现有命令和公开辅助函数。 |
 | [visualize.py](../visualize.py) | — | 主检查点可视化器；消费共享 canonical detections，在 Polar/Cartesian 视图绘制 GT 与预测框，并显示或保存帧。 | 保留绘图、布局和可视化坐标转换；检查点/推理/解码由 `eval/` 共享层负责。 |
 | [visualize_cfg.py](../visualize_cfg.py) | 40 | `visualize.py` 的配置，包括检查点、序列、阈值、坐标/视图模式和输出目录。 | 保留明确配置入口；后续统一机器路径，保持原默认值。 |
 
@@ -259,37 +258,36 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [models/model_swin_yolox_model14.py](../models/model_swin_yolox_model14.py) | 88 | Model14：轻量 Swin-FPN 融合和 YOLOX 检测头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_yolox_fpn_heatmap_model12.py](../models/model_yolox_fpn_heatmap_model12.py) | 112 | Model12：Model5 风格 FPN 加 YOLOX/SimOTA 稠密检测头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 
-### training_utils
+### training
 
 | 文件 | 行数 | 功能 | 处理建议 |
 | --- | ---: | --- | --- |
-| [training_utils/__init__.py](../training_utils/__init__.py) | 1 | 声明共享训练工具包。 | 保留：包边界/公开导出，不按行数删除。 |
-| [training_utils/checkpoints.py](../training_utils/checkpoints.py) | 820 | 按实验语义自动选择普通 `object_detection` 或天气 train/test 目录，格式化文件名、构建 payload 并保存 epoch、候选和全局最佳检查点。 | 保留两种目录命名、唯一性和文件名语义。 |
-| [training_utils/configuration.py](../training_utils/configuration.py) | 713 | 处理任务类别、域偏移、坐标/损失模式、受控划分和 Model15 学习率配置。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [training_utils/experiment_queue.py](../training_utils/experiment_queue.py) | — | 高层多天气/分 seed 两阶段队列：每个 seed 先完成全部训练，再完成全部评估。 | 唯一队列执行路径；保留 `train.py` 调度入口、恢复、结果写回和共享 GPU helper。 |
-| [training_utils/experiments/schema.py](../training_utils/experiments/schema.py) | — | `DomainShiftExperiment`、`ExperimentQueueTask`、分支和身份版本。 | 不执行 I/O 或调度。 |
-| [training_utils/experiments/tables.py](../training_utils/experiments/tables.py) | — | 实验表发现、历史表头/序列 token 解析、结果查找、TXT 写回与 XLSX 同步接口。 | 保持表值、排序和写回格式。 |
-| [training_utils/experiments/state.py](../training_utils/experiments/state.py) | — | task slug/key、queue JSON、原子替换、`fcntl` 锁和中断任务恢复分类。 | 保持 identity version 5 和并发安全。 |
-| [training_utils/experiments/scheduling.py](../training_utils/experiments/scheduling.py) | — | 分支/任务展开、设计重复校验、GPU slot/容量选择和顶层训练进程保护。 | 保持低 GPU ID tie-break、保留内存扣减和并发上限。 |
-| [training_utils/experiments/execution.py](../training_utils/experiments/execution.py) | — | 训练 child config、历史 resume 覆盖、worker/评估命令、subprocess 日志和结果收集。 | 不含串行队列循环；继续调用 `experiment_worker.py` 与共享训练工作流。 |
-| [training_utils/experiment_worker.py](../training_utils/experiment_worker.py) | 92 | 私有子进程入口；运行一个序列化实验训练任务并原子写入结果。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [training_utils/logging_utils.py](../training_utils/logging_utils.py) | — | 打印逐 epoch 摘要，并向 TensorBoard 写入配置和指标；日志目录复用检查点的相对实验身份。 | 不保留未消费的内存历史；保留 scalar tag、`run/config` 和 resume 目录语义。 |
-| [training_utils/losses.py](../training_utils/losses.py) | 76 | 损失公开兼容 facade，重新导出旧函数名。 | 不包含算法副本；模式选择在 `training_utils.configuration`。 |
-| [training_utils/loss_components/common.py](../training_utils/loss_components/common.py) | 209 | 共享框/IoU、Gaussian、ignore mask、focal 和 masked L1 张量运算。 | CenterPoint、RADE-Net 和 YOLOX 的单一共享实现。 |
-| [training_utils/loss_components/targets.py](../training_utils/loss_components/targets.py) | 242 | CenterPoint Polar/Cartesian 及 RADE-Net 目标张量构造。 | 保留 floor/round、Gaussian 半径、类别和向量顺序。 |
-| [training_utils/loss_components/gwd.py](../training_utils/loss_components/gwd.py) | 85 | GWD 框转换、矩阵平方根和距离公式。 | 保留 tau、clamp 和 epsilon。 |
-| [training_utils/loss_components/matching.py](../training_utils/loss_components/matching.py) | 142 | YOLOX SimOTA 候选、cost、dynamic-k 及冲突解决。 | `yolox_utils` 只做兼容转发，不保留算法副本。 |
-| [training_utils/loss_components/centerpoint.py](../training_utils/loss_components/centerpoint.py) | 517 | Polar/Cartesian CenterPoint 回归、quality/QFL、权重及返回字典。 | 保留所有 loss key 和梯度路径。 |
-| [training_utils/loss_components/radenet.py](../training_utils/loss_components/radenet.py) | 241 | RADE-Net continuous focal、GWD/L1、原官方 detached-mean 归一化。 | 保留 backprop scalar 与 reported total 的原有区别。 |
-| [training_utils/loss_components/yolox.py](../training_utils/loss_components/yolox.py) | 150 | YOLOX 解码后的 SimOTA、objectness、classification、GWD/L1 及加权。 | 继续复用 `yolox_utils` 的解码，不改前景归一化。 |
-| [training_utils/other_helping_functions.py](../training_utils/other_helping_functions.py) | — | 设置随机种子、解析最佳指标并管理候选/窗口/全局最佳检查点。 | 已删除未消费的 epoch 内存历史构造，不改变检查点选择。 |
-| [training_utils/post_training_evaluation.py](../training_utils/post_training_evaluation.py) | 266 | 释放训练显存、选择评估 GPU，并在训练成功后启动独立评估。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [training_utils/resume.py](../training_utils/resume.py) | — | 恢复模型、优化器/调度器、轮次、最佳指标及已有运行目录。 | 仅保留断点续训特有策略。 |
-| [training_utils/runner.py](../training_utils/runner.py) | — | 普通训练与断点续训共享的数据、模型、epoch 循环、检查点、TensorBoard 和收尾工作流。 | 两个入口的统一训练实现。 |
-| [training_utils/runtime.py](../training_utils/runtime.py) | 30 | 解析 GPU ID 并选择 CPU、单 GPU 或 DataParallel。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [training_utils/torch_load.py](../training_utils/torch_load.py) | 18 | 安全加载 PyTorch 检查点的兼容封装。 | 保留：多个调用方共享检查点加载兼容逻辑。 |
-| [training_utils/training_loop.py](../training_utils/training_loop.py) | 303 | 执行单个训练 epoch 和验证损失，并路由到不同模型损失。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [training_utils/yolox_utils.py](../training_utils/yolox_utils.py) | 192 | YOLOX 网格解码、GIoU、NMS 和检测转换；兼容导出 SimOTA。 | SimOTA 数值实现仅在 `loss_components/matching.py`。 |
+| [training/__init__.py](../training/__init__.py) | 1 | 声明核心训练包。 | 保留清晰包边界，不提供旧包兼容层。 |
+| [training/runner.py](../training/runner.py) | — | 普通训练与断点续训共享的数据、模型、epoch 循环、检查点、TensorBoard 和收尾工作流。 | `train.py` 与 `train_resume.py` 的统一训练实现。 |
+| [training/loop.py](../training/loop.py) | — | 执行单个训练 epoch 和验证损失，并路由到不同模型损失。 | 保留 batch、optimizer step 和损失调度语义。 |
+| [training/configuration.py](../training/configuration.py) | — | 处理任务类别、域偏移、坐标/损失模式、受控划分和 Model15 学习率配置。 | 用户可编辑值仍在 `configs/`；此处只解析运行配置。 |
+| [training/checkpoints.py](../training/checkpoints.py) | — | 选择训练目录，构建/保存 checkpoint payload，解析最佳指标并管理候选、窗口和全局最佳检查点。 | 保留普通 `object_detection` 与天气 train/test 目录语义。 |
+| [training/resume.py](../training/resume.py) | — | 恢复模型、优化器/调度器、轮次、最佳指标及已有运行目录。 | 仅保留断点续训特有策略，不恢复 warm-start。 |
+| [training/logging_utils.py](../training/logging_utils.py) | — | 打印逐 epoch 摘要，并向 TensorBoard 写入配置和指标。 | 保留 scalar tag、`run/config` 和 resume 目录语义。 |
+| [training/post_training_evaluation.py](../training/post_training_evaluation.py) | — | 释放训练显存、选择评估 GPU，并在训练成功后启动独立评估。 | 不与训练期或手动独立评估合并。 |
+| [training/runtime.py](../training/runtime.py) | — | 设置随机种子，解析 GPU ID，并选择 CPU、单 GPU 或 DataParallel。 | 保留 seed 与 device 行为。 |
+| [training/torch_load.py](../training/torch_load.py) | — | 安全加载 PyTorch 检查点的兼容封装。 | 保留多调用方共享的加载兼容逻辑。 |
+| [training/yolox_utils.py](../training/yolox_utils.py) | — | YOLOX 网格解码、GIoU、NMS 和检测转换；兼容导出 SimOTA。 | SimOTA 数值实现仅在 `training/losses/matching.py`。 |
+| [training/losses/__init__.py](../training/losses/__init__.py) | — | 损失的唯一公开 API，直接导出各 loss family 与共享操作。 | 没有并行 facade 或算法副本。 |
+| [training/losses/common.py](../training/losses/common.py) | — | 共享框/IoU、Gaussian、ignore mask、focal、masked L1、top-k gather 和 inverse sigmoid。 | CenterPoint、RADE-Net 和 YOLOX 的单一共享实现。 |
+| [training/losses/targets.py](../training/losses/targets.py) | — | CenterPoint Polar/Cartesian 及 RADE-Net 目标张量构造。 | 保留 floor/round、Gaussian 半径、类别和向量顺序。 |
+| [training/losses/gwd.py](../training/losses/gwd.py) | — | GWD 框转换、矩阵平方根和距离公式。 | 保留 tau、clamp 和 epsilon。 |
+| [training/losses/matching.py](../training/losses/matching.py) | — | YOLOX SimOTA 候选、cost、dynamic-k 及冲突解决。 | 不保留算法副本。 |
+| [training/losses/centerpoint.py](../training/losses/centerpoint.py) | — | Polar/Cartesian CenterPoint 回归、quality/QFL、权重及返回字典。 | 保留所有 loss key 和梯度路径。 |
+| [training/losses/radenet.py](../training/losses/radenet.py) | — | RADE-Net continuous focal、GWD/L1、原官方 detached-mean 归一化。 | 保留 backprop scalar 与 reported total 的原有区别。 |
+| [training/losses/yolox.py](../training/losses/yolox.py) | — | YOLOX 解码后的 SimOTA、objectness、classification、GWD/L1 及加权。 | 保留前景归一化。 |
+| [training/experiments/queue.py](../training/experiments/queue.py) | — | 高层多天气/分 seed 两阶段队列编排。 | 队列的唯一高层执行路径。 |
+| [training/experiments/schema.py](../training/experiments/schema.py) | — | `DomainShiftExperiment`、`ExperimentQueueTask`、分支和身份版本。 | 不执行 I/O 或调度。 |
+| [training/experiments/tables.py](../training/experiments/tables.py) | — | 实验表发现、历史表头/序列 token 解析、结果查找、TXT 写回与 XLSX 同步接口。 | 保持表值、排序和写回格式。 |
+| [training/experiments/state.py](../training/experiments/state.py) | — | task slug/key、queue JSON、原子替换、`fcntl` 锁和中断任务恢复分类。 | 保持 identity version 5 和并发安全。 |
+| [training/experiments/scheduling.py](../training/experiments/scheduling.py) | — | 分支/任务展开、设计重复校验、GPU slot/容量选择和顶层训练进程保护。 | 保持 GPU 选择、保留内存扣减和并发上限。 |
+| [training/experiments/execution.py](../training/experiments/execution.py) | — | 训练 child config、历史 resume 覆盖、worker/评估命令、subprocess 日志和结果收集。 | 不含队列高层循环。 |
+| [training/experiments/worker.py](../training/experiments/worker.py) | — | 私有子进程入口；运行一个序列化实验训练任务并原子写入结果。 | 由 `execution.py` 通过 `python -m training.experiments.worker` 调用。 |
 
 ### eval
 

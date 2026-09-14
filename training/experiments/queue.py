@@ -1,7 +1,6 @@
-"""Compatibility facade and high-level domain-shift queue orchestration.
+"""High-level domain-shift queue orchestration.
 
-Responsibility-specific implementations live in training_utils.experiments.
-Historical imports from this module remain available.
+Responsibility-specific implementations live beside this module.
 """
 
 import copy
@@ -12,7 +11,7 @@ from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 
-from training_utils.experiments.execution import (
+from training.experiments.execution import (
     _close_process_log,
     _launch_parallel_evaluation_task,
     _launch_parallel_training_task,
@@ -23,7 +22,7 @@ from training_utils.experiments.execution import (
     _terminate_running_processes,
     build_experiment_training_config,
 )
-from training_utils.experiments.scheduling import (
+from training.experiments.scheduling import (
     build_experiment_queue_tasks,
     ensure_no_other_top_level_train_process,
     normalize_parallel_gpu_slots,
@@ -32,19 +31,19 @@ from training_utils.experiments.scheduling import (
     validate_experiment_queue_design,
     validate_parallel_gpu_strategy,
 )
-from training_utils.experiments.schema import (
+from training.experiments.schema import (
     DomainShiftExperiment,
     ExperimentQueueTask,
     VALID_BRANCHES,
 )
-from training_utils.experiments.state import (
+from training.experiments.state import (
     _load_queue_state,
     _queue_task_slug,
     _recover_parallel_queue_tasks,
     _update_queue_task_state,
     experiment_queue_lock,
 )
-from training_utils.experiments.tables import (
+from training.experiments.tables import (
     _branch_half_selection,
     _display_width,
     _ensure_header,
@@ -76,13 +75,13 @@ from training_utils.experiments.tables import (
     update_experiment_sheet_result,
     validate_experiment_sheet_is_full,
 )
-from training_utils.post_training_evaluation import (
+from training.post_training_evaluation import (
     query_gpu_status,
     resolve_candidate_physical_gpu_ids,
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def select_parallel_evaluation_gpu(
@@ -93,7 +92,7 @@ def select_parallel_evaluation_gpu(
         gpu_status=None,
         max_active_per_gpu=None,
     ):
-    """Compatibility wrapper preserving facade-level GPU-status patching."""
+    """Resolve GPU status before applying the canonical scheduling policy."""
     if gpu_status is None:
         gpu_status = query_gpu_status()
     return _select_parallel_evaluation_gpu(

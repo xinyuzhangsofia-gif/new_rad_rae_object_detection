@@ -14,7 +14,7 @@ from configs.coordinates import (
 )
 from data.dataloader import normalize_sequence_list
 from models import build_model
-from training_utils.configuration import (
+from training.configuration import (
     infer_include_bus_as_target_from_checkpoint_config,
     format_train_sequence_half_label,
     normalize_optional_path,
@@ -22,7 +22,7 @@ from training_utils.configuration import (
     normalize_train_sequence_half_selection,
     resolve_loss_mode,
 )
-from training_utils.torch_load import load_torch_checkpoint
+from training.torch_load import load_torch_checkpoint
 
 from eval.evaluation_config import (
     normalize_float_thresholds,

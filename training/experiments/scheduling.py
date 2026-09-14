@@ -3,12 +3,12 @@
 import os
 from pathlib import Path
 
-from training_utils.runtime import parse_gpu_ids
-from training_utils.experiments.schema import (
+from training.runtime import parse_gpu_ids
+from training.experiments.schema import (
     ExperimentQueueTask,
     VALID_BRANCHES,
 )
-from training_utils.post_training_evaluation import query_gpu_status
+from training.post_training_evaluation import query_gpu_status
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -274,4 +274,3 @@ def select_parallel_evaluation_gpu(
     selected["index"] = gpu_id
     selected["effective_free_memory_mb"] = effective_free
     return selected
-
