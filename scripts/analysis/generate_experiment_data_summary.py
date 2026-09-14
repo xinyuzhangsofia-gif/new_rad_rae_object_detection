@@ -18,12 +18,12 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from data.splits import (
+from data.split.controlled.matching import (
     DEFAULT_RANGE_M_BINS,
     _build_frame_infos,
-    _select_sequence_part,
     _summarize_frames,
 )
+from data.split.sequences import _select_sequence_part
 from configs.training import TRAIN_CONFIG
 from training.experiments.tables import load_domain_shift_experiments
 

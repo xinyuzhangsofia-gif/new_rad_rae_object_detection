@@ -605,7 +605,7 @@ def prepare_controlled_train_data(args):
     if not getattr(args, "train_control_split_enabled", False):
         return args
 
-    from data.splits import prepare_controlled_train_data as _prepare
+    from data.split.controlled import prepare_controlled_train_data as _prepare
 
     return _prepare(args)
 

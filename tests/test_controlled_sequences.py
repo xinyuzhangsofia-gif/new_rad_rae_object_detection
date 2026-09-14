@@ -1,14 +1,14 @@
 import unittest
 
-from data.splits import (
+from data.split.controlled.matching import (
     _build_population,
     _run_trial,
-    _select_sequence_part,
     _summarize_frames,
     _bin_key,
     _category_keys,
-    _request_signature,
 )
+from data.split.controlled.reporting import _request_signature
+from data.split.sequences import _select_sequence_part
 
 
 def frame_info(file_idx, labels_by_category, outside=()):

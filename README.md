@@ -138,6 +138,16 @@ Within `data/`, responsibilities are explicit: `labels.py` reads Cartesian GT,
 `dataloader.py` collates samples and builds loaders. Raw MAT sensor projections
 live separately in `loaders/kradar_dataset.py`.
 
+All split logic has one canonical home:
+
+```text
+data/split/
+├── ordinary.py      Ordinary `kradar_file` / `sequence` dispatch
+├── manifests.py     K-Radar predefined file manifests
+├── sequences.py     Explicit sequence and first/last selection
+└── controlled/      Controlled Split generation and runtime loading
+```
+
 Supported ordinary split modes are:
 
 1. `kradar_file`: uses the predefined K-Radar `split/train.txt` and

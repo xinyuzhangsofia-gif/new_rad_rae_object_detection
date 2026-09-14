@@ -1,6 +1,6 @@
 # 代码结构与精简指南
 
-本指南合并原中英文文件目录及迁移说明。此次检查覆盖清理前 183 个 Python 文件的语法结构、顶层函数/类、导入关系、入口和本机路径，并重点阅读入口、转发模块、迁移代码和相关测试。它不是对约 6.5 万行代码的逐行算法正确性证明。当前保留 167 个生产 Python 文件（不计测试和运行产物）；下表逐一列出用途和后续处理建议。行数为本次整理时的快照。
+本指南合并原中英文文件目录及迁移说明。此次检查覆盖清理前 183 个 Python 文件的语法结构、顶层函数/类、导入关系、入口和本机路径，并重点阅读入口、转发模块、迁移代码和相关测试。它不是对约 6.5 万行代码的逐行算法正确性证明。当前保留 166 个生产 Python 文件（不计测试和运行产物）；下表逐一列出用途和后续处理建议。行数为本次整理时的快照。
 
 ## 从哪里开始
 
@@ -102,7 +102,10 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 | `data/paths.py` | `get_rad_rae_npy_root_dir`、`get_cartesian_gt_path` 及原始传感器路径；统一解释“文件在哪里”。 |
 | `data/coordinates.py` | `crop_rad_rae_to_scope`、`global_rae_boxes_to_local_scope`、`normalize_rae_boxes_for_scope` 及雷达轴/FOV。 |
 | `data/geometry.py` | Cartesian/RAE 框转换、FOV/scope 判断及框张量构造；供 Dataset、模型损失和评估共享。 |
-| `data/splits.py` | 划分公共兼容入口；实现分别位于 `data/split/` 的 manifests、sequences、standard 和 controlled 模块。 |
+| `data/split/ordinary.py` | 普通 `kradar_file` / `sequence` 划分的唯一分派器。 |
+| `data/split/manifests.py` | 解析 K-Radar 预定义 train/test manifest 并保留精确帧顺序。 |
+| `data/split/sequences.py` | 显式序列划分、序列规范化与 first/last 选择。 |
+| `data/split/controlled/` | 受控划分的匹配、生成、报告和训练时加载。 |
 | `data/ignore_overrides.py` | 加载并严格校验逐帧、逐目标 ignore 规则。 |
 | `loaders/kradar_dataset.py` | 原始 MAT DREA 投影；`KRadarDataset` 返回三种标准投影，`KRadarSensorDataset` 额外提供 RA/RE 图和帧号查询。 |
 | `configs/training.py`、`configs/coordinates.py`、`training/configuration.py` | 选择 Cartesian GT 根目录/类别，拒绝 Polar 输入，解析 ignore 配置，再传给数据工厂。 |
@@ -142,7 +145,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 - 距离四分位实验入口共享完成检查点发现、命令公共段、CUDA/subprocess 队列、锁/原子状态及报告 metadata 校验；GT 四分位和相对 TD 仍由该脚本定义。固定距离与 Source Drop 执行入口均已删除。
 - 将 `eval/reporting.py` 改为兼容 facade；路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现。`domain_shift_tables.py` 继续负责域注册、模型配置身份、三张比较表和记录更新，避免反向依赖。
 - 在移动数值实现前固化 loss golden 值与梯度；损失公开 API 和数值实现统一在 `training/losses/`，CenterPoint、RADE-Net、YOLOX、GWD、目标生成和 SimOTA 各有唯一职责模块。损失键、权重、归一化、空目标和梯度保持不变。
-- 将 Controlled Split 从单文件迁移到 `data/split/controlled/`：`matching.py` 保留科学匹配与随机试验，`generation.py` 负责编排、复用、override 和 manifest，`reporting.py` 负责配置/统计/比较报告，`runtime.py` 只在训练时应用已有清单；包入口与 `data/splits.py` 保留历史导入。
+- 所有划分逻辑统一在 `data/split/`：`ordinary.py` 只分派两种普通模式，`manifests.py` 和 `sequences.py` 各自管理具体成员语义；Controlled Split 的 `matching.py`、`generation.py`、`reporting.py` 和 `runtime.py` 保持科学匹配、生成、输出与训练时加载职责。不保留并行的旧入口。
 
 “功能保持”指保留正式实现与计算行为，**不包括继续支持已明确删除的旧导入、旧工具命令及 Polar GT/检查点输入**。仓库外的 notebook 和脚本若使用下面的旧名，需要同步更新；未声称验证所有外部调用或历史完整对象 pickle。
 
@@ -151,7 +154,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 已删除模块 | 当前模块 |
 | --- | --- |
 | `cfg_model` | `data.coordinates` |
-| `controlled_sequences` | `data.splits` |
+| `controlled_sequences` | `data.split.controlled` |
 | `coordinate_modes` | `configs.coordinates` |
 | `dataloader` | `data.dataloader` |
 | `dataset` | `data.dataset` |
@@ -185,7 +188,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 已完成（实验目录） | `experiments/{target_drop,distance_quartiles}/` | 两个活动实验族使用唯一语义路径；`distance_ranges` 与 `source_drop` 只保留历史归档资产。 |
 | 4 | `visualization_based_gt/generate_*.py` 等特定序列脚本 | 将序列、帧、epoch、标题等变为一套渲染入口的参数/预设；先保存参考图片与视频元数据，避免改变论文图。 |
 | 已完成（损失） | `training/losses/` | `__init__.py` 提供公开 API，通用数学、目标、GWD、SimOTA 和三个 loss family 分责，配置模式解析仍由 `training.configuration` 唯一负责。 |
-| 已完成（数据划分） | `data/splits.py`、`data/split/` | 普通划分按 manifest、sequence、dispatcher 分责；Controlled Split 再按 matching、generation、reporting、runtime 分责。兼容 facade、精确成员、seed 和生成文件保持不变。 |
+| 已完成（数据划分） | `data/split/` | `ordinary.py` 分派普通模式，`manifests.py`、`sequences.py` 和 `controlled/` 分责实现；精确成员、seed 和生成文件保持不变，无兼容 facade。 |
 | 6 | `legacy_module.py`、旧可视化器、原始 MAT 加载器 | 先确认历史模型和图像复现需求；无静态 import 不等于无功能，不自动删除。 |
 
 两个 MAT 接口现在都在 `loaders/kradar_dataset.py`。标准接口仍叫 `KRadarDataset`；需要旧可视化的 `rea`、`ra_map`、`re_map` 字段时使用 `KRadarSensorDataset`。项目内三处旧可视化调用已迁移，当前训练仍使用 `data.dataset.KRadarRADRAEDataset`。Model1–16 也不是重复备份，其结构/权重键需要分别保留。
@@ -233,7 +236,11 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [data/ignore_overrides.py](../data/ignore_overrides.py) | 153 | 加载并严格校验逐目标忽略规则。 | 保留独立策略边界。 |
 | [data/labels.py](../data/labels.py) | 237 | 选择并解析平铺/逐帧 Cartesian 标签。 | 保留唯一标签读取入口。 |
 | [data/paths.py](../data/paths.py) | 141 | 解析雷达、Cartesian 标签和原始传感器路径。 | 保留唯一共享路径入口。 |
-| [data/splits.py](../data/splits.py) | — | 普通/受控划分的公共兼容入口。 | `manifests.py` 负责 K-Radar 文件清单，`sequences.py` 负责显式序列与 first/last，`standard.py` 只分派两种模式；`controlled/{matching,generation,reporting,runtime}.py` 分别负责科学匹配、生成编排、输出和训练时应用。 |
+| [data/split/__init__.py](../data/split/__init__.py) | — | 划分的小型稳定公开 API。 | 只导出主要公开操作，不导出私有科学辅助函数。 |
+| [data/split/ordinary.py](../data/split/ordinary.py) | — | 分派 `kradar_file` 与 `sequence` 两种普通划分。 | 不实现或修改成员算法。 |
+| [data/split/manifests.py](../data/split/manifests.py) | — | K-Radar train/test manifest 解析与精确索引解析。 | 保留顺序、去重、缺失帧和 limit 语义。 |
+| [data/split/sequences.py](../data/split/sequences.py) | — | 显式序列划分、顺序和 first/last/half 选择。 | 保留成员和 half ratio 语义。 |
+| [data/split/controlled/](../data/split/controlled) | — | matching、generation、reporting 和 runtime 四个受控划分责任模块。 | 保留 300 trials、seed、score、复用签名和输出文件。 |
 
 ### models
 

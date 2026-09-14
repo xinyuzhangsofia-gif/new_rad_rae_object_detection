@@ -15,7 +15,7 @@ from .sequences import (
     normalize_sequence_list,
     unique_sequences,
 )
-from .standard import build_split_indices
+from .ordinary import build_split_indices
 
 __all__ = (
     "apply_train_control_split_indices",

@@ -24,7 +24,7 @@ from data import dataloader, dataset as dataset_module, labels
 from data.dataset import KRadarGTDetectionDataset, KRadarRADRAEDataset
 from data.dataloader import detection_collate
 from data.paths import get_cartesian_gt_path
-from data.splits import _build_frame_infos
+from data.split.controlled.matching import _build_frame_infos
 from eval.checkpoints import apply_checkpoint_config_defaults
 from eval.evaluation_config import parse_args as parse_evaluation_args
 from training.configuration import apply_training_coordinate_mode

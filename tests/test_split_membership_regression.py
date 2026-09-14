@@ -20,16 +20,18 @@ from data.dataloader import (
     unique_sequences,
 )
 from data import dataloader
-from data.split import standard
-from data.splits import (
+from data.split import ordinary
+from data.split.controlled.generation import _build_override_frames
+from data.split.controlled.matching import (
     _bin_key,
-    _build_override_frames,
     _build_population,
+    _run_trial,
+    _summarize_frames,
+)
+from data.split.sequences import (
     _normalize_sequence_parts,
     _pair_sequence_parts,
-    _run_trial,
     _select_sequence_part,
-    _summarize_frames,
 )
 from training.configuration import (
     SUPPORTED_TRAINING_SPLIT_MODES,
@@ -85,7 +87,7 @@ class DummyMultiSequenceDataset:
         raise IndexError(global_index)
 
 
-class StandardSplitMembershipGoldenTests(unittest.TestCase):
+class OrdinarySplitMembershipGoldenTests(unittest.TestCase):
     def setUp(self):
         self.dataset = DummyMultiSequenceDataset()
 
@@ -153,7 +155,7 @@ class StandardSplitMembershipGoldenTests(unittest.TestCase):
             "build_sequence_tail_split_indices",
         ):
             self.assertFalse(hasattr(dataloader, removed_function))
-            self.assertFalse(hasattr(standard, removed_function))
+            self.assertFalse(hasattr(ordinary, removed_function))
 
     def test_sequence_split_full_first_last_string_ids_and_order(self):
         self.assertEqual(

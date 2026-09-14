@@ -16,7 +16,7 @@ from .dataset import (
     KRadarRADRAEDataset,
 )
 from .paths import get_rad_rae_npy_root_dir
-from .splits import (
+from .split import (
     apply_train_control_split_indices,
     build_exact_frame_manifest_indices,
     build_kradar_file_split_indices,
