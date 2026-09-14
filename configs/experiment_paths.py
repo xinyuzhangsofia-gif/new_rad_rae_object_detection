@@ -7,7 +7,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPERIMENTS_ROOT = PROJECT_ROOT / "experiments"
 TARGET_DROP_EXPERIMENT_DIR = EXPERIMENTS_ROOT / "target_drop"
 DISTANCE_QUARTILE_EXPERIMENT_DIR = EXPERIMENTS_ROOT / "distance_quartiles"
-SOURCE_DROP_EXPERIMENT_DIR = EXPERIMENTS_ROOT / "source_drop"
 
 TARGET_DROP_EXPERIMENT_RELATIVE_DIR = Path("experiments") / "target_drop"
 
@@ -15,7 +14,6 @@ TARGET_DROP_EXPERIMENT_RELATIVE_DIR = Path("experiments") / "target_drop"
 # filesystem migration. Resolve their recorded paths when they are consumed.
 _HISTORICAL_EXPERIMENT_ROOTS = {
     "experiments3": DISTANCE_QUARTILE_EXPERIMENT_DIR,
-    "experiments4": SOURCE_DROP_EXPERIMENT_DIR,
 }
 
 

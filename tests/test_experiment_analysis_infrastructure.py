@@ -1,13 +1,11 @@
 import argparse
 import json
-import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 
 from scripts import evaluate_quartile_experiments as quartile
-from scripts import evaluate_source_domain_experiments as source_domain
 from scripts.experiment_analysis import discovery, execution, results
 
 
@@ -159,69 +157,12 @@ class ExperimentAnalysisInfrastructureTests(unittest.TestCase):
                 results.report_matches_task_metadata(report, task, parser)
             )
 
-    def test_report_freshness_rejects_stale_inputs_and_checkpoints(self):
-        with tempfile.TemporaryDirectory() as temporary_dir:
-            root = Path(temporary_dir)
-            checkpoint = root / "checkpoint"
-            checkpoint.mkdir()
-            epoch = checkpoint / "epoch_005.pth"
-            source_input = root / "manifest.txt"
-            report = root / "report.txt"
-            for path in (epoch, source_input, report):
-                path.write_text(path.name, encoding="utf-8")
-            os.utime(epoch, ns=(100, 100))
-            os.utime(source_input, ns=(200, 200))
-            os.utime(report, ns=(300, 300))
-            self.assertTrue(results.report_is_newer_than_inputs(
-                report, (source_input,), checkpoint
-            ))
-
-            os.utime(source_input, ns=(400, 400))
-            self.assertFalse(results.report_is_newer_than_inputs(
-                report, (source_input,), checkpoint
-            ))
-            os.utime(source_input, ns=(200, 200))
-            os.utime(epoch, ns=(400, 400))
-            self.assertFalse(results.report_is_newer_than_inputs(
-                report, (source_input,), checkpoint
-            ))
-
-    def test_all_command_wrappers_use_the_canonical_builder(self):
+    def test_quartile_command_uses_the_canonical_builder(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
             root = Path(temporary_dir)
             args = argparse.Namespace(batch_size=32, output_dir=root)
             basic = {"checkpoint_root": "/tmp/checkpoints/example"}
             quartile_command = quartile.build_evaluation_command(basic, args)
-            weather_command = source_domain.build_weather_reference_command(
-                {
-                    "checkpoint_root": "/tmp/checkpoints/example",
-                    "target_sequences": (46, 47),
-                    "report_path": str(root / "weather.txt"),
-                },
-                args,
-            )
-            fixed_bins = {
-                "q1": {"lower_m": 0.0, "upper_m": 10.0},
-                "q2": {"lower_m": 10.0, "upper_m": 20.0},
-                "q3": {"lower_m": 20.0, "upper_m": 30.0},
-                "q4": {"lower_m": 30.0, "upper_m": float("inf")},
-            }
-            normal_task = {
-                "task_id": "rain_group1_seed42_source_normal",
-                "ready": True,
-                "checkpoint_root": "/tmp/checkpoints/example",
-                "report_path": str(root / "normal.txt"),
-                "fixed_quartile_bins": fixed_bins,
-                "control": {
-                    "source_sequences": (18,),
-                    "manifest_path": str(root / "manifest.txt"),
-                    "override_path": str(root / "override.json"),
-                },
-            }
-            normal_command = source_domain.build_evaluation_command(
-                normal_task,
-                args,
-            )
 
         common_prefix = [
             sys.executable,
@@ -259,34 +200,6 @@ class ExperimentAnalysisInfrastructureTests(unittest.TestCase):
             quartile_command,
             common_prefix + metric_arguments + [
                 "--distance-quartile-eval-enabled", "true",
-            ] + output_arguments(
-                root / "evaluation_reports", root / "tensorboard"
-            ),
-        )
-        self.assertEqual(
-            weather_command,
-            common_prefix + [
-                "--eval-val-sequences", "46,47",
-                "--eval-report-path", str(root / "weather.txt"),
-            ] + metric_arguments + [
-                "--distance-quartile-eval-enabled", "true",
-            ] + output_arguments(
-                root / "weather_reference_reports",
-                root / "tensorboard_weather_reference",
-            ),
-        )
-        self.assertEqual(
-            normal_command,
-            common_prefix + [
-                "--eval-val-sequences", "18",
-                "--eval-frame-manifest-path", str(root / "manifest.txt"),
-                "--eval-gt-object-ignore-override-path",
-                str(root / "override.json"),
-                "--eval-report-path", str(root / "normal.txt"),
-            ] + metric_arguments + [
-                "--distance-quartile-eval-enabled", "true",
-                "--distance-quartile-bins",
-                source_domain._fixed_bins_cli_text(normal_task),
             ] + output_arguments(
                 root / "evaluation_reports", root / "tensorboard"
             ),

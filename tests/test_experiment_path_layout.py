@@ -9,12 +9,10 @@ from configs.experiment_paths import (
     DISTANCE_QUARTILE_EXPERIMENT_DIR,
     EXPERIMENTS_ROOT,
     PROJECT_ROOT,
-    SOURCE_DROP_EXPERIMENT_DIR,
     TARGET_DROP_EXPERIMENT_DIR,
     resolve_recorded_experiment_path,
 )
 from scripts import evaluate_quartile_experiments as quartile_launcher
-from scripts import evaluate_source_domain_experiments as source_launcher
 from training_utils.experiments.tables import (
     load_domain_shift_experiments,
     resolve_experiment_sheet_paths,
@@ -33,14 +31,9 @@ class ExperimentPathLayoutTests(unittest.TestCase):
             DISTANCE_QUARTILE_EXPERIMENT_DIR,
             EXPERIMENTS_ROOT / "distance_quartiles",
         )
-        self.assertEqual(
-            SOURCE_DROP_EXPERIMENT_DIR,
-            EXPERIMENTS_ROOT / "source_drop",
-        )
         self.assertTrue(all(path.is_dir() for path in (
             TARGET_DROP_EXPERIMENT_DIR,
             DISTANCE_QUARTILE_EXPERIMENT_DIR,
-            SOURCE_DROP_EXPERIMENT_DIR,
         )))
         self.assertFalse(any(
             (PROJECT_ROOT / f"experiments{index}").exists()
@@ -76,34 +69,15 @@ class ExperimentPathLayoutTests(unittest.TestCase):
             quartile_launcher.parse_args([]).output_dir,
             DISTANCE_QUARTILE_EXPERIMENT_DIR,
         )
-        source_args = source_launcher.parse_args([])
-        self.assertEqual(source_args.output_dir, SOURCE_DROP_EXPERIMENT_DIR)
-        self.assertEqual(
-            source_args.distance_quartiles_dir,
-            DISTANCE_QUARTILE_EXPERIMENT_DIR,
-        )
-
-    def test_source_drop_legacy_cli_option_only_aliases_the_canonical_input(self):
-        custom_path = PROJECT_ROOT / "custom_quartile_results"
-        old_option = "--experiments" + "3-dir"
-        args = source_launcher.parse_args([old_option, str(custom_path)])
-        self.assertEqual(args.distance_quartiles_dir, custom_path)
 
     def test_historical_recorded_paths_resolve_without_legacy_directories(self):
         old_quartile_root = "experiments" + "3"
-        old_source_drop_root = "experiments" + "4"
         self.assertEqual(
             resolve_recorded_experiment_path(
                 f"{old_quartile_root}/evaluation_reports/rain/result.txt"
             ),
             DISTANCE_QUARTILE_EXPERIMENT_DIR
             / "evaluation_reports" / "rain" / "result.txt",
-        )
-        self.assertEqual(
-            resolve_recorded_experiment_path(
-                f"{old_source_drop_root}/control_specs/index.json"
-            ),
-            SOURCE_DROP_EXPERIMENT_DIR / "control_specs" / "index.json",
         )
         self.assertEqual(
             resolve_recorded_experiment_path(
@@ -119,24 +93,6 @@ class ExperimentPathLayoutTests(unittest.TestCase):
             TARGET_DROP_EXPERIMENT_DIR
             / ".rain_experiments.txt.queue_state.json",
         )
-
-    def test_moved_historical_control_metadata_resolves_without_rewrite(self):
-        controls, errors = source_launcher.load_control_specs(
-            SOURCE_DROP_EXPERIMENT_DIR / "control_specs" / "index.json"
-        )
-        self.assertEqual(errors, [])
-        self.assertEqual(len(controls), 17)
-        for control in controls.values():
-            self.assertTrue(
-                Path(control["manifest_path"]).is_relative_to(
-                    SOURCE_DROP_EXPERIMENT_DIR
-                )
-            )
-            self.assertTrue(
-                Path(control["stats_path"]).is_relative_to(
-                    SOURCE_DROP_EXPERIMENT_DIR
-                )
-            )
 
     def test_no_unapproved_legacy_path_literals_in_active_sources(self):
         legacy_pattern = re.compile(r"\bexperiments[234](?:/|\\|\b)")
@@ -158,16 +114,6 @@ class ExperimentPathLayoutTests(unittest.TestCase):
                 if not legacy_pattern.search(line):
                     continue
                 if relative_path == Path("configs/experiment_paths.py"):
-                    continue
-                if (
-                    relative_path == Path(
-                        "scripts/evaluate_source_domain_experiments.py"
-                    )
-                    and (
-                        "--experiments3-dir" in line
-                        or "weather_experiments3_task_id" in line
-                    )
-                ):
                     continue
                 violations.append(f"{relative_path}:{line_number}: {line}")
         self.assertEqual(violations, [], "\n".join(violations))

@@ -123,7 +123,7 @@ experiments/
 ├── target_drop/         Primary weather Source-vs-Target / Target Drop tables
 ├── distance_ranges/     Archived fixed-range result assets (evaluator removed)
 ├── distance_quartiles/  Equal-count GT-distance quartile analysis
-└── source_drop/         Controlled source-domain / Source Drop analysis
+└── source_drop/         Archived historical Source Drop results and controls
 ```
 
 Within `data/`, responsibilities are explicit: `labels.py` reads Cartesian GT,
@@ -172,8 +172,8 @@ that table into its semantic family directory. Historical recorded paths in
 state/control metadata are resolved at read time; no duplicate legacy
 experiment directories or symlinks are maintained.
 
-Distance, quartile, and source-domain re-evaluation still consume upstream state
-manifests containing completed checkpoint locations. Deleting these manifests
+Distance-quartile re-evaluation consumes upstream queue-state manifests containing
+completed checkpoint locations. Deleting these manifests
 does **not** automatically recover completed tasks from the checkpoint folders.
 Restore or prepare the relevant manifests before re-evaluating historical runs;
 remove lock files only after their workers stop.

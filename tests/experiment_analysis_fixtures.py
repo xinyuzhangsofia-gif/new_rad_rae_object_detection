@@ -1,11 +1,10 @@
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 import json
 from pathlib import Path
 import tempfile
 from unittest import mock
 
 from scripts import evaluate_quartile_experiments as quartile_launcher
-from scripts import evaluate_source_domain_experiments as source_launcher
 from scripts.experiment_analysis import discovery
 
 
@@ -55,16 +54,13 @@ def temporary_checkpoint_records(rows):
                 json.dumps({"tasks": records}),
                 encoding="utf-8",
             )
-        with ExitStack() as stack:
-            for launcher in (quartile_launcher, source_launcher):
-                stack.enter_context(
-                    mock.patch.object(launcher, "SOURCE_EXPERIMENT_DIR", root)
-                )
-            stack.enter_context(
-                mock.patch.object(
-                    quartile_launcher,
-                    "SOURCE_REPORT_ROOT",
-                    reports,
-                )
-            )
+        with mock.patch.object(
+            quartile_launcher,
+            "SOURCE_EXPERIMENT_DIR",
+            root,
+        ), mock.patch.object(
+            quartile_launcher,
+            "SOURCE_REPORT_ROOT",
+            reports,
+        ):
             yield root

@@ -1,3 +1,5 @@
+ARCHIVED HISTORICAL ASSETS: these control specifications are no longer used by runtime code.
+
 Test-domain control specifications
 
 Enumerate all sequence_information.csv normal-weather sequences with the target road type; reject missing data and every frame used by any source-trained checkpoint in the weather group; rank remaining continuous candidates with train_cfg total/range/empty control priorities.
