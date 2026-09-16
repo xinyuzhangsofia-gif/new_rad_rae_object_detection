@@ -1,4 +1,4 @@
-"""Checkpoint inference adapter for the combined GT sensor visualization."""
+"""Checkpoint inference adapter shared by all visualization modes."""
 
 from pathlib import Path
 
@@ -17,7 +17,7 @@ from eval.checkpoints import (
     load_model_checkpoint,
 )
 from eval.inference import infer_and_decode
-from visualize import (
+from visualization.detections import (
     format_visualization_predictions,
     resolve_visualization_classes,
 )
@@ -33,12 +33,6 @@ def _select_device(device_name):
             f"prediction_device={device_name!r}, but CUDA is unavailable"
         )
     return device
-
-
-def _checkpoint_coordinate_mode(checkpoint, checkpoint_config):
-    """Compatibility facade for the canonical checkpoint parser."""
-    del checkpoint_config
-    return infer_checkpoint_box_coordinate_mode(checkpoint)
 
 
 class CheckpointPredictor:

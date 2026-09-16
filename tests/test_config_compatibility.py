@@ -107,7 +107,6 @@ class ConfigCompatibilityTests(unittest.TestCase):
     def test_raw_sensor_defaults_use_shared_path_constants(self):
         config = data.DataConfig()
         self.assertEqual(config.root_dir, data.RAW_KRADAR_ROOT)
-        self.assertEqual(config.raw_radar_root, data.RAW_RADAR_ROOT)
 
     def test_ordinary_and_controlled_split_asset_roots_are_separate(self):
         self.assertEqual(TRAIN_CONFIG["split_dir"], "data/manifests/kradar")
@@ -122,7 +121,6 @@ class ConfigCompatibilityTests(unittest.TestCase):
             "MVRSS_RADAR_ROOT",
             "MVRSS_CARTESIAN_GT_ROOT",
             "MVRSS_RAW_KRADAR_ROOT",
-            "MVRSS_RAW_RADAR_ROOT",
             "MVRSS_OFFICIAL_KRADAR_GT_ROOT",
             "MVRSS_CAMERA_RGB_ROOT",
             "MVRSS_KRADAR_TOOLS_ROOT",
@@ -141,14 +139,13 @@ class ConfigCompatibilityTests(unittest.TestCase):
                     "pairs={'MVRSS_RADAR_ROOT':d.RADAR_NPY_ROOT,"
                     "'MVRSS_CARTESIAN_GT_ROOT':d.CARTESIAN_GT_ROOT,"
                     "'MVRSS_RAW_KRADAR_ROOT':d.RAW_KRADAR_ROOT,"
-                    "'MVRSS_RAW_RADAR_ROOT':d.RAW_RADAR_ROOT,"
                     "'MVRSS_OFFICIAL_KRADAR_GT_ROOT':d.OFFICIAL_KRADAR_GT_ROOT,"
                     "'MVRSS_CAMERA_RGB_ROOT':d.CAMERA_RGB_ROOT,"
                     "'MVRSS_KRADAR_TOOLS_ROOT':d.KRADAR_TOOLS_ROOT,"
                     "'MVRSS_LIDAR2RADAR_CALIB_PATH':d.LIDAR2RADAR_CALIB_PATH}; "
                     "assert all(value == os.environ[name] "
                     "for name, value in pairs.items()); "
-                    "assert d.VISUALIZATION_LIDAR2RADAR_CALIB_PATH == "
+                    "assert d.LIDAR2RADAR_CALIB_PATH == "
                     "os.environ['MVRSS_LIDAR2RADAR_CALIB_PATH']"
                 ),
             ],

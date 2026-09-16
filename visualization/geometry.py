@@ -1,10 +1,8 @@
 import yaml
-import path_setup
 import numpy as np
 import torch
 import cv2
 from scipy.spatial.transform import Rotation
-from scipy.io import loadmat
 
 #from center point to 8 corners
 def boxes_to_corners_3d(boxes):
@@ -112,17 +110,6 @@ def get_ra_bbx_2d(rae_corners):
         bbxes_2d[i] = bbx_2d
 
     return bbxes_2d
-
-
-def load_axis_from_mat(info_array_path):
-
-    mat_data = loadmat(info_array_path)
-
-    arr_range= mat_data['arrRange'][0]
-    arr_azimuth_deg = mat_data['arrAzimuth'][0]
-    arr_elevation_deg = mat_data['arrElevation'][0]
-
-    return arr_range, arr_azimuth_deg, arr_elevation_deg
 
 
 def load_lidar2radar_calib(yml_path):

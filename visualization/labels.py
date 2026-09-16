@@ -8,12 +8,12 @@ import numpy as np
 import torch
 import yaml
 
-from visualization_cfg import (
+from configs.data import LIDAR2RADAR_CALIB_PATH
+from visualization.config import (
     GT_KIND_CURRENT,
     GT_KIND_OFFICIAL_KRADAR,
-    VISUALIZATION_LIDAR2RADAR_CALIB_PATH,
 )
-from visualization_utils import resolve_info_label_kind
+from visualization.paths import resolve_info_label_kind
 
 
 _HEADER_INDEX_RE = re.compile(r"idx\([^)]*\)\s*=\s*([^,\s]+)")
@@ -111,7 +111,7 @@ def read_official_kradar_gt(label_path):
 
 def read_current_gt(
     label_path,
-    calib_path=VISUALIZATION_LIDAR2RADAR_CALIB_PATH,
+    calib_path=LIDAR2RADAR_CALIB_PATH,
 ):
     """Read the radar-aligned GT selected in configs/data.py.
 

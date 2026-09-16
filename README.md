@@ -71,7 +71,6 @@ Set shared roots before starting a command:
 export MVRSS_RADAR_ROOT=/path/to/K-Radar-RAD
 export MVRSS_CARTESIAN_GT_ROOT=/path/to/K-Radar-GT-cartesian-radar-v2
 export MVRSS_RAW_KRADAR_ROOT=/path/to/raw/KRadar
-export MVRSS_RAW_RADAR_ROOT=/path/or/mount/to/K-Radar
 export MVRSS_OFFICIAL_KRADAR_GT_ROOT=/path/to/KRadar_revised_visibility
 export MVRSS_CAMERA_RGB_ROOT=smb://server/share/Datasets/K-Radar-RGB
 export MVRSS_LIDAR2RADAR_CALIB_PATH=/path/to/lidar2radar_calib.yml
@@ -106,6 +105,8 @@ not a Polar-GT input branch or a Polar AP evaluator.
 train.py / train_resume.py   Main training entry points
 evaluation.py                Standalone evaluation entry point
 visualize.py                 Visualization entry point
+visualize_cfg.py             Canonical visualization configuration
+visualization/               RA, prediction, sensor projection, and video implementation
 configs/                     Editable configuration
 data/                        Data pipeline
 models/                      Model1–16 and model factory
@@ -137,8 +138,9 @@ experiments/
 Within `data/`, responsibilities are explicit: `labels.py` reads Cartesian GT,
 `geometry.py` converts and filters boxes, `dataset.py` assembles samples,
 `dataloader.py` collates samples and builds loaders, and
-`manifests/kradar/` stores the fixed ordinary train/test frame manifests. Raw
-MAT sensor projections live separately in `loaders/kradar_dataset.py`.
+`manifests/kradar/` stores the fixed ordinary train/test frame manifests.
+Current radar visualization reads the same paired RAD/RAE `.npy` family as
+the data pipeline; the obsolete raw MAT/ARR visualization loader is removed.
 
 All split logic has one canonical home:
 
@@ -180,6 +182,13 @@ checkpoint metadata, reconstructs models, and loads state dictionaries;
 CenterPoint, RADE-Net, and YOLOX decoding plus filtering/NMS. Evaluation passes
 the resulting canonical detections to metrics, while `visualize.py` and the
 active multi-sensor checkpoint predictor only convert them for drawing.
+
+`python visualize.py` is the only normal visualization command. Select
+`ra_map`, `ra_map_video`, `multisensor`, or `multisensor_video` in
+`visualize_cfg.py`; `ra_map_coordinate` independently selects `polar` or
+`cartesian`. The defaults are `ra_map` and `polar`, with GT drawn green and
+predictions red. The current visualizer reads paired RAD/RAE `.npy` tensors;
+the former ARR/MAT visualization path has been removed.
 
 The root entry points `train.py`, `train_resume.py`, `evaluation.py`, and
 `visualize.py` remain supported.

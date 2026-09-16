@@ -1,39 +1,30 @@
-import sys
 import unittest
 from pathlib import Path
 
 import numpy as np
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-VISUALIZATION_DIR = PROJECT_ROOT / "visualization_based_gt"
-if str(VISUALIZATION_DIR) not in sys.path:
-    sys.path.insert(0, str(VISUALIZATION_DIR))
-
-from info_label_reader import read_info_label  # noqa: E402
-from radar_npy_reader import (  # noqa: E402
+from configs.data import CARTESIAN_GT_ROOT, RADAR_NPY_ROOT
+from visualization.config import load_visualization_config
+from visualization.labels import read_info_label
+from visualization.radar_data import (
     CurrentRadarNpyDataset,
     get_current_radar_axes,
     make_ra_map,
 )
-from visualization_cfg import (  # noqa: E402
-    CURRENT_GT_ROOT,
-    CURRENT_RADAR_NPY_ROOT,
-    DataConfig,
-)
-from visualization_utils import get_label_dir  # noqa: E402
+from visualization.paths import get_label_dir
 
 
 class VisualizationRadarNpyReaderTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        root = Path(CURRENT_RADAR_NPY_ROOT)
+        root = Path(RADAR_NPY_ROOT)
         if not (root / "11" / "rad" / "00034.npy").is_file():
             raise unittest.SkipTest("Local training RAD/RAE npy files are unavailable")
 
     def test_real_pair_matches_training_shapes_and_frame_name(self):
         dataset = CurrentRadarNpyDataset(
-            CURRENT_RADAR_NPY_ROOT,
+            RADAR_NPY_ROOT,
             sequence=11,
             radar_view_source="rae",
         )
@@ -54,7 +45,7 @@ class VisualizationRadarNpyReaderTest(unittest.TestCase):
 
     def test_rad_projection_is_selectable_and_both_files_are_loaded(self):
         dataset = CurrentRadarNpyDataset(
-            CURRENT_RADAR_NPY_ROOT,
+            RADAR_NPY_ROOT,
             sequence=11,
             radar_view_source="rad",
         )
@@ -70,9 +61,9 @@ class VisualizationRadarNpyReaderTest(unittest.TestCase):
         self.assertTrue(Path(frame["rae_file"]).is_file())
 
     def test_label_tesseract_index_selects_the_matching_npy_pair(self):
-        label_path = Path(CURRENT_GT_ROOT) / "11" / "00034_00001.txt"
+        label_path = Path(CARTESIAN_GT_ROOT) / "11" / "00034_00001.txt"
         frame_info = read_info_label(label_path)
-        dataset = CurrentRadarNpyDataset(CURRENT_RADAR_NPY_ROOT, sequence=11)
+        dataset = CurrentRadarNpyDataset(RADAR_NPY_ROOT, sequence=11)
         frame = dataset.get_by_tesseract_idx(frame_info["tesseract_idx"])
         self.assertEqual(frame["frame_name"], "00034")
         self.assertEqual(Path(frame["rad_file"]).stem, "00034")
@@ -89,11 +80,11 @@ class VisualizationRadarNpyReaderTest(unittest.TestCase):
         self.assertAlmostEqual(float(arr_azimuth[-1]), 53.0)
 
     def test_real_current_npy_frame_renders_to_a_radar_image(self):
-        from sensor_transformation import load_lidar2radar_calib
-        from visualization import get_radar_frame
+        from visualization.geometry import load_lidar2radar_calib
+        from visualization.multisensor import get_radar_frame
         from data.paths import get_label_files
 
-        cfg = DataConfig(
+        cfg = load_visualization_config(
             sequence=11,
             radar_view_source="rae",
             show_texts=True,
@@ -101,7 +92,7 @@ class VisualizationRadarNpyReaderTest(unittest.TestCase):
         label_dir = get_label_dir(cfg)
         label_files = get_label_files(label_dir)
         dataset = CurrentRadarNpyDataset(
-            cfg.rad_rae_root,
+            cfg.radar_npy_root,
             sequence=cfg.sequence,
             radar_view_source=cfg.radar_view_source,
         )

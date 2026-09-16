@@ -19,7 +19,10 @@ from eval.decoding import (
     decode_batch_predictions,
 )
 from eval.inference import infer_and_decode, predict_batch
-from visualize import filter_predictions, format_visualization_predictions
+from visualization.detections import (
+    filter_predictions,
+    format_visualization_predictions,
+)
 
 
 def _centerpoint_outputs():

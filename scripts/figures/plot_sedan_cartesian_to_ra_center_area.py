@@ -26,7 +26,7 @@ from configs.data import CARTESIAN_GT_ROOT, PROJECT_ROOT
 
 DEFAULT_CARTESIAN_ROOT = Path(CARTESIAN_GT_ROOT)
 DEFAULT_OUTPUT_ROOT = (
-    PROJECT_ROOT / "visualization_based_gt/generated/cartesian_to_polar_center_range_area"
+    PROJECT_ROOT / "visualization_results/cartesian_to_polar_center_range_area"
 )
 
 

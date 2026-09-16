@@ -4,7 +4,7 @@ import numpy as np
 
 from data.coordinates import AZIMUTH_AXIS, ELEVATION_AXIS, RANGE_AXIS, SCOPE_FULL
 from data.dataset import KRadarRADRAEDataset
-from visualization_cfg import RADAR_VIEW_SOURCES
+RADAR_VIEW_SOURCES = ("rae", "rad")
 
 
 def _physical_axis(axis):
@@ -34,7 +34,7 @@ def make_ra_map(cube):
     # The paired RAD/RAE npy values are already log10(power).  The past
     # visualization summed linear power over the remaining D/E axis and then
     # applied log10.  Compute the equivalent base-10 log-sum-exp directly so
-    # the display matches the original radar_tesseract MAT rendering without
+    # the display matches the established power rendering without
     # overflowing when converting the entire cube back to linear power.
     peak = np.max(cube, axis=2, keepdims=True)
     ra_map = peak[..., 0] + np.log10(
@@ -117,7 +117,7 @@ class CurrentRadarNpyDataset:
 
 def build_current_radar_dataset(cfg):
     return CurrentRadarNpyDataset(
-        rad_rae_root=cfg.rad_rae_root,
+        rad_rae_root=cfg.radar_npy_root,
         sequence=cfg.sequence,
         radar_view_source=cfg.radar_view_source,
     )

@@ -15,7 +15,6 @@ from unittest import mock
 
 import numpy as np
 import torch
-from scipy.io import savemat
 from torch.utils.data import RandomSampler, SequentialSampler
 
 from configs import data as data_config
@@ -25,11 +24,13 @@ from data.dataset import KRadarGTDetectionDataset, KRadarRADRAEDataset
 from data.dataloader import detection_collate
 from data.paths import get_cartesian_gt_path
 from data.split.controlled.matching import _build_frame_infos
-from eval.checkpoints import apply_checkpoint_config_defaults
+from eval.checkpoints import (
+    apply_checkpoint_config_defaults,
+    infer_checkpoint_box_coordinate_mode,
+)
 from eval.evaluation_config import parse_args as parse_evaluation_args
 from training.configuration import apply_training_coordinate_mode
-from visualize import parse_args as parse_visualization_args
-from loaders.kradar_dataset import KRadarDataset, KRadarSensorDataset
+from visualization.workflow import parse_args as parse_visualization_args
 
 
 HEADER = "# " + ",".join(labels.CARTESIAN_GT_COLUMNS) + "\n"
@@ -181,30 +182,6 @@ class CartesianDataTests(unittest.TestCase):
         self.assertFalse(hasattr(dataset_module, "KRadarDataset"))
         self.assertIs(dataloader.detection_collate, detection_collate)
 
-    def test_raw_mat_loader_contracts_share_one_implementation(self):
-        raw_dir = self.root / "raw_mat"
-        raw_dir.mkdir()
-        drea = np.arange(2 * 3 * 4 * 5, dtype=np.float32).reshape(2, 3, 4, 5)
-        savemat(raw_dir / "radar_00001.mat", {"arrDREA": drea})
-
-        standard = KRadarDataset(raw_dir)[0]
-        extended = KRadarSensorDataset(raw_dir)[0]
-        self.assertEqual(tuple(standard), ("rae", "rad", "aed"))
-        self.assertEqual(
-            tuple(extended), ("rea", "rad", "aed", "ra_map", "re_map")
-        )
-        np.testing.assert_array_equal(extended["rea"], standard["rae"])
-        np.testing.assert_array_equal(
-            extended["ra_map"], standard["rae"].sum(axis=1)
-        )
-        np.testing.assert_array_equal(
-            extended["re_map"], standard["rae"].sum(axis=2)
-        )
-        self.assertEqual(
-            KRadarSensorDataset(raw_dir).get_by_tesseract_idx("00001")["rad"].shape,
-            standard["rad"].shape,
-        )
-
     def test_kradar_file_split_and_train_only_ignores_are_preserved(self):
         split = self.root / "split"
         split.mkdir()
@@ -281,11 +258,9 @@ class CartesianDataTests(unittest.TestCase):
 
     def test_sensor_prediction_and_resume_reject_polar_checkpoints(self):
         from train_resume import load_resume_checkpoint
-        from visualization_based_gt.checkpoint_predictor import _checkpoint_coordinate_mode
-
         checkpoint = {"config": {"box_coordinate_mode": "polar"}, "model_state_dict": {}}
         with self.assertRaisesRegex(ValueError, "Only Cartesian"):
-            _checkpoint_coordinate_mode(checkpoint, checkpoint["config"])
+            infer_checkpoint_box_coordinate_mode(checkpoint)
         model = mock.Mock()
         with mock.patch("train_resume.load_torch_checkpoint", return_value=checkpoint):
             with self.assertRaisesRegex(ValueError, "Only Cartesian"):

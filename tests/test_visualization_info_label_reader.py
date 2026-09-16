@@ -1,38 +1,32 @@
-import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
 import torch
 
 
-VISUALIZATION_DIR = (
-    Path(__file__).resolve().parents[1] / "visualization_based_gt"
-)
-if str(VISUALIZATION_DIR) not in sys.path:
-    sys.path.insert(0, str(VISUALIZATION_DIR))
-
-from info_label_reader import (  # noqa: E402
+from configs.data import CARTESIAN_GT_ROOT, OFFICIAL_KRADAR_GT_ROOT
+from visualization.labels import (
     read_info_label,
     read_current_gt,
     read_official_kradar_gt,
 )
-from visualization_cfg import (  # noqa: E402
-    CURRENT_GT_ROOT,
-    DataConfig,
+from visualization.config import (
     GT_KIND_CURRENT,
     GT_KIND_OFFICIAL_KRADAR,
-    OFFICIAL_KRADAR_GT_ROOT,
-    VISUALIZE_MODE_PICTURES,
-    VISUALIZE_MODE_VIDEO,
+    MODE_MULTISENSOR,
+    MODE_MULTISENSOR_VIDEO,
+    MODE_RA_MAP,
+    MODE_RA_MAP_VIDEO,
+    load_visualization_config,
 )
-from visualization_utils import (  # noqa: E402
+from visualization.paths import (
     get_label_dir,
     get_picture_save_path,
     resolve_info_label_kind,
-    resolve_visualize_mode,
 )
 
 
@@ -43,13 +37,16 @@ class VisualizationInfoLabelReaderTest(unittest.TestCase):
             GT_KIND_OFFICIAL_KRADAR,
         )
         self.assertEqual(
-            resolve_info_label_kind(CURRENT_GT_ROOT),
+            resolve_info_label_kind(CARTESIAN_GT_ROOT),
             GT_KIND_CURRENT,
         )
-        cfg = DataConfig(sequence=11)
+        cfg = load_visualization_config(
+            sequence=11,
+            info_label_root=CARTESIAN_GT_ROOT,
+        )
         self.assertEqual(
             Path(get_label_dir(cfg)),
-            Path(CURRENT_GT_ROOT) / "11",
+            Path(CARTESIAN_GT_ROOT) / "11",
         )
 
     def test_real_training_box_is_converted_back_to_revised_lidar_box(self):
@@ -57,7 +54,7 @@ class VisualizationInfoLabelReaderTest(unittest.TestCase):
             Path(OFFICIAL_KRADAR_GT_ROOT) / "11" / "00034_00001.txt"
         )
         training_path = (
-            Path(CURRENT_GT_ROOT) / "11" / "00034_00001.txt"
+            Path(CARTESIAN_GT_ROOT) / "11" / "00034_00001.txt"
         )
         if not revised_path.is_file() or not training_path.is_file():
             self.skipTest("Local K-Radar label roots are unavailable")
@@ -87,25 +84,29 @@ class VisualizationInfoLabelReaderTest(unittest.TestCase):
         self.assertEqual(training["cam_front_idx"], revised["cam_front_idx"])
         self.assertEqual(training["os2_64_idx"], revised["os2_64_idx"])
 
-    def test_picture_and_video_modes_are_configurable(self):
-        self.assertEqual(
-            resolve_visualize_mode(" PICTURES "),
-            VISUALIZE_MODE_PICTURES,
-        )
-        self.assertEqual(resolve_visualize_mode("video"), VISUALIZE_MODE_VIDEO)
-        with self.assertRaisesRegex(ValueError, "Unknown visualize_mode"):
-            resolve_visualize_mode("frames")
+    def test_four_public_modes_are_configurable(self):
+        expected = {
+            MODE_RA_MAP,
+            MODE_RA_MAP_VIDEO,
+            MODE_MULTISENSOR,
+            MODE_MULTISENSOR_VIDEO,
+        }
+        for mode in expected:
+            self.assertEqual(load_visualization_config(mode=mode).mode, mode)
+        with self.assertRaisesRegex(ValueError, "Unknown visualization mode"):
+            load_visualization_config(mode="frames")
 
     def test_combined_picture_can_be_saved(self):
         # Importing visualization also verifies that its read_info_label symbol
         # is still the new dispatcher rather than the old project-level reader.
-        from visualization import save_combined_picture
+        from visualization.multisensor import save_combined_picture
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            cfg = DataConfig(
+            cfg = SimpleNamespace(
                 sequence=11,
                 picture_save_dir=temp_dir,
                 picture_extension="png",
+                prediction_checkpoint_path="",
             )
             image = np.full((12, 18, 3), 127, dtype=np.uint8)
             expected_path = get_picture_save_path(

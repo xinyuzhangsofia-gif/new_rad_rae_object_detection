@@ -23,10 +23,6 @@ RAW_KRADAR_ROOT = os.environ.get(
 KRADAR_TOOLS_ROOT = os.environ.get(
     "MVRSS_KRADAR_TOOLS_ROOT", "/home/local/xinyu/K-Radar"
 )
-RAW_RADAR_ROOT = os.environ.get(
-    "MVRSS_RAW_RADAR_ROOT",
-    "/run/user/1000/gvfs/smb-share:server=192.168.189.30,share=elab-share/Datasets/K-Radar",
-)
 OFFICIAL_KRADAR_GT_ROOT = os.environ.get(
     "MVRSS_OFFICIAL_KRADAR_GT_ROOT",
     "/home/local/xinyu/kradar_revised_label_v2_1/KRadar_revised_visibility",
@@ -39,11 +35,6 @@ LIDAR2RADAR_CALIB_PATH = os.environ.get(
     "MVRSS_LIDAR2RADAR_CALIB_PATH",
     str(PROJECT_ROOT / "lidar2radar_calib.yml"),
 )
-VISUALIZATION_LIDAR2RADAR_CALIB_PATH = os.environ.get(
-    "MVRSS_LIDAR2RADAR_CALIB_PATH",
-    str(PROJECT_ROOT / "visualization_based_gt" / "lidar2radar_calib.yml"),
-)
-
 # Shared relative output locations.
 CHECKPOINT_BASE_DIR = "checkpoints"
 LOG_BASE_DIR = "runs"
@@ -54,7 +45,6 @@ EVALUATION_RESULTS_BASE_DIR = "evaluation_results"
 @dataclass
 class DataConfig:
     root_dir: str = RAW_KRADAR_ROOT
-    raw_radar_root: str = RAW_RADAR_ROOT
     lidar2radar_calib_path: str = LIDAR2RADAR_CALIB_PATH
 
     start_frame_idx: int = 0

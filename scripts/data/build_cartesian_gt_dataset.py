@@ -36,12 +36,12 @@ from configs.data import (
     CARTESIAN_GT_ROOT,
     OFFICIAL_KRADAR_GT_ROOT,
     RADAR_NPY_ROOT,
-    VISUALIZATION_LIDAR2RADAR_CALIB_PATH,
+    LIDAR2RADAR_CALIB_PATH,
 )
 
 
 HEADER_INDEX_RE = re.compile(r"=\s*([^,\s]+)")
-DEFAULT_CALIB_PATH = Path(VISUALIZATION_LIDAR2RADAR_CALIB_PATH)
+DEFAULT_CALIB_PATH = Path(LIDAR2RADAR_CALIB_PATH)
 
 # In the revised visibility labels, LR means that the object is visible to
 # both LiDAR and radar.  A radar GT must therefore keep both R and LR.
@@ -119,7 +119,7 @@ def collect_names(directory: Path, suffix: str):
 
 
 def load_lidar2radar_calibration(path: Path):
-    """Load the same calibration used by visualization_based_gt."""
+    """Load the canonical LiDAR-to-Radar calibration."""
     with path.open("r") as file:
         data = yaml.safe_load(file)
 
@@ -132,7 +132,7 @@ def load_lidar2radar_calibration(path: Path):
 
 
 def transform_box_lidar_to_radar(obj, rotation, translation):
-    """Apply the visualization_based_gt Cartesian transform to one box.
+    """Apply the canonical Cartesian LiDAR-to-Radar transform to one box.
 
     The current calibration has identity rotation.  In that case, this is
     exactly equivalent to transforming all eight corners and reconstructing
@@ -362,7 +362,7 @@ def parse_args():
         "--lidar2radar-calib",
         type=Path,
         default=DEFAULT_CALIB_PATH,
-        help="The calibration YAML used by visualization_based_gt.",
+        help="The canonical LiDAR-to-Radar calibration YAML.",
     )
     parser.add_argument("--sequences", nargs="+", default=None)
     parser.add_argument("--overwrite", action="store_true")
@@ -411,7 +411,7 @@ def main():
         "==============================\n\n"
         "Source: K-Radar revised v2.1 visibility labels.\n"
         "Cartesian centers are transformed from the source LiDAR/reference\n"
-        "frame to radar coordinates using visualization_based_gt's\n"
+        "frame to radar coordinates using the canonical calibration\n"
         "lidar2radar_calib.yml: radar = lidar @ R.T + T.\n"
         f"Calibration file: {args.lidar2radar_calib}\n"
         "Objects with visibility token R or LR are included in the radar GT.\n"

@@ -111,7 +111,6 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 | `data/split/controlled/` | 受控划分的匹配、生成、报告和训练时加载。 |
 | `data/manifests/kradar/` | `kradar_file` 使用的固定 train/test 帧清单；不是划分实现代码。 |
 | `data/ignore_overrides.py` | 加载并严格校验逐帧、逐目标 ignore 规则。 |
-| `loaders/kradar_dataset.py` | 原始 MAT DREA 投影；`KRadarDataset` 返回三种标准投影，`KRadarSensorDataset` 额外提供 RA/RE 图和帧号查询。 |
 | `configs/training.py`、`configs/coordinates.py`、`training/configuration.py` | 选择 Cartesian GT 根目录/类别，拒绝 Polar 输入，解析 ignore 配置，再传给数据工厂。 |
 | `scripts/data/build_cartesian_gt_dataset.py` | 离线转换官方标签并生成逐帧副本、平铺 GT 和匹配清单；不是每个训练 epoch 执行。 |
 
@@ -121,7 +120,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 
 ### 这一方向怎样保持清晰
 
-现在按现有 `data/` 的职责边界阅读和维护，不增加同名转发文件，也不按函数数目拆目录。`dataset.py` 只编排样本；标签 I/O、框几何、ignore 校验及 batch 拼接分别由已有文件负责。原先重复的两个 MAT 加载实现已集中到 `loaders/kradar_dataset.py`，并分别保留两套返回字段。此次整理没有重生成标签、划分、检查点或实验状态。
+现在按现有 `data/` 的职责边界阅读和维护，不增加同名转发文件，也不按函数数目拆目录。`dataset.py` 只编排样本；标签 I/O、框几何、ignore 校验及 batch 拼接分别由已有文件负责。训练和可视化都直接读取当前成对 RAD/RAE `.npy`；旧 MAT/ARR 可视化加载器已经删除。此次整理没有重生成标签、划分、检查点或实验状态。
 
 ### 共享路径和格式约束
 
@@ -144,7 +143,8 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 - 将图表、报告、视频、事件日志、缓存和本机编辑器设置从 Git 索引中移除并加入忽略规则。此次取消跟踪共 1,662 项，本地仍存在的文件未被删除。
 - 合并重复的结构说明；保留实验表生成规则、数据划分和控制清单。
 - 数据输入改为 Cartesian-only，删除 Polar GT 专用分支/工具、集中路径、增加拒绝错误输入和数值回归测试。
-- 按单一职责整理数据模块：`dataset.py` 从 726 行降为 354 行；移动几何、标签选择、ignore 校验和 collate，并合并重复 MAT 读取逻辑。
+- 按单一职责整理数据模块：`dataset.py` 从 726 行降为 354 行；移动几何、标签选择、ignore 校验和 collate。
+- 可视化统一由 `visualize.py` + `visualize_cfg.py` 驱动；四种模式共享 RAD/RAE、checkpoint、RA renderer、多传感器和视频模块，旧 MAT/ARR 与独立脚本已删除。
 - 将域偏移实验队列按职责拆为 `schema`、`tables`、`state`、`scheduling` 和 `execution`；`training/experiments/queue.py` 只保留按 seed 的两阶段编排：当前 seed 全部训练完成后才并行评估，评估全部完成后才进入下一 seed。已删除串行和训练/评估交错执行模式及 `experiment_queue_execution_mode`；任务身份、表顺序、恢复、GPU、worker 命令和结果写回规则未改变。
 - 距离四分位实验入口共享完成检查点发现、命令公共段、CUDA/subprocess 队列、锁/原子状态及报告 metadata 校验；GT 四分位和相对 TD 仍由该脚本定义。固定距离与 Source Drop 执行入口均已删除。
 - 将 `eval/reporting.py` 改为兼容 facade；路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现。序列/天气元数据位于 `data/sequence_metadata.py`；域注册、模型配置身份、三张比较表和记录更新位于 `eval/domain_shift_tables.py`。
@@ -185,17 +185,17 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 优先级 | 涉及文件 | 建议与不变条件 |
 | --- | --- | --- |
 | 1 | `configs/data.py`、`data/paths.py`、训练/评估/可视化配置 | RAD/RAE 与 Cartesian GT 默认根路径已集中；接下来统一原始传感器、旧配方的标定/输出设置。当前保留本机默认值，换机器前需设置环境变量或参数。 |
-| 已完成 | `visualize.py`、`eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py`、`checkpoint_predictor.py` | 检查点解释/模型重建集中在 `eval/checkpoints.py`，前向推理集中在 `eval/inference.py`，解码与 NMS 集中在 `eval/decoding.py`；可视化只保留绘图坐标转换和兼容转发。 |
+| 已完成 | `visualize.py`、`visualization/`、`eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py` | 检查点解释/模型重建、前向与解码/NMS 继续复用 `eval/`；`visualization/` 只负责渲染适配、传感器投影、布局和输出，不保留旧转发。 |
 | 已完成（队列） | `training/experiments/queue.py` 与 `training/experiments/` | 队列内部职责已分离，唯一执行路径是 seed 两阶段屏障；`queue.py` 是唯一高层编排入口，四分位独立重评脚本不与队列合并。 |
 | 已完成（分析脚本） | `scripts/experiments/evaluate_quartile_experiments.py` 与 `scripts/experiments/analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；保留四分位 CLI 的科学定义、输出 state schema 与表聚合。Source Drop 执行逻辑已删除。 |
 | 已完成（报告） | `eval/reporting.py` 与 `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | facade 保留旧导入；输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
 | 已完成（实验目录） | `experiments/{target_drop,distance_quartiles}/` | 两个活动实验族使用唯一语义路径；`distance_ranges` 与 `source_drop` 只保留历史归档资产。 |
-| 4 | `visualization_based_gt/generate_*.py` 等特定序列脚本 | 将序列、帧、epoch、标题等变为一套渲染入口的参数/预设；先保存参考图片与视频元数据，避免改变论文图。 |
+| 已完成（可视化） | `visualize.py`、`visualize_cfg.py`、`visualization/` | 单帧/视频和 RA/三传感器模式统一分派；Polar/Cartesian RA 共享同一 renderer，GT 绿色、预测红色。 |
 | 已完成（损失） | `training/losses/` | `__init__.py` 提供公开 API，通用数学、目标、GWD、SimOTA 和三个 loss family 分责，配置模式解析仍由 `training.configuration` 唯一负责。 |
 | 已完成（数据划分） | `data/split/` | `ordinary.py` 分派普通模式，`manifests.py`、`sequences.py` 和 `controlled/` 分责实现；精确成员、seed 和生成文件保持不变，无兼容 facade。 |
-| 6 | `legacy_module.py`、旧可视化器、原始 MAT 加载器 | 先确认历史模型和图像复现需求；无静态 import 不等于无功能，不自动删除。 |
+| 6 | `legacy_module.py` | 只在确认历史模型/checkpoint pickle 不再需要后处理；本次未修改。 |
 
-两个 MAT 接口现在都在 `loaders/kradar_dataset.py`。标准接口仍叫 `KRadarDataset`；需要旧可视化的 `rea`、`ra_map`、`re_map` 字段时使用 `KRadarSensorDataset`。项目内三处旧可视化调用已迁移，当前训练仍使用 `data.dataset.KRadarRADRAEDataset`。Model1–16 也不是重复备份，其结构/权重键需要分别保留。
+当前可视化通过 `visualization/radar_data.py` 使用 `data.dataset.KRadarRADRAEDataset` 读取 RAD/RAE `.npy`。旧 `arrDREA` MAT 接口不再属于活动工作流。Model1–16 不是重复备份，其结构/权重键仍需分别保留。
 
 ## 逐文件源码清单
 
@@ -209,8 +209,8 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [legacy_module.py](../legacy_module.py) | 373 | 历史 RAD/RAE 编码器、固定框检测器及卷积组件；未发现当前源码直接导入。 | 暂保留；确认不需历史模型/检查点后再归档。 |
 | [train.py](../train.py) | 13 | 训练命令入口，调用 `training/runner.py`，并导出 worker 使用的接口。 | 保留主要入口；不继续复制工作流。 |
 | [train_resume.py](../train_resume.py) | — | 断点续训入口；转发到 `training/resume.py` 与共享 runner。 | 保留现有命令和公开辅助函数。 |
-| [visualize.py](../visualize.py) | — | 主检查点可视化器；消费共享 canonical detections，在 Polar/Cartesian 视图绘制 GT 与预测框，并显示或保存帧。 | 保留绘图、布局和可视化坐标转换；检查点/推理/解码由 `eval/` 共享层负责。 |
-| [visualize_cfg.py](../visualize_cfg.py) | 40 | `visualize.py` 的配置，包括检查点、序列、阈值、坐标/视图模式和输出目录。 | 保留明确配置入口；后续统一机器路径，保持原默认值。 |
+| [visualize.py](../visualize.py) | — | 唯一用户可视化入口，只调用统一 workflow。 | 用户编辑 `visualize_cfg.py` 后运行 `python visualize.py`。 |
+| [visualize_cfg.py](../visualize_cfg.py) | — | 四种输出模式、RA 表示、checkpoint、帧、传感器路径和输出的唯一配置。 | 默认 `ra_map` + `polar`；GT 绿色、预测红色由代码语义固定。 |
 
 ### configs
 
@@ -359,37 +359,21 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [scripts/maintenance/disk_space_guard.py](../scripts/maintenance/disk_space_guard.py) | 224 | 监控磁盘空间，低于阈值时安全停止本项目训练/评估进程。 | 运行维护入口。 |
 | [scripts/maintenance/rebuild_domain_shift_tables.py](../scripts/maintenance/rebuild_domain_shift_tables.py) | 248 | 从已完成的评估报告和检查点元数据重建域偏移比较表。 | 通过 python -m 调用，不增加转发文件。 |
 
-### visualization_based_gt
+### visualization
 
-| 文件 | 行数 | 功能 | 处理建议 |
-| --- | ---: | --- | --- |
-| [visualization_based_gt/checkpoint_predictor.py](../visualization_based_gt/checkpoint_predictor.py) | — | 活跃的多传感器预测适配器；调用 `eval/checkpoints.py`、`eval/inference.py` 和 `eval/decoding.py`，再输出渲染所需米制雷达框。 | 保留公开预测接口；不再独立重建或解码模型。 |
-| [visualization_based_gt/info_label_reader.py](../visualization_based_gt/info_label_reader.py) | 155 | 读取官方和当前 GT 格式，并按需执行 LiDAR 到雷达坐标转换。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/lidar2camera_transformation.py](../visualization_based_gt/lidar2camera_transformation.py) | 365 | 当前 LiDAR 到相机标定、去畸变、3D 框投影和相机视频工具。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/lidar2camera_transformation_old_version.py](../visualization_based_gt/lidar2camera_transformation_old_version.py) | 393 | 旧版相机投影，用于对比过去的标定和畸变处理。 | 暂保留旧渲染差异；对照图像后再合并。 |
-| [visualization_based_gt/lidar2radar_transformation.py](../visualization_based_gt/lidar2radar_transformation.py) | 710 | 旧版 LiDAR 框到 Polar/Cartesian 雷达视图的单帧和播放工具。 | 暂保留旧渲染差异；对照图像后再合并。 |
-| [visualization_based_gt/lidar2radar_transformation_video.py](../visualization_based_gt/lidar2radar_transformation_video.py) | 939 | 旧版面向视频的雷达坐标转换和渲染实现。 | 暂保留旧渲染差异；对照图像后再合并。 |
-| [visualization_based_gt/lidar2radar_transformation_video_3version.py](../visualization_based_gt/lidar2radar_transformation_video_3version.py) | 1186 | 第三版旧雷达渲染器，含多个 Cartesian 转换变体。 | 暂保留旧渲染差异；对照图像后再合并。 |
-| [visualization_based_gt/lidar_visualization.py](../visualization_based_gt/lidar_visualization.py) | 409 | 旧版 Open3D LiDAR 框/文字渲染和 BEV 播放。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/main_camera_visualization.py](../visualization_based_gt/main_camera_visualization.py) | 49 | 相机标签逐帧显示或视频播放入口。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/main_lidar_visualization.py](../visualization_based_gt/main_lidar_visualization.py) | 34 | 单点云或 LiDAR BEV 视频入口。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/main_radar_visualization.py](../visualization_based_gt/main_radar_visualization.py) | 129 | Polar、Cartesian 或带 yaw 的 Cartesian 雷达播放/导出入口。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/main_visualization_video.py](../visualization_based_gt/main_visualization_video.py) | 44 | 相机、LiDAR、雷达、GT 和可选检查点预测的组合视频入口。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/path_setup.py](../visualization_based_gt/path_setup.py) | 9 | 直接运行子目录脚本时，把项目根目录加入 `sys.path`。 | 保留：直接运行子目录脚本仍需要路径初始化。 |
-| [visualization_based_gt/picture_seperation.py](../visualization_based_gt/picture_seperation.py) | 40 | 一次性工具，将双目相机图片裁剪为左半或右半。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/radar_npy_reader.py](../visualization_based_gt/radar_npy_reader.py) | 123 | 将训练使用的成对 RAD/RAE `.npy` 数据适配给可视化，并重建物理坐标轴。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/sensor_transformation.py](../visualization_based_gt/sensor_transformation.py) | 263 | LiDAR/雷达/相机框转换、标定加载、投影和雷达视图范围工具。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/visualization.py](../visualization_based_gt/visualization.py) | 2211 | 相机、LiDAR、Polar 雷达、Cartesian 雷达、组合图片和多传感器视频的主渲染库。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/visualization_cfg.py](../visualization_based_gt/visualization_cfg.py) | 133 | 相机、LiDAR、雷达、多传感器显示以及检查点预测的专用配置。 | 保留明确配置入口；后续统一机器路径，保持原默认值。 |
-| [visualization_based_gt/visualization_utils.py](../visualization_based_gt/visualization_utils.py) | 120 | 校验可视化模式、标签类型、布局并解析相关路径。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
-| [visualization_based_gt/visualize_best_weather_examples.py](../visualization_based_gt/visualize_best_weather_examples.py) | 358 | 找出每种天气最佳 epoch-15 实验，保存代表性相机/雷达样例和汇总。 | 保留论文图/视频配方；后续用参数替代写死序列与 epoch。 |
-| [visualization_based_gt/visualize_radar_3d_pyvista.py](../visualization_based_gt/visualize_radar_3d_pyvista.py) | 434 | 加载完整 RAD 张量，构建三维体数据，转换标签并用 PyVista 渲染。 | 保留；优先统一配置与共享转换，避免改变投影/布局。 |
+| 文件 | 功能 |
+| --- | --- |
+| `config.py` | 校验唯一四种模式和 Polar/Cartesian RA 表示，固定 GT 绿色、Prediction 红色。 |
+| `workflow.py` | 解析 `visualize_cfg.py`/CLI 并分派 RA 或三传感器工作流。 |
+| `radar_data.py` | 通过当前 `KRadarRADRAEDataset` 读取成对 RAD/RAE `.npy` 并重建物理坐标轴和 RA power map。 |
+| `prediction.py`、`detections.py` | 复用 `eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py`，转成渲染所需框。 |
+| `multisensor.py` | Polar/Cartesian RA 的唯一帧 renderer，以及 Camera/LiDAR/Radar overlay 与组合。 |
+| `radar_workflow.py` | 用同一 RA renderer 生成单帧图片或视频。 |
+| `multisensor_workflow.py` | 用同一 RA renderer 组成 Camera + LiDAR + Radar 单帧或视频。 |
+| `geometry.py`、`labels.py`、`paths.py` | 标定、坐标投影、逐帧传感器索引/GT 与路径解析。 |
+| `video.py` | RA 和多传感器模式共享的惰性 MP4 writer。 |
 
-### loaders
-
-| 文件 | 行数 | 功能 | 处理建议 |
-| --- | ---: | --- | --- |
-| [loaders/kradar_dataset.py](../loaders/kradar_dataset.py) | 69 | 读取一次原始 MATLAB DREA，并提供标准投影及旧可视化扩展接口。 | 保留两套返回契约，共享底层读取和投影。 |
+旧 `visualization_based_gt/` Python 源码、独立入口、`path_setup.py` 和 ARR/MAT loader 已删除；本地未跟踪的历史 PNG/MP4 不属于活动源码。
 
 ### Rotated_IoU
 
@@ -409,7 +393,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 
 | 文件 | 行数 | 功能 | 处理建议 |
 | --- | ---: | --- | --- |
-| [tests/test_cartesian_data.py](../tests/test_cartesian_data.py) | 296 | Cartesian-only 输入约束、样本/batch 语义、MAT 接口职责、路径覆盖和拒绝旧检查点。 | 保留：确保数据模块整理不改变行为。 |
+| [tests/test_cartesian_data.py](../tests/test_cartesian_data.py) | — | Cartesian-only 输入约束、样本/batch 语义、路径覆盖和拒绝旧检查点。 | 保留：确保数据模块整理不改变行为。 |
 | [tests/test_axis_aligned_iou.py](../tests/test_axis_aligned_iou.py) | 28 | 轴对齐 IoU 几何与评估接口兼容性。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_checkpoint_selection.py](../tests/test_checkpoint_selection.py) | 284 | 候选/全局最佳指标选择和检查点替换。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_controlled_sequences.py](../tests/test_controlled_sequences.py) | 306 | 受控窗口匹配、目标屏蔽、统计、签名和复用。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
@@ -433,6 +417,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [tests/test_post_training_evaluation.py](../tests/test_post_training_evaluation.py) | 134 | GPU 选择和训练后评估启动。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_tool_paths.py](../tests/test_tool_paths.py) | 69 | 验证工具迁移后的项目根目录、输入文件和原输出目录。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_visualization_checkpoint_predictor.py](../tests/test_visualization_checkpoint_predictor.py) | 270 | 可视化检查点重建、坐标模式、类别映射和预测。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
+| [tests/test_visualization_architecture.py](../tests/test_visualization_architecture.py) | — | 四种模式、RA 表示默认值、语义颜色、薄入口和 ARR 删除。 | 保护统一可视化结构。 |
 | [tests/test_visualization_info_label_reader.py](../tests/test_visualization_info_label_reader.py) | 130 | 官方/当前 GT 标签解析与坐标转换。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_visualization_radar_npy_reader.py](../tests/test_visualization_radar_npy_reader.py) | 133 | RAD/RAE 配对、坐标轴、范围和可视化数据集行为。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 
@@ -447,7 +432,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | `Rotated_IoU/cuda_op/utils.h` | 张量检查宏，保留。 |
 | `Rotated_IoU/cuda_op/cuda_utils.h` | CUDA 线程和错误检查工具，保留。 |
 | `Rotated_IoU/LICENSE`、`eval/kitti_eval/LICENSE` | 随第三方源码保留；不擅自重新许可。 |
-| `lidar2radar_calib.yml`、`visualization_based_gt/lidar2radar_calib.yml` | 标定输入；不同入口有各自默认路径，未直接删副本。 |
+| `lidar2radar_calib.yml` | 训练数据转换和统一可视化共同使用的 LiDAR-to-Radar 标定输入。 |
 | `sequence_information.csv` | 58 个序列的统计与天气/道路等元数据；帧/目标数来自当前 Cartesian-radar 标签，环境标签保留原注释。 |
 | `experiments/{target_drop,distance_quartiles}/` 中实验 TXT/XLSX、README | 活动实验定义/汇总格式与说明，是调度和论文复现上下文。 |
 | `experiments/{distance_ranges,source_drop}/` | 历史归档结果；对应执行入口已删除，不参与活动配置。 |

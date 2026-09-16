@@ -3,7 +3,7 @@
 import os
 from functools import lru_cache
 
-from configs.data import CARTESIAN_GT_ROOT, RADAR_NPY_ROOT, RAW_RADAR_ROOT
+from configs.data import CARTESIAN_GT_ROOT, RADAR_NPY_ROOT
 
 
 @lru_cache(maxsize=64)
@@ -66,26 +66,9 @@ def get_camera_calib_path(cfg):
     return path_calib
 
 
-def get_info_array_path(cfg):
-    info_array_path = f"{cfg.root_dir}/info_arr.mat"
-    return info_array_path
-
-
 def get_lidar2radar_calib_path(cfg):
     lidar2radar_calib_path = cfg.lidar2radar_calib_path
     return lidar2radar_calib_path
-
-def get_radar_dir(cfg):
-    raw_radar_root = getattr(cfg, "raw_radar_root", RAW_RADAR_ROOT)
-    return os.path.join(raw_radar_root, str(cfg.sequence), "radar_tesseract")
-
-
-def get_radar_path(radar_dir,tesseract_idx):
-    for fname in sorted(os.listdir(radar_dir)):
-        if fname.startswith(f"tesseract_{tesseract_idx}"):
-            return os.path.join(radar_dir,fname)
-    raise FileNotFoundError(f"tesseract file not found for idx{tesseract_idx} in {radar_dir}")
-
 
 def get_rad_rae_npy_root_dir():
     return RADAR_NPY_ROOT

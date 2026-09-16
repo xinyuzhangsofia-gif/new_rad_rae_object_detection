@@ -1,14 +1,22 @@
-"""Pure validation and path helpers for ``visualization_based_gt``."""
+"""Path resolution for current multi-sensor inputs and outputs."""
 
 import os
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from visualization_cfg import (
-    INFO_LABEL_KIND_BY_ROOT,
+from configs.data import CARTESIAN_GT_ROOT, OFFICIAL_KRADAR_GT_ROOT
+from visualization.config import (
+    FRAME_OUTPUT_MODES,
+    GT_KIND_CURRENT,
+    GT_KIND_OFFICIAL_KRADAR,
     SENSOR_LAYOUTS,
-    VISUALIZE_MODES,
 )
+
+
+INFO_LABEL_KIND_BY_ROOT = {
+    OFFICIAL_KRADAR_GT_ROOT: GT_KIND_OFFICIAL_KRADAR,
+    CARTESIAN_GT_ROOT: GT_KIND_CURRENT,
+}
 
 
 def _resolved(path):
@@ -28,7 +36,7 @@ def resolve_info_label_kind(path):
         f"Unsupported info_label root/path: {path}\n"
         "The coordinate frame cannot be inferred from the txt contents. "
         "Add the root and its label kind to INFO_LABEL_KIND_BY_ROOT in "
-        f"visualization_cfg.py. Supported roots:\n{supported}"
+        f"visualization.paths. Supported roots:\n{supported}"
     )
 
 
@@ -41,10 +49,10 @@ def get_label_dir(cfg):
 def resolve_visualize_mode(mode):
     """Validate and normalize the combined-sensor visualization mode."""
     normalized = str(mode).strip().lower()
-    if normalized not in VISUALIZE_MODES:
+    if normalized not in FRAME_OUTPUT_MODES:
         raise ValueError(
             f"Unknown visualize_mode: {mode!r}. "
-            f"Choose one of: {', '.join(VISUALIZE_MODES)}"
+            f"Choose one of: {', '.join(FRAME_OUTPUT_MODES)}"
         )
     return normalized
 

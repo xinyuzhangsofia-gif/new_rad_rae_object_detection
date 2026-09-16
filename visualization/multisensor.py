@@ -1,31 +1,47 @@
 import os
 from pathlib import Path
 
-import path_setup
 import cv2
 import matplotlib
 matplotlib.use("Agg")
 import numpy as np
 import torch
-import time
 import open3d as o3d
 from matplotlib import pyplot as plt
-from tqdm import tqdm
-from data.labels import *
-from data.paths import *
-from sensor_transformation import *
-from info_label_reader import read_info_label
-from visualization_cfg import (
+from data.paths import (
+    get_camera_path,
+    get_lidar_idx,
+    get_lidar_path,
+)
+from visualization.geometry import (
+    boxes_to_corners_3d,
+    camera_corners_to_2d_undistort,
+    cartesian_to_rae,
+    get_ra_bbx_2d,
+    get_ra_cartesian_limits,
+    load_full_camera_calib,
+    transform_lidar_to_camera,
+    transform_lidar_to_radar,
+    transform_radar_boxes_to_lidar,
+    undistort_image,
+)
+from visualization.labels import read_info_label
+from visualization.config import (
+    FRAME_OUTPUT_PICTURES,
+    FRAME_OUTPUT_VIDEO,
+    GROUND_TRUTH_COLOR,
+    PREDICTION_COLOR,
+    RA_MAP_CARTESIAN_TITLE,
+    RA_MAP_POLAR_TITLE,
     SENSOR_LAYOUT_CAMERA_LIDAR_RADAR,
     SENSOR_LAYOUT_CAMERA_RADAR,
-    VISUALIZE_MODE_PICTURES,
-    VISUALIZE_MODE_VIDEO,
 )
-from visualization_utils import (
+from visualization.paths import (
     get_picture_save_path,
     resolve_sensor_layout,
     resolve_visualize_mode,
 )
+from visualization.video import VideoWriter
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -238,255 +254,6 @@ def create_bbx_text_geometries(
     return text_geometries
 
 
-def visualize_bbx_on_lidar_pcd(lidar_corners,pcd,texts,show_texts):
-    geometries = []
-    
-    axis=o3d.geometry.TriangleMesh.create_coordinate_frame(size=5.0)
-    geometries.append(axis)
-    geometries.append(pcd)
-
-    bbox_lines = draw_bbx_lines(lidar_corners)
-    geometries.extend(bbox_lines)
-    
-
-    if show_texts:
-        text_geometries = create_bbx_text_geometries(
-            lidar_corners,
-            texts=texts,
-            z_offset=0.3,
-            outside_offset=1.0,
-            text_scale=0.1,
-            text_color=(1.0, 0.0, 0.0),
-            rotate_deg=-90
-        )
-        geometries.extend(text_geometries)
-
-
-    all_points = (lidar_corners.cpu().numpy()).reshape(-1,3)
-    center = all_points.mean(axis=0)
-    
-    def view_xy(vision):
-        view_control = vision.get_view_control()
-        view_control.set_lookat(center)
-        view_control.set_front([0,0,-1])
-        view_control.set_up([0,1,0])
-        view_control.set_zoom(1)
-        return False         
-    
-    def view_xz(vision):
-        view_control = vision.get_view_control()
-        view_control.set_lookat(center)
-        view_control.set_front([0,-1,0])
-        view_control.set_up([0,0,1])
-        view_control.set_zoom(1)
-        return False
-    
-    def view_yz(vision):
-        view_control = vision.get_view_control()
-        view_control.set_lookat(center)
-        view_control.set_front([-1,0,0])
-        view_control.set_up([0,0,1])
-        view_control.set_zoom(1)
-        return False
-    
-    def view_special(vision):
-        view_control = vision.get_view_control()
-        view_control.set_lookat(center)
-        view_control.set_front([-1,0.05,0.25])
-        view_control.set_up([0,0,1])
-        view_control.set_zoom(1)
-        return False
-    
-    def view_bev(vision):
-        view_control = vision.get_view_control()
-        view_control.set_lookat(center)
-        view_control.set_front([0, 0, 1])
-        view_control.set_up([1, 0, 0])
-        view_control.set_zoom(1)
-        return False
-    
-    key_to_callback = {
-        ord("1"):view_xy,
-        ord("2"):view_xz,
-        ord("3"):view_yz,
-        ord("4"):view_special,
-        ord('5'):view_bev
-    }
-
-                             
-    o3d.visualization.draw_geometries_with_key_callbacks(geometries,
-                                                         key_to_callback,
-                                                         window_name = "Press 1:XY 2:XZ 3:YZ 4:suitable view 5:bev" )
-
-
-def show_single_lidar_pcd(
-        label_dir,
-        lidar_dir,
-        lidar_type,
-        frame_idx=0,
-        show_texts=False
-    ):
-
-    label_files = get_label_files(label_dir)
-
-    for frame_idx in range(frame_idx, len(label_files)):
-
-        print(f"frame_idx = {frame_idx}")
-
-        label_path = os.path.join(label_dir, label_files[frame_idx])
-
-        info_label = read_info_label(label_path)
-        objects = info_label["objects"]
-        texts = [f"{obj['detec_sensor']} | {obj['label']}"for obj in objects]
-
-        lidar_idx = get_lidar_idx(info_label,lidar_type)
-        lidar_path = get_lidar_path(lidar_dir,lidar_type,lidar_idx)
-
-        pcd = o3d.io.read_point_cloud(lidar_path)
-        if len(objects) == 0:
-            print(f"frame_idx = {frame_idx}, no objects")
-            continue
-        boxes = torch.stack([obj["box"] for obj in objects],dim=0)
-        lidar_corners = boxes_to_corners_3d(boxes)
-       
-        visualize_bbx_on_lidar_pcd(
-            lidar_corners,
-            pcd,
-            texts,
-            show_texts
-        )
-
-
-def play_bev_lidar_video(
-        label_dir,
-        lidar_dir,
-        lidar_type,
-        start_frame_idx=0,
-        fps=10,
-        show_texts=False
-    ):
-    label_files = sorted([f for f in os.listdir(label_dir) if f.endswith(".txt")])
-
-    paused = False
-    should_quit = False
-
-    def pause_callback(vision):
-        nonlocal paused
-        paused = not paused
-        return False
-
-    def quit_callback(vision):
-        nonlocal should_quit
-        should_quit = True
-        return False
-
-    vis = o3d.visualization.VisualizerWithKeyCallback()
-    vis.create_window(
-        window_name="BEV LiDAR Video",
-        width=720,
-        height=720
-    )
-    vis.register_key_callback(ord(" "), pause_callback)
-    vis.register_key_callback(ord("Q"), quit_callback)
-    vis.register_key_callback(256, quit_callback)
-
-    axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=5.0)
-    old_geometries = []
-
-    frame_interval = 1.0 / fps
-
-    # fixed BEV center
-    fixed_center = np.array([20.0, 0.0, 0.0])
-    need_reset = True
-    frame_idx = start_frame_idx
-
-    while frame_idx < len(label_files):
-        if should_quit:
-            break
-
-        while paused and not should_quit:
-            vis.poll_events()
-            vis.update_renderer()
-            time.sleep(0.03)
-
-        if should_quit:
-            break
-
-        if frame_idx%50 == 0:
-            print(f"Playing frame_idx = {frame_idx}")
-
-        label_path = os.path.join(label_dir, label_files[frame_idx])
-        info_label = read_info_label(label_path)
-        objects = info_label["objects"]
-        texts = [
-                f"{obj['detec_sensor']} | {obj['label']}"
-                for obj in objects
-            ]
-        lidar_idx = get_lidar_idx(info_label,lidar_type)
-        lidar_path = get_lidar_path(lidar_dir,lidar_type,lidar_idx)
-
-
-        pcd = o3d.io.read_point_cloud(lidar_path)
-
-   
-        pcd.paint_uniform_color([0, 0, 1])
-        bbox_lines = []
-        text_geometries = []
-        if len(objects) > 0:
-            boxes = torch.stack([d["box"] for d in objects], dim=0)
-            lidar_corners = boxes_to_corners_3d(boxes)
-            bbox_lines = draw_bbx_lines(lidar_corners)
-
-            if show_texts:
-                text_geometries = create_bbx_text_geometries(
-                    lidar_corners,
-                    texts=texts,
-                    z_offset=0.3,
-                    outside_offset=1.0,
-                    text_scale=0.1,
-                    text_color=(1.0, 0.0, 0.0),
-                    rotate_deg=-90
-                )
-            else:
-                text_geometries = []
-
-        for geo in old_geometries:
-            vis.remove_geometry(geo, reset_bounding_box=False)
-
-        current_geometries = [axis, pcd] + bbox_lines + text_geometries
-
-        # first frame should reset bounding box
-        reset_flag = need_reset
-        need_reset = False
-
-        for geo in current_geometries:
-            vis.add_geometry(geo, reset_bounding_box=reset_flag)
-
-        old_geometries = current_geometries
-
-        view_control = vis.get_view_control()
-        view_control.set_lookat(fixed_center)
-        view_control.set_front([0, 0, 1])
-        view_control.set_up([1, 0, 0])
-        view_control.set_zoom(0.1)
-
-        render_option = vis.get_render_option()
-
-        render_option.background_color = np.array([1, 1, 1])
-        render_option.point_size = 1.0
-
-        vis.poll_events() 
-        vis.update_renderer()
-
-        time.sleep(frame_interval)
-
-        frame_idx += 1
-
-    vis.destroy_window()
-
-
-# Camera Visualization
-
 def add_label_to_camera_bbx(
         image,
         text_x,
@@ -599,92 +366,6 @@ def visualize_bbx_on_camera(
     return image_with_bbx
 
 
-def play_camera_video(
-        label_dir,
-        label_files,
-        camera_dir,
-        path_calib,
-        start_frame_idx=0,
-        max_frames=None,
-        step=1,
-        fps=10,
-        wait_each_frame=False,
-        show_texts=True
-    ):
-
-    delay = int(1000 / fps)
-    step = max(1, step)
-
-    if max_frames is None:
-        max_frames = len(label_files)
-    else:
-        max_frames = min(max_frames, len(label_files))
-
-    cv2.namedWindow("camera", cv2.WINDOW_NORMAL)
-
-    for frame_idx in range(start_frame_idx, max_frames, step):
-        print(f"frame_idx = {frame_idx}")
-
-        label_path = os.path.join(label_dir, label_files[frame_idx])
-        info_label = read_info_label(label_path)
-
-        objects = info_label['objects']
-        cam_front_idx = info_label['cam_front_idx']
-        texts = [f"{obj['detec_sensor']} | {obj['label']}"for obj in objects]
-        
-        K, distortion, R, T = load_full_camera_calib(path_calib)
-        
-        camera_path = get_camera_path(camera_dir, cam_front_idx)
-        camera_img = cv2.imread(camera_path, cv2.IMREAD_COLOR)
-        
-        if len(objects) == 0:
-            image_with_bbx = camera_img
-        else:
-            boxes = torch.stack([d['box'] for d in objects], dim=0)
-            
-            lidar_corners = boxes_to_corners_3d(boxes)
-            camera_corners = transform_lidar_to_camera(lidar_corners,T,R)
-
-            img_undistort = undistort_image(
-                camera_img,
-                K=K,
-                distortion=distortion,
-                )
-            
-            camera_2d_points,valid_mask=camera_corners_to_2d_undistort(camera_corners,K)
-            image_with_bbx=visualize_bbx_on_camera(
-                camera_2d_points,
-                img_undistort,
-                valid_mask,
-                texts,
-                show_texts
-            )
-
-        cv2.imshow("camera", image_with_bbx)
-
-        if wait_each_frame:
-            key = cv2.waitKey(0) & 0xFF
-        else:
-            key = cv2.waitKey(delay) & 0xFF
-
-        if key == ord("q"):
-            break
-
-        if key == ord(" "):
-            print("Paused. Press SPACE to continue, q to quit.")
-            while True:
-                key2 = cv2.waitKey(0) & 0xFF
-                if key2 == ord(" "):
-                    break
-                if key2 == ord("q"):
-                    cv2.destroyAllWindows()
-                    return
-
-    cv2.destroyAllWindows()
-
-
-# Radar RA Map Visualization
-
 def add_ra_box_label(ax, bbx_2d, text, color, offset=0.8):
     """Draw GT above a Radar box and predictions below it."""
     if text is None or str(text).strip() == "":
@@ -753,7 +434,7 @@ def visualize_bbx_on_ra_polar(ax,
         if texts is not None and box_idx < len(texts):
             add_ra_box_label(ax, bbx_2d, texts[box_idx], color)
 
-    title = "RA map with bounding boxes"
+    title = RA_MAP_POLAR_TITLE
     if frame_idx is not None:
         title += f" | frame {frame_idx}"
 
@@ -764,74 +445,6 @@ def visualize_bbx_on_ra_polar(ax,
     ax.set_ylim(arr_range[0], arr_range[-1])
     ax.grid(True)
 
-
-def play_ra_polar_frames(
-        frames,
-        fps=10,
-        window_name="RA map with bounding boxes",
-        save_path=None,
-        wait_each_frame=False
-    ):
-
-    delay = int(1000 / fps)
-
-    h, w = frames[0].shape[:2]
-     
-    writer = None
-    if save_path is not None and save_path != "":
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(save_path, fourcc, fps, (w, h))
-
-        if not writer.isOpened():
-            raise RuntimeError(f"Cannot open video writer: {save_path}")
-
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-
-    frame_idx = 0
-    num_frames = len(frames)
-
-    while frame_idx < num_frames:
-
-        image = frames[frame_idx]
-
-        if writer is not None:
-            writer.write(image)
-
-        cv2.imshow(window_name, image)
-
-        if wait_each_frame and writer is None:
-            print("Press any key for next frame, q/ESC to quit.")
-            key = cv2.waitKey(0) & 0xFF
-        elif num_frames == 1 and writer is None:
-            print("Single frame. Press any key to close, q/ESC to quit.")
-            key = cv2.waitKey(0) & 0xFF
-        else:
-            key = cv2.waitKey(delay) & 0xFF
-
-        if key == ord("q") or key == 27:
-            break
-
-        if key == ord(" "):
-            print("Paused. Press SPACE to continue, q/ESC to quit.")
-
-            while True:
-                key2 = cv2.waitKey(0) & 0xFF
-
-                if key2 == ord(" "):
-                    break
-
-                if key2 == ord("q") or key2 == 27:
-                    cv2.destroyAllWindows()
-                    return
-
-        frame_idx += 1
-    
-    if writer is not None:
-        writer.release()
-
-    cv2.waitKey(1)
-    cv2.destroyAllWindows()
-    cv2.waitKey(1)
 
 def visualize_bbx_on_ra_cartesian(
         ax,
@@ -930,73 +543,6 @@ def visualize_bbx_on_ra_cartesian(
     ax.set_aspect("equal")
     ax.grid(False)
     ax.axis("off")
-
-
-def play_ra_cartesian_frames(
-        frames,
-        fps=10,
-        window_name="RA map in cartesian with bounding boxes",
-        save_path=None,
-        wait_each_frame=False
-    ):
-
-    delay = int(1000 / fps)
-    
-    h, w = frames[0].shape[:2]
-    
-    writer = None
-    if save_path is not None and save_path != "":
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(save_path, fourcc, fps, (w, h))
-
-        if not writer.isOpened():
-            raise RuntimeError(f"Cannot open video writer: {save_path}")
-
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-
-    frame_idx = 0
-    num_frames = len(frames)
-
-    while frame_idx < num_frames:
-
-        image = frames[frame_idx]
-        cv2.imshow(window_name, image)
-        if writer is not None:
-            writer.write(image)
-
-        if wait_each_frame and writer is None:
-            print("Press any key for next frame, q/ESC to quit.")
-            key = cv2.waitKey(0) & 0xFF
-        elif num_frames == 1 and writer is None:
-            print("Single frame. Press any key to close, q/ESC to quit.")
-            key = cv2.waitKey(0) & 0xFF
-        else:
-            key = cv2.waitKey(delay) & 0xFF
-
-        if key == ord("q") or key == 27:
-            break
-
-        if key == ord(" "):
-            print("Paused. Press SPACE to continue, q/ESC to quit.")
-
-            while True:
-                key2 = cv2.waitKey(0) & 0xFF
-
-                if key2 == ord(" "):
-                    break
-
-                if key2 == ord("q") or key2 == 27:
-                    cv2.destroyAllWindows()
-                    return
-
-        frame_idx += 1
-
-    if writer is not None:
-        writer.release()
-
-    cv2.waitKey(1)
-    cv2.destroyAllWindows()
-    cv2.waitKey(1)
 
 
 def visualize_bbx_on_ra_cartesian_with_yaw(
@@ -1126,299 +672,6 @@ def fig_to_cv2_image(fig):
     return img_bgr
 
 
-def play_ra_frames_by_step(
-        label_dir,
-        label_files,
-        radar_dataset,
-        arr_range,
-        arr_azimuth_deg,
-        max_frames,
-        R_l2r,
-        T_l2r,
-        radar_mode,
-        start_frame_idx=0,
-        step=1,
-        show_texts=True,
-        window_name="RA map with bounding boxes"
-    ):
-
-    step = max(1, step)
-
-    for frame_idx in range(start_frame_idx, max_frames, step):
-        print(f"Showing frame_idx = {frame_idx}")
-
-        label_path = os.path.join(label_dir, label_files[frame_idx])
-        info_label = read_info_label(label_path)
-        objects = info_label["objects"]
-        tesseract_idx = info_label["tesseract_idx"]
-        texts = [
-            f"{obj['detec_sensor']} | {obj['label']}"
-            for obj in objects
-        ]
-        if not show_texts:
-            texts = None
-
-        radar_data = radar_dataset.get_by_tesseract_idx(tesseract_idx)
-        ra_map = radar_data["ra_map"]
-
-        if len(objects) > 0:
-            boxes = torch.stack([obj["box"] for obj in objects], dim=0)
-            lidar_corners = boxes_to_corners_3d(boxes)
-            radar_corners = transform_lidar_to_radar(
-                lidar_corners,
-                R_l2r,
-                T_l2r
-            )
-            rae_corners = cartesian_to_rae(radar_corners)
-        else:
-            radar_corners = torch.zeros((0, 8, 3), dtype=torch.float32)
-            rae_corners = np.zeros((0, 8, 3), dtype=np.float32)
-            texts = None
-
-        if radar_mode == 0:
-            fig, ax = plt.subplots(figsize=(8, 6))
-            visualize_bbx_on_ra_polar(
-                ax,
-                ra_map,
-                rae_corners,
-                arr_range,
-                arr_azimuth_deg,
-                frame_idx,
-                texts=texts
-            )
-
-        elif radar_mode == 1 or radar_mode == 2:
-            x_min, x_max, y_min, y_max = get_ra_cartesian_limits(
-                arr_range,
-                arr_azimuth_deg
-            )
-
-            data_w = x_max - x_min
-            data_h = y_max - y_min + 5
-
-            fig_w = 8
-            fig_h = fig_w * data_h / data_w
-
-            title = "RA map in Cartesian with bounding boxes"
-            title += f" | frame {frame_idx}"
-
-            fig = plt.figure(figsize=(fig_w, fig_h), dpi=120, facecolor="black")
-            ax = fig.add_axes([0, 0, 1, 1], facecolor="black")
-            fig.text(0.5,0.96,title,color="white",ha="center",va="center",fontsize=12)
-
-            if radar_mode == 1:
-                visualize_bbx_on_ra_cartesian(
-                    ax,
-                    ra_map,
-                    radar_corners,
-                    arr_range,
-                    arr_azimuth_deg,
-                    frame_idx,
-                    texts=texts
-                )
-            else:
-                visualize_bbx_on_ra_cartesian_with_yaw(
-                    ax,
-                    ra_map,
-                    radar_corners,
-                    arr_range,
-                    arr_azimuth_deg,
-                    frame_idx,
-                    texts=texts
-                )
-
-        else:
-            raise ValueError(f"Unknown radar_mode: {radar_mode}")
-
-        image = fig_to_cv2_image(fig)
-        plt.close(fig)
-
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.imshow(window_name, image)
-
-        print("Press any key or close the window for next frame, q/ESC to quit.")
-        while True:
-            key = cv2.waitKey(100) & 0xFF
-            if key == ord("q") or key == 27:
-                cv2.destroyAllWindows()
-                return
-            if key != 255:
-                break
-            try:
-                window_closed = cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1
-            except cv2.error:
-                window_closed = True
-
-            if window_closed:
-                break
-
-    cv2.destroyAllWindows()
-
-
-def preload_ra_polar_frames(    
-        label_dir,
-        label_files,
-        radar_dataset,
-        arr_range,
-        arr_azimuth_deg,
-        max_frames,
-        R_l2r,
-        T_l2r,
-        start_frame_idx=0,
-        show_texts=True
-    ):
-
-    frames = []
-    
-    for frame_idx in tqdm(range(start_frame_idx,max_frames), desc="Preloading frames"):
-        label_path= os.path.join(label_dir,label_files[frame_idx])
-        info_label = read_info_label(label_path)
-        objects=info_label['objects']
-        tesseract_idx = info_label["tesseract_idx"]
-        texts = [
-            f"{obj['detec_sensor']} | {obj['label']}"
-            for obj in objects
-        ]
-        if not show_texts:
-            texts = None
-
-        radar_data = radar_dataset.get_by_tesseract_idx(tesseract_idx)
-        ra_map = radar_data["ra_map"]
-
-        if len(objects) > 0:
-            boxes = torch.stack([obj["box"] for obj in objects], dim=0)
-            lidar_corners = boxes_to_corners_3d(boxes)
-            radar_corners = transform_lidar_to_radar(
-                lidar_corners,
-                R_l2r,
-                T_l2r
-            )
-            rae_corners = cartesian_to_rae(radar_corners)
-
-        else:
-            rae_corners = np.zeros((0, 8, 3), dtype=np.float32)
-            texts=None
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-        
-        visualize_bbx_on_ra_polar(
-            ax,
-            ra_map,
-            rae_corners,
-            arr_range,
-            arr_azimuth_deg,
-            frame_idx,
-            texts=texts
-        )
-
-        image = fig_to_cv2_image(fig)
-        plt.close(fig)
-        frames.append(image)
-
-    print(f"Preload finished. Total frames: {len(frames)}")
-
-    return frames
-
-
-def preload_ra_cartesian_frames(
-        label_dir,
-        label_files,
-        radar_dataset,
-        arr_range,
-        arr_azimuth_deg,
-        max_frames,
-        R_l2r,
-        T_l2r,
-        start_frame_idx=0,
-        with_yaw=False,
-        show_texts=True
-    ):
-
-    frames = []
-    
-    for frame_idx in tqdm(range(start_frame_idx,max_frames), desc="Preloading frames"):
-        label_path= os.path.join(label_dir,label_files[frame_idx])
-        info_label = read_info_label(label_path)
-        objects=info_label['objects']
-        tesseract_idx = info_label["tesseract_idx"]
-        texts = [
-            f"{obj['detec_sensor']} | {obj['label']}"
-            for obj in objects
-        ]
-        if not show_texts:
-            texts = None
-
-        radar_data = radar_dataset.get_by_tesseract_idx(tesseract_idx)
-        ra_map = radar_data["ra_map"]
-
-        if len(objects) > 0:
-            boxes = torch.stack([obj["box"] for obj in objects], dim=0)
-            lidar_corners = boxes_to_corners_3d(boxes)
-
-            radar_corners = transform_lidar_to_radar(
-                lidar_corners,
-                R_l2r,
-                T_l2r
-            )
-
-        else:
-            radar_corners = torch.zeros((0, 8, 3), dtype=torch.float32)
-
-        x_min, x_max, y_min, y_max = get_ra_cartesian_limits(
-            arr_range,
-            arr_azimuth_deg
-        )
-
-        data_w = x_max - x_min
-        data_h = y_max - y_min + 5
-
-        fig_w = 8
-        fig_h = fig_w * data_h / data_w
-
-        title = "RA map in Cartesian with bounding boxes"
-        title += f" | frame {frame_idx}"
-
-        fig = plt.figure(figsize=(fig_w, fig_h), dpi=120, facecolor="black")
-        ax = fig.add_axes([0, 0, 1, 1], facecolor="black")
-
-        fig.text(0.5,0.96,title,color="white",ha="center",va="center",fontsize=12)
-
-        if with_yaw:
-            visualize_bbx_on_ra_cartesian_with_yaw(
-                ax,
-                ra_map,
-                radar_corners,
-                arr_range,
-                arr_azimuth_deg,
-                frame_idx,
-                texts=texts
-            )
-        else:
-            visualize_bbx_on_ra_cartesian(
-                ax,
-                ra_map,
-                radar_corners,
-                arr_range,
-                arr_azimuth_deg,
-                frame_idx,
-                texts=texts
-            )
-
-        image = fig_to_cv2_image(fig)
-        plt.close(fig)
-        frames.append(image)
-
-    print(f"Preload finished. Total frames: {len(frames)}")
-
-    return frames
-
-
-def preload_ra_cartesian_frames_with_yaw(*args, **kwargs):
-    return preload_ra_cartesian_frames(*args, **kwargs, with_yaw=True)
-
-
-# Combined Sensor Visualization
-
 def get_camera_frame(
         label_dir,
         label_files,
@@ -1429,14 +682,15 @@ def get_camera_frame(
         show_gt_texts=True,
         prediction_lidar_boxes=None,
         prediction_texts=None,
-        ground_truth_box_color="red",
-        prediction_box_color="green",
+        ground_truth_box_color=GROUND_TRUTH_COLOR,
+        prediction_box_color=PREDICTION_COLOR,
+        show_gt=True,
     ):
 
     label_path = os.path.join(label_dir, label_files[frame_idx])
     info_label = read_info_label(label_path)
 
-    objects = info_label["objects"]
+    objects = info_label["objects"] if show_gt else []
     cam_front_idx = info_label["cam_front_idx"]
     gt_texts = (
         [
@@ -1515,14 +769,15 @@ def get_lidar_frame(
         show_gt_texts=True,
         prediction_lidar_boxes=None,
         prediction_texts=None,
-        ground_truth_box_color="red",
-        prediction_box_color="green",
+        ground_truth_box_color=GROUND_TRUTH_COLOR,
+        prediction_box_color=PREDICTION_COLOR,
+        show_gt=True,
     ):
 
     label_path = os.path.join(label_dir, label_files[frame_idx])
     info_label = read_info_label(label_path)
 
-    objects = info_label["objects"]
+    objects = info_label["objects"] if show_gt else []
     gt_texts = [
         f"GT | {obj['detec_sensor']} | {obj['label']}"
         for obj in objects
@@ -1657,65 +912,6 @@ def combine_camera_radar_frames(camera_frame, radar_frame):
     return cv2.vconcat([resized_camera, radar_frame])
 
 
-def preload_radar_frames_for_mode(
-        radar_mode,
-        label_dir,
-        label_files,
-        radar_dataset,
-        arr_range,
-        arr_azimuth_deg,
-        max_frames,
-        R_l2r,
-        T_l2r,
-        start_frame_idx=0,
-        show_texts=True
-    ):
-
-    if radar_mode == 0:
-        return preload_ra_polar_frames(
-            label_dir,
-            label_files,
-            radar_dataset,
-            arr_range,
-            arr_azimuth_deg,
-            max_frames,
-            R_l2r,
-            T_l2r,
-            start_frame_idx,
-            show_texts
-        )
-
-    if radar_mode == 1:
-        return preload_ra_cartesian_frames(
-            label_dir,
-            label_files,
-            radar_dataset,
-            arr_range,
-            arr_azimuth_deg,
-            max_frames,
-            R_l2r,
-            T_l2r,
-            start_frame_idx,
-            show_texts=show_texts
-        )
-
-    if radar_mode == 2:
-        return preload_ra_cartesian_frames_with_yaw(
-            label_dir,
-            label_files,
-            radar_dataset,
-            arr_range,
-            arr_azimuth_deg,
-            max_frames,
-            R_l2r,
-            T_l2r,
-            start_frame_idx,
-            show_texts=show_texts
-        )
-
-    raise ValueError(f"Unknown radar_mode: {radar_mode}")
-
-
 def get_radar_frame(
         label_dir,
         label_files,
@@ -1732,16 +928,17 @@ def get_radar_frame(
         prediction_texts=None,
         radar_data=None,
         show_title=True,
-        ground_truth_box_color="red",
-        prediction_box_color="green",
+        ground_truth_box_color=GROUND_TRUTH_COLOR,
+        prediction_box_color=PREDICTION_COLOR,
         ground_truth_box_linewidth=2.0,
         prediction_box_linewidth=2.0,
+        show_gt=True,
     ):
 
     label_path = os.path.join(label_dir, label_files[frame_idx])
     info_label = read_info_label(label_path)
 
-    objects = info_label["objects"]
+    objects = info_label["objects"] if show_gt else []
     tesseract_idx = info_label["tesseract_idx"]
     if radar_data is None:
         radar_data = radar_dataset.get_by_tesseract_idx(tesseract_idx)
@@ -1834,7 +1031,7 @@ def get_radar_frame(
         fig_w = 8
         fig_h = fig_w * data_h / data_w
 
-        title = "RA map in Cartesian with bounding boxes"
+        title = RA_MAP_CARTESIAN_TITLE
         title += f" | frame {frame_idx}"
 
         fig = plt.figure(figsize=(fig_w, fig_h), dpi=120, facecolor="black")
@@ -1917,38 +1114,17 @@ def visualize_all_sensors(
     sensor_layout = resolve_sensor_layout(cfg.sensor_layout)
     start_frame_idx = cfg.start_frame_idx
 
-    if cfg.max_frames is None:
-        max_frames = len(label_files)
-    else:
-        max_frames = min(cfg.max_frames, len(label_files))
-
     step = max(1, cfg.step)
-    frame_indices = list(range(start_frame_idx, max_frames, step))
-    if (
-        visualize_mode == VISUALIZE_MODE_PICTURES
-        or checkpoint_predictor is not None
-    ):
-        radar_frames = None
-    elif visualize_mode == VISUALIZE_MODE_VIDEO:
-        radar_frames = preload_radar_frames_for_mode(
-            cfg.radar_mode,
-            label_dir,
-            label_files,
-            radar_dataset,
-            arr_range,
-            arr_azimuth_deg,
-            max_frames,
-            R_l2r,
-            T_l2r,
-            cfg.start_frame_idx,
-            cfg.show_texts and cfg.show_gt_texts
-        )
-    else:
-        raise AssertionError(f"Unhandled visualize_mode: {visualize_mode}")
+    frame_indices = list(range(start_frame_idx, len(label_files), step))
+    if cfg.max_frames not in (None, 0):
+        frame_indices = frame_indices[:int(cfg.max_frames)]
+
+    # Single-frame and video modes intentionally reuse get_radar_frame().
+    radar_frames = None
 
     display_window = bool(cfg.display_window)
     if (
-        visualize_mode == VISUALIZE_MODE_PICTURES
+        visualize_mode == FRAME_OUTPUT_PICTURES
         and not cfg.save_pictures
         and not display_window
     ):
@@ -1977,7 +1153,8 @@ def visualize_all_sensors(
     if display_window:
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
-    if visualize_mode == VISUALIZE_MODE_VIDEO:
+    if visualize_mode == FRAME_OUTPUT_VIDEO:
+        writer = VideoWriter(cfg.all_sensors_save_path, cfg.fps)
         expected_duration = len(frame_indices) / cfg.fps
         print(
             f"Saving/playing {len(frame_indices)} combined frames "
@@ -2034,12 +1211,12 @@ def visualize_all_sensors(
                     ground_truth_box_color=getattr(
                         cfg,
                         "ground_truth_box_color",
-                        "red",
+                        GROUND_TRUTH_COLOR,
                     ),
                     prediction_box_color=getattr(
                         cfg,
                         "prediction_box_color",
-                        "green",
+                        PREDICTION_COLOR,
                     ),
                     ground_truth_box_linewidth=getattr(
                         cfg,
@@ -2051,6 +1228,7 @@ def visualize_all_sensors(
                         "radar_prediction_linewidth",
                         2.0,
                     ),
+                    show_gt=cfg.show_gt,
                 )
             else:
                 radar_frame = radar_frames[frame_idx - start_frame_idx]
@@ -2068,13 +1246,14 @@ def visualize_all_sensors(
                 ground_truth_box_color=getattr(
                     cfg,
                     "ground_truth_box_color",
-                    "red",
+                    GROUND_TRUTH_COLOR,
                 ),
                 prediction_box_color=getattr(
                     cfg,
                     "prediction_box_color",
-                    "green",
+                    PREDICTION_COLOR,
                 ),
+                show_gt=cfg.show_gt,
             )
 
             if sensor_layout == SENSOR_LAYOUT_CAMERA_RADAR:
@@ -2098,13 +1277,14 @@ def visualize_all_sensors(
                     ground_truth_box_color=getattr(
                         cfg,
                         "ground_truth_box_color",
-                        "red",
+                        GROUND_TRUTH_COLOR,
                     ),
                     prediction_box_color=getattr(
                         cfg,
                         "prediction_box_color",
-                        "green",
+                        PREDICTION_COLOR,
                     ),
+                    show_gt=cfg.show_gt,
                 )
                 combined = combine_sensor_frames(
                     camera_frame,
@@ -2115,7 +1295,7 @@ def visualize_all_sensors(
                 raise AssertionError(f"Unhandled sensor_layout: {sensor_layout}")
 
             if (
-                visualize_mode == VISUALIZE_MODE_PICTURES
+                visualize_mode == FRAME_OUTPUT_PICTURES
                 and cfg.save_pictures
             ):
                 picture_path = save_combined_picture(
@@ -2127,32 +1307,13 @@ def visualize_all_sensors(
                 saved_picture_count += 1
                 print(f"Saved picture: {picture_path}")
 
-            if (
-                visualize_mode == VISUALIZE_MODE_VIDEO
-                and writer is None
-                and cfg.all_sensors_save_path != ""
-            ):
-                h, w = combined.shape[:2]
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                writer = cv2.VideoWriter(
-                    cfg.all_sensors_save_path,
-                    fourcc,
-                    cfg.fps,
-                    (w, h)
-                )
-
-                if not writer.isOpened():
-                    raise RuntimeError(
-                        f"Cannot open video writer: {cfg.all_sensors_save_path}"
-                    )
-
             if writer is not None:
                 writer.write(combined)
 
             if display_window:
                 cv2.imshow(window_name, combined)
 
-                if visualize_mode == VISUALIZE_MODE_PICTURES:
+                if visualize_mode == FRAME_OUTPUT_PICTURES:
                     print(
                         "Press any key for next frame, q/ESC to quit."
                     )
@@ -2193,19 +1354,14 @@ def visualize_all_sensors(
 
     finally:
         if writer is not None:
-            writer.release()
+            writer.close()
         if vis is not None:
             vis.destroy_window()
         if display_window:
             cv2.destroyAllWindows()
 
-    if visualize_mode == VISUALIZE_MODE_PICTURES and cfg.save_pictures:
+    if visualize_mode == FRAME_OUTPUT_PICTURES and cfg.save_pictures:
         print(
             f"Saved {saved_picture_count} combined picture(s) under "
             f"{Path(cfg.picture_save_dir).expanduser().resolve()}"
         )
-
-
-def play_all_sensors_video(*args, **kwargs):
-    """Backward-compatible alias for older callers."""
-    return visualize_all_sensors(*args, **kwargs)
