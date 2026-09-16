@@ -473,7 +473,7 @@ def match_frame_detections(
         dt_labels,
         dt_scores,
         min_overlap,
-        detection_score_thresh,
+        score_thresh,
         rotate_iou_eval_fn,
         class_name_map=None,
     ):
@@ -494,7 +494,7 @@ def match_frame_detections(
         gt_cls_boxes = gt_boxes[gt_mask]
         dt_cls_boxes = dt_boxes[dt_mask]
         dt_cls_scores = dt_scores[dt_mask]
-        score_keep = dt_cls_scores >= float(detection_score_thresh)
+        score_keep = dt_cls_scores >= float(score_thresh)
         dt_cls_boxes = dt_cls_boxes[score_keep]
         dt_cls_scores = dt_cls_scores[score_keep]
 
@@ -545,7 +545,7 @@ def compute_supplementary_detection_metrics(
         state,
         official_eval_iou_backend,
         official_eval_iou_mode,
-        detection_score_thresh=0.3,
+        score_thresh=0.3,
         class_name_map=None,
     ):
     rotate_iou_eval_fn, matching_backend_used = load_rotate_iou_eval_function(
@@ -563,7 +563,7 @@ def compute_supplementary_detection_metrics(
             dt_labels=frame["dt_labels"],
             dt_scores=frame["dt_scores"],
             min_overlap=min_overlap,
-            detection_score_thresh=detection_score_thresh,
+            score_thresh=score_thresh,
             rotate_iou_eval_fn=rotate_iou_eval_fn,
             class_name_map=class_name_map,
         )
@@ -603,7 +603,7 @@ def compute_supplementary_detection_metrics(
 
     return {
         "official_detection_iou_threshold": float(min_overlap),
-        "official_detection_score_threshold": float(detection_score_thresh),
+        "official_detection_score_threshold": float(score_thresh),
         "official_detection_match_backend_used": matching_backend_used,
         "official_detection_tp": tp,
         "official_detection_fp": fp,
@@ -622,7 +622,7 @@ def compute_official_kradar_style_metrics(
         official_eval_iou_backend,
         official_eval_iou_mode,
         official_detection_metrics_enabled=True,
-        detection_score_thresh=0.3,
+        score_thresh=0.3,
         official_eval_class_ids=None,
         official_class_name_map=None,
         official_eval_fn=None,
@@ -688,7 +688,7 @@ def compute_official_kradar_style_metrics(
                 state=state,
                 official_eval_iou_backend=official_eval_iou_backend,
                 official_eval_iou_mode=official_eval_iou_mode,
-                detection_score_thresh=detection_score_thresh,
+                score_thresh=score_thresh,
                 class_name_map=official_class_name_map,
             )
         )

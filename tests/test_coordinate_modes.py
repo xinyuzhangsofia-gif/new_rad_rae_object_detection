@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import torch
 
 from data.coordinates import RANGE_AXIS
-from configs.coordinates import resolve_evaluation_coordinate_mode
+from eval.evaluation_config import apply_standalone_evaluation_coordinate_mode
 from evaluation import (
     cartesian_rotated_nms_indices,
     outputs_to_detections,
@@ -26,17 +26,19 @@ from data.geometry import (
 
 
 class CoordinateModeTests(unittest.TestCase):
-    def test_standalone_auto_uses_only_the_checkpoint_direct_geometry(self):
-        cartesian = resolve_evaluation_coordinate_mode("auto", "cartesian")
-        self.assertEqual(cartesian["effective_mode"], "cartesian")
-        self.assertTrue(cartesian["official_eval_enabled"])
-        self.assertEqual(cartesian["official_geometry_source"], "direct")
+    def test_standalone_uses_only_checkpoint_cartesian_geometry(self):
+        args = SimpleNamespace(box_coordinate_mode="cartesian")
+        apply_standalone_evaluation_coordinate_mode(args)
+        self.assertEqual(args.eval_coordinate_mode, "cartesian")
+        self.assertEqual(args.effective_eval_coordinate_mode, "cartesian")
+        self.assertEqual(args.evaluation_primary_geometry, "cartesian")
+        self.assertTrue(args.official_eval_enabled)
+        self.assertEqual(args.official_geometry_source, "direct")
 
-    def test_standalone_rejects_retired_polar_metric_modes(self):
-        for mode, box_mode in (("both", "cartesian"), ("auto", "polar")):
-            with self.subTest(mode=mode, box_mode=box_mode):
-                with self.assertRaises(ValueError):
-                    resolve_evaluation_coordinate_mode(mode, box_mode)
+    def test_standalone_rejects_polar_box_geometry(self):
+        args = SimpleNamespace(box_coordinate_mode="polar")
+        with self.assertRaisesRegex(ValueError, "Only Cartesian"):
+            apply_standalone_evaluation_coordinate_mode(args)
 
     def test_training_rejects_polar_and_routes_cartesian_evaluation(self):
         polar_args = SimpleNamespace(

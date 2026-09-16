@@ -23,7 +23,10 @@ from eval.distance_quartiles import (
     filter_kradar_eval_state_by_quartile,
     normalize_distance_quartile_bins,
 )
-from eval.adapter import metric_boxes_to_kitti_anno
+from eval.adapter import (
+    compute_supplementary_detection_metrics,
+    metric_boxes_to_kitti_anno,
+)
 from eval.evaluation_config import parse_args
 from eval.metrics_runner import (
     append_frame_annos_for_kradar_eval,
@@ -371,28 +374,40 @@ class RevisedOfficialNeutralSemanticsTests(unittest.TestCase):
 
 
 class StandaloneCocoConfigurationTests(unittest.TestCase):
-    def test_coco_style_is_opt_in_and_ap03_only_is_not_configurable(self):
+    def test_current_evaluation_cli_switches(self):
         with mock.patch.object(sys, "argv", ["evaluation.py"]):
             default_args = parse_args()
         with mock.patch.object(
             sys,
             "argv",
-            ["evaluation.py", "--coco-style-eval-enabled", "true"],
+            [
+                "evaluation.py",
+                "--coco-style-eval-enabled",
+                "true",
+                "--score-thresh",
+                "0.25",
+            ],
         ):
             enabled_args = parse_args()
 
         self.assertFalse(default_args.coco_style_eval_enabled)
         self.assertTrue(enabled_args.coco_style_eval_enabled)
+        self.assertEqual(enabled_args.score_thresh, 0.25)
         self.assertFalse(default_args.official_ap03_only)
 
-        with mock.patch.object(
-            sys,
-            "argv",
-            ["evaluation.py", "--official-ap03-only", "true"],
-        ), mock.patch("sys.stderr", new=io.StringIO()), self.assertRaises(
-            SystemExit
+        for removed_option in (
+            "--official-ap03-only",
+            "--detection-score-thresh",
+            "--eval-coordinate-mode",
         ):
-            parse_args()
+            with self.subTest(option=removed_option), mock.patch.object(
+                sys,
+                "argv",
+                ["evaluation.py", removed_option, "true"],
+            ), mock.patch("sys.stderr", new=io.StringIO()), self.assertRaises(
+                SystemExit
+            ):
+                parse_args()
 
     def test_coco_style_value_reaches_checkpoint_evaluation(self):
         args = SimpleNamespace(
@@ -413,7 +428,7 @@ class StandaloneCocoConfigurationTests(unittest.TestCase):
             coco_style_eval_enabled=True,
             nuscenes_style_eval_enabled=False,
             ap_score_thresh=0.01,
-            detection_score_thresh=0.3,
+            score_thresh=0.3,
             eval_ignore_suppress_enabled=False,
             eval_ignore_expand_ratio=1.5,
             eval_ignore_suppress_margin=1.0,
@@ -421,7 +436,7 @@ class StandaloneCocoConfigurationTests(unittest.TestCase):
             distance_quartile_eval_enabled=False,
             distance_quartile_bins=None,
             evaluation_primary_geometry="cartesian",
-            eval_coordinate_mode="auto",
+            eval_coordinate_mode="cartesian",
             effective_eval_coordinate_mode="cartesian",
             official_geometry_source="direct",
             metric_class_names=("sed",),
@@ -449,6 +464,7 @@ class StandaloneCocoConfigurationTests(unittest.TestCase):
             self.assertTrue(
                 evaluate.call_args.kwargs["coco_style_eval_enabled"]
             )
+            self.assertEqual(evaluate.call_args.kwargs["score_thresh"], 0.3)
 
             evaluate_checkpoint_result(
                 model=object(),
@@ -463,6 +479,38 @@ class StandaloneCocoConfigurationTests(unittest.TestCase):
             self.assertFalse(
                 evaluate.call_args.kwargs["coco_style_eval_enabled"]
             )
+
+    def test_score_threshold_keeps_tp_fp_fn_filtering_semantics(self):
+        box = np.asarray([[0.0, 0.0, 0.0, 4.0, 2.0, 1.5, 0.0]])
+        state = {
+            "metric_frames": [{
+                "gt_boxes": box,
+                "gt_labels": np.asarray([0]),
+                "dt_boxes": np.concatenate((box, box), axis=0),
+                "dt_labels": np.asarray([0, 0]),
+                "dt_scores": np.asarray([0.2, 0.9]),
+            }],
+        }
+
+        def all_overlap(gt_boxes, dt_boxes, _criterion):
+            return np.ones((len(gt_boxes), len(dt_boxes)))
+
+        with mock.patch(
+            "eval.adapter.load_rotate_iou_eval_function",
+            return_value=(all_overlap, "cpu"),
+        ):
+            metrics = compute_supplementary_detection_metrics(
+                state=state,
+                official_eval_iou_backend="cpu",
+                official_eval_iou_mode="easy",
+                score_thresh=0.25,
+                class_name_map={0: "sed"},
+            )
+
+        self.assertEqual(metrics["official_detection_score_threshold"], 0.25)
+        self.assertEqual(metrics["official_detection_tp"], 1)
+        self.assertEqual(metrics["official_detection_fp"], 0)
+        self.assertEqual(metrics["official_detection_fn"], 0)
 
 
 class FixedQuartileConfigurationTests(unittest.TestCase):

@@ -80,6 +80,7 @@ class ConfigCompatibilityTests(unittest.TestCase):
         self.assertIn("official_eval_version", EVAL_CONFIG)
         self.assertIn("ap_score_thresh", EVAL_CONFIG)
         self.assertNotIn("training_eval_enabled", EVAL_CONFIG)
+        self.assertNotIn("eval_coordinate_mode", EVAL_CONFIG)
         for removed_key in (
             "polar_eval_enabled",
             "polar_iou_thresholds",

@@ -9,10 +9,7 @@ from configs.data import CARTESIAN_GT_ROOT
 from data.coordinates import SCOPE_CHOICES
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
-    EVAL_COORDINATE_AUTO,
-    EVAL_COORDINATE_CHOICES,
     require_cartesian_data,
-    resolve_evaluation_coordinate_mode,
 )
 from eval.custom_iou_range import DEFAULT_CUSTOM_IOU_THRESHOLDS
 from eval.distance_quartiles import normalize_distance_quartile_bins
@@ -36,7 +33,6 @@ __all__ = [
     'eval_cfg_value',
     'should_inherit_from_checkpoint',
     'load_torch_checkpoint',
-    'load_model_checkpoint',
     'parse_gpu_ids',
     'parse_cuda_choice',
     'select_evaluation_device',
@@ -62,17 +58,6 @@ def should_inherit_from_checkpoint(key):
     if key in {"box_coordinate_mode", "loss_mode"}:
         return str(value).strip().lower() == "auto"
     return False
-
-
-def load_model_checkpoint(model, checkpoint_path, device):
-    # Keep this historical import path as a compatibility facade.
-    from eval.checkpoints import load_model_checkpoint as _load_model_checkpoint
-
-    return _load_model_checkpoint(
-        model=model,
-        checkpoint_path=checkpoint_path,
-        device=device,
-    )
 
 
 def parse_gpu_ids(gpu_ids_text):
@@ -157,7 +142,6 @@ def parse_args():
         "num_workers": 0,
         "limit_samples": None,
         "eval_scope": None,
-        "eval_coordinate_mode": EVAL_COORDINATE_AUTO,
         "box_coordinate_mode": None,
         "cartesian_gt_root": CARTESIAN_GT_ROOT,
         "include_bus_as_target": True,
@@ -206,8 +190,6 @@ def parse_args():
     }
     eval_config = dict(EVAL_CONFIG)
     cfg_defaults.update(eval_config)
-    if "score_thresh" not in EVAL_CONFIG and "detection_score_thresh" in EVAL_CONFIG:
-        cfg_defaults["score_thresh"] = EVAL_CONFIG["detection_score_thresh"]
 
     parser = argparse.ArgumentParser(
         description="Run official K-Radar KITTI-style evaluation."
@@ -255,14 +237,6 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=cfg_defaults["num_workers"])
     parser.add_argument("--limit-samples", type=int, default=cfg_defaults["limit_samples"])
     parser.add_argument("--eval-scope", default=cfg_defaults["eval_scope"], choices=SCOPE_CHOICES)
-    parser.add_argument(
-        "--eval-coordinate-mode",
-        default=cfg_defaults["eval_coordinate_mode"],
-        choices=EVAL_COORDINATE_CHOICES,
-        help=(
-            "auto uses the checkpoint's direct Cartesian geometry."
-        ),
-    )
     parser.add_argument(
         "--box-coordinate-mode",
         default=cfg_defaults["box_coordinate_mode"],
@@ -392,12 +366,6 @@ def parse_args():
         type=float,
         default=cfg_defaults["score_thresh"],
     )
-    parser.add_argument(
-        "--detection-score-thresh",
-        dest="score_thresh",
-        type=float,
-        default=cfg_defaults["score_thresh"],
-    )
     parser.add_argument("--plot-output", default=cfg_defaults["plot_output"])
     parser.add_argument(
         "--table-txt-enabled",
@@ -450,7 +418,7 @@ def parse_args():
             f"{args.start_epoch}>{args.end_epoch}"
         )
     args.ap_score_thresh = float(args.ap_score_thresh)
-    args.detection_score_thresh = float(args.score_thresh)
+    args.score_thresh = float(args.score_thresh)
     if args.ap_score_thresh < 0.0:
         raise ValueError(
             f"ap_score_thresh must be non-negative, got {args.ap_score_thresh!r}"
@@ -599,19 +567,13 @@ def normalize_float_thresholds(value, name):
 
 def apply_standalone_evaluation_coordinate_mode(args):
     args.box_coordinate_mode = require_cartesian_data(args.box_coordinate_mode)
-    settings = resolve_evaluation_coordinate_mode(
-        eval_coordinate_mode=getattr(
-            args,
-            "eval_coordinate_mode",
-            EVAL_COORDINATE_AUTO,
-        ),
-        box_coordinate_mode=args.box_coordinate_mode,
-    )
-    args.eval_coordinate_mode = settings["requested_mode"]
-    args.effective_eval_coordinate_mode = settings["effective_mode"]
-    args.official_eval_enabled = settings["official_eval_enabled"]
-    args.evaluation_primary_geometry = settings["primary_geometry"]
-    args.official_geometry_source = settings["official_geometry_source"]
+    # Keep established output metadata fields while deriving them directly
+    # from the only supported evaluation geometry.
+    args.eval_coordinate_mode = BOX_COORDINATE_CARTESIAN
+    args.effective_eval_coordinate_mode = BOX_COORDINATE_CARTESIAN
+    args.official_eval_enabled = True
+    args.evaluation_primary_geometry = BOX_COORDINATE_CARTESIAN
+    args.official_geometry_source = "direct"
     return args
 
 

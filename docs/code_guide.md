@@ -131,7 +131,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 
 移除了 `scripts/data/build_polar_gt_from_cartesian.py` 以及 `scripts/figures/plot_sedan_polar_{bbox_scatter,center_range_area,ra_center_scatter}.py` 三个旧图工具。`plot_sedan_cartesian_to_ra_center_area.py` 保留：其输入是 Cartesian，只把中心转换到 R-A 视图显示。此次删除的源码有清理前归档，磁盘数据集没有删除。
 
-Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单作为历史资产保留，未重新生成。模型内部 RAE 网格和 Polar 雷达显示仍保留；Polar AP 与 `eval_coordinate_mode="both"` 已删除。
+Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单作为历史资产保留，未重新生成。模型内部 RAE 网格和 Polar 雷达显示仍保留；Polar AP 与独立评估坐标选择器已删除。
 
 当前支持的 Cartesian 训练组合是 Model7（CenterPoint / RADE-Net）、Model15、Model16。其余模型实现仍保留为历史结构；这次没有改造所有模型的检测头或损失。
 

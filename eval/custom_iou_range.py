@@ -63,7 +63,7 @@ def compute_custom_iou_detection_metrics(
         metric_frames,
         iou_backend,
         iou_thresholds,
-        detection_score_thresh,
+        score_thresh,
         class_name_map=None,
     ):
     class_name_map = normalize_official_class_name_map(class_name_map)
@@ -94,7 +94,7 @@ def compute_custom_iou_detection_metrics(
                 dt_labels=frame["dt_labels"],
                 dt_scores=frame["dt_scores"],
                 min_overlap=float(min_overlap),
-                detection_score_thresh=detection_score_thresh,
+                score_thresh=score_thresh,
                 rotate_iou_eval_fn=rotate_iou_eval_fn,
                 class_name_map=class_name_map,
             )
@@ -153,7 +153,7 @@ def compute_custom_iou_detection_metrics(
         }
 
     return {
-        "custom_iou_detection_score_threshold": float(detection_score_thresh),
+        "custom_iou_detection_score_threshold": float(score_thresh),
         "custom_iou_detection_match_backend_used": matching_backend_used,
         "custom_iou_precision": float(np.mean(overall_precision_values)) if len(overall_precision_values) > 0 else 0.0,
         "custom_iou_recall": float(np.mean(overall_recall_values)) if len(overall_recall_values) > 0 else 0.0,
@@ -167,7 +167,7 @@ def compute_custom_iou_range_metrics(
         iou_backend="auto",
         iou_thresholds=None,
         recall_thresholds=None,
-        detection_score_thresh=0.3,
+        score_thresh=0.3,
         class_ids=None,
         class_name_map=None,
     ):
@@ -228,7 +228,7 @@ def compute_custom_iou_range_metrics(
         metric_frames=metric_frames,
         iou_backend=iou_backend,
         iou_thresholds=iou_thresholds,
-        detection_score_thresh=detection_score_thresh,
+        score_thresh=score_thresh,
         class_name_map=class_name_map,
     )
 

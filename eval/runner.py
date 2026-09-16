@@ -127,7 +127,7 @@ def evaluate_checkpoint_result(
             else nuscenes_style_eval_enabled
         ),
         ap_score_thresh=args.ap_score_thresh,
-        detection_score_thresh=args.detection_score_thresh,
+        score_thresh=args.score_thresh,
         eval_ignore_suppress_enabled=args.eval_ignore_suppress_enabled,
         eval_ignore_expand_ratio=args.eval_ignore_expand_ratio,
         eval_ignore_suppress_margin=args.eval_ignore_suppress_margin,

@@ -436,7 +436,7 @@ def _training_evaluation_kwargs(args, include_detection_metrics_setting):
         "ap_score_thresh": getattr(
             args, "training_eval_ap_score_thresh", 0.01
         ),
-        "detection_score_thresh": getattr(
+        "score_thresh": getattr(
             args, "training_eval_score_thresh", 0.3
         ),
         "box_coordinate_mode": args.box_coordinate_mode,

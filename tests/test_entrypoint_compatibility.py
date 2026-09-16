@@ -3,9 +3,13 @@
 import unittest
 
 import evaluation
+import eval.evaluation_config as evaluation_config
 import train
 import train_resume
-from eval.checkpoints import infer_checkpoint_decoder_overrides
+from eval.checkpoints import (
+    infer_checkpoint_decoder_overrides,
+    load_model_checkpoint,
+)
 from eval.decoding import cartesian_rotated_nms_indices, outputs_to_detections
 from eval.evaluation_config import (
     load_torch_checkpoint,
@@ -54,6 +58,8 @@ class EntrypointCompatibilityTests(unittest.TestCase):
             infer_checkpoint_decoder_overrides,
         )
         self.assertIs(evaluation.load_torch_checkpoint, load_torch_checkpoint)
+        self.assertIs(evaluation.load_model_checkpoint, load_model_checkpoint)
+        self.assertFalse(hasattr(evaluation_config, "load_model_checkpoint"))
         self.assertIs(evaluation.infer_and_decode, infer_and_decode)
 
     def test_resume_root_facade_exports_the_shared_workflow(self):
