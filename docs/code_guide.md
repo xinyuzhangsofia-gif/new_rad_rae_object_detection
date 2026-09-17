@@ -190,7 +190,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 已完成（分析脚本） | `scripts/experiments/evaluate_quartile_experiments.py` 与 `scripts/experiments/analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；保留四分位 CLI 的科学定义、输出 state schema 与表聚合。Source Drop 执行逻辑已删除。 |
 | 已完成（报告） | `eval/reporting.py` 与 `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | facade 保留旧导入；输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
 | 已完成（实验目录） | `experiments/{target_drop,distance_quartiles}/` | 两个活动实验族使用唯一语义路径；`distance_ranges` 与 `source_drop` 只保留历史归档资产。 |
-| 已完成（可视化） | `visualize.py`、`visualize_cfg.py`、`visualization/` | 单帧/视频和 RA/三传感器模式统一分派；Polar/Cartesian RA 共享同一 renderer，GT 绿色、预测红色。 |
+| 已完成（可视化） | `visualize.py`、`visualize_cfg.py`、`visualization/` | 单帧/视频和 RA/多传感器模式统一分派；Camera+Radar 与 Camera+LiDAR+Radar 都复用 Polar/Cartesian RA renderer，GT 绿色、预测红色。 |
 | 已完成（损失） | `training/losses/` | `__init__.py` 提供公开 API，通用数学、目标、GWD、SimOTA 和三个 loss family 分责，配置模式解析仍由 `training.configuration` 唯一负责。 |
 | 已完成（数据划分） | `data/split/` | `ordinary.py` 分派普通模式，`manifests.py`、`sequences.py` 和 `controlled/` 分责实现；精确成员、seed 和生成文件保持不变，无兼容 facade。 |
 | 6 | `legacy_module.py` | 只在确认历史模型/checkpoint pickle 不再需要后处理；本次未修改。 |
@@ -363,13 +363,15 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 
 | 文件 | 功能 |
 | --- | --- |
-| `config.py` | 校验唯一四种模式和 Polar/Cartesian RA 表示，固定 GT 绿色、Prediction 红色。 |
-| `workflow.py` | 解析 `visualize_cfg.py`/CLI 并分派 RA 或三传感器工作流。 |
+| `config.py` | 校验唯一四种模式、Polar/Cartesian RA 表示和 Camera+Radar / Camera+LiDAR+Radar 布局，构造共享运行配置并固定 GT 绿色、Prediction 红色。 |
+| `workflow.py` | 解析 `visualize_cfg.py`/CLI 并分派 RA 或多传感器工作流。 |
 | `radar_data.py` | 通过当前 `KRadarRADRAEDataset` 读取成对 RAD/RAE `.npy` 并重建物理坐标轴和 RA power map。 |
+| `radar.py` | Polar/Cartesian RA 的唯一帧 renderer，负责 RA overlay、标题和图像转换。 |
+| `colors.py` | 为 OpenCV、Open3D 和 Matplotlib 统一解析绿色 GT / 红色 Prediction。 |
 | `prediction.py`、`detections.py` | 复用 `eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py`，转成渲染所需框。 |
-| `multisensor.py` | Polar/Cartesian RA 的唯一帧 renderer，以及 Camera/LiDAR/Radar overlay 与组合。 |
+| `multisensor.py` | Camera/LiDAR overlay，以及 Camera+Radar / Camera+LiDAR+Radar 组合；Radar 面板复用 `radar.py`。 |
 | `radar_workflow.py` | 用同一 RA renderer 生成单帧图片或视频。 |
-| `multisensor_workflow.py` | 用同一 RA renderer 组成 Camera + LiDAR + Radar 单帧或视频。 |
+| `multisensor_workflow.py` | 用同一 RA renderer 组成 Camera+Radar 或 Camera+LiDAR+Radar 单帧/视频。 |
 | `geometry.py`、`labels.py`、`paths.py` | 标定、坐标投影、逐帧传感器索引/GT 与路径解析。 |
 | `video.py` | RA 和多传感器模式共享的惰性 MP4 writer。 |
 

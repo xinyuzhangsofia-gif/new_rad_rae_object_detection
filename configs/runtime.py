@@ -3,7 +3,7 @@
 
 TRAIN_RUNTIME_CONFIG = {
     "num_workers": 0,
-    "gpu_ids": "0,1,2",
+    "gpu_ids": "0,",
     "post_training_eval_min_free_memory_mb": 4096,
 }
 

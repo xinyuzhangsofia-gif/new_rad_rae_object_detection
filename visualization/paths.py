@@ -9,7 +9,6 @@ from visualization.config import (
     FRAME_OUTPUT_MODES,
     GT_KIND_CURRENT,
     GT_KIND_OFFICIAL_KRADAR,
-    SENSOR_LAYOUTS,
 )
 
 
@@ -53,17 +52,6 @@ def resolve_visualize_mode(mode):
         raise ValueError(
             f"Unknown visualize_mode: {mode!r}. "
             f"Choose one of: {', '.join(FRAME_OUTPUT_MODES)}"
-        )
-    return normalized
-
-
-def resolve_sensor_layout(layout):
-    """Validate and normalize the configured sensor layout."""
-    normalized = str(layout).strip().lower()
-    if normalized not in SENSOR_LAYOUTS:
-        raise ValueError(
-            f"Unknown sensor_layout: {layout!r}. "
-            f"Choose one of: {', '.join(SENSOR_LAYOUTS)}"
         )
     return normalized
 
@@ -122,7 +110,8 @@ def get_picture_save_path(cfg, label_filename, frame_idx):
         else "gt"
     )
     filename = (
-        f"sequence_{int(cfg.sequence):02d}_frame_{int(frame_idx):06d}_"
+        f"sequence_{int(cfg.sequence):02d}_{cfg.sensor_layout}_"
+        f"{cfg.ra_map_coordinate}_frame_{int(frame_idx):06d}_"
         f"{label_stem}_{overlay_name}{extension}"
     )
     return sequence_dir / filename

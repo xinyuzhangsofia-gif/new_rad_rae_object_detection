@@ -186,9 +186,12 @@ active multi-sensor checkpoint predictor only convert them for drawing.
 `python visualize.py` is the only normal visualization command. Select
 `ra_map`, `ra_map_video`, `multisensor`, or `multisensor_video` in
 `visualize_cfg.py`; `ra_map_coordinate` independently selects `polar` or
-`cartesian`. The defaults are `ra_map` and `polar`, with GT drawn green and
-predictions red. The current visualizer reads paired RAD/RAE `.npy` tensors;
-the former ARR/MAT visualization path has been removed.
+`cartesian`. Multi-sensor modes use `sensor_layout=camera_radar` or
+`camera_lidar_radar`; both layouts reuse the same Polar/Cartesian RA renderer
+as the standalone modes. The defaults are `ra_map`, `polar`, and
+`camera_lidar_radar`, with GT drawn green and predictions red. The current
+visualizer reads paired RAD/RAE `.npy` tensors; the former ARR/MAT
+visualization path has been removed.
 
 The root entry points `train.py`, `train_resume.py`, `evaluation.py`, and
 `visualize.py` remain supported.

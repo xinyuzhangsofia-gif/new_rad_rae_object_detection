@@ -81,7 +81,7 @@ class VisualizationRadarNpyReaderTest(unittest.TestCase):
 
     def test_real_current_npy_frame_renders_to_a_radar_image(self):
         from visualization.geometry import load_lidar2radar_calib
-        from visualization.multisensor import get_radar_frame
+        from visualization.radar import get_radar_frame
         from data.paths import get_label_files
 
         cfg = load_visualization_config(

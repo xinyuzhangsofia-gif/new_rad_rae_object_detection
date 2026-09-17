@@ -2,14 +2,13 @@
 
 import argparse
 
-from data.coordinates import SCOPE_CHOICES
-from training.configuration import normalize_optional_path
 from visualization.config import (
     MODE_MULTISENSOR,
     MODE_MULTISENSOR_VIDEO,
     MODE_RA_MAP,
     MODE_RA_MAP_VIDEO,
     RA_MAP_COORDINATES,
+    SENSOR_LAYOUTS,
     VISUALIZATION_MODES,
     validate_visualization_config,
 )
@@ -17,18 +16,22 @@ from visualize_cfg import VISUALIZE_CONFIG
 
 
 HEATMAP_SCORE_MODES = ("peak_times_local_mean", "peak_only")
-MODEL_TYPES = tuple(["auto"] + [f"model{idx}" for idx in range(1, 17)])
 
 
 def parse_args(argv=None):
     """Apply optional CLI overrides to the canonical root configuration."""
     defaults = dict(VISUALIZE_CONFIG)
     parser = argparse.ArgumentParser(
-        description="Render RA-map or Camera/LiDAR/Radar visualizations."
+        description="Render RA-map or configured multi-sensor visualizations."
     )
     parser.set_defaults(**defaults)
     parser.add_argument("--mode", choices=VISUALIZATION_MODES)
     parser.add_argument("--ra-map-coordinate", choices=RA_MAP_COORDINATES)
+    parser.add_argument(
+        "--sensor-layout",
+        choices=SENSOR_LAYOUTS,
+        default=defaults["sensor_layout"],
+    )
     parser.add_argument("--checkpoint-path", default=defaults["checkpoint_path"])
     parser.add_argument("--sequence", type=int, default=defaults["sequence"])
     parser.add_argument("--frame", type=int, default=defaults["frame"])
@@ -55,11 +58,6 @@ def parse_args(argv=None):
         default=defaults["max_detections"],
     )
     parser.add_argument(
-        "--vis-scope",
-        choices=SCOPE_CHOICES,
-        default=defaults["vis_scope"],
-    )
-    parser.add_argument(
         "--pred-mode",
         choices=("raw", "final"),
         default=defaults["pred_mode"],
@@ -79,20 +77,6 @@ def parse_args(argv=None):
         type=float,
         default=defaults["yolox_nms_iou"],
     )
-    parser.add_argument(
-        "--box-coordinate-mode",
-        choices=("auto", "cartesian"),
-        default=defaults["box_coordinate_mode"],
-    )
-    parser.add_argument(
-        "--model-type",
-        choices=MODEL_TYPES,
-        default=defaults["model_type"],
-    )
-    parser.add_argument(
-        "--gt-object-ignore-override-path",
-        default=defaults["gt_object_ignore_override_path"],
-    )
     parser.add_argument("--fps", type=float, default=defaults["fps"])
     parser.add_argument("--output-dir", default=defaults["output_dir"])
     parser.add_argument(
@@ -100,11 +84,7 @@ def parse_args(argv=None):
         action=argparse.BooleanOptionalAction,
         default=defaults["display"],
     )
-    args = parser.parse_args(argv)
-    args.gt_object_ignore_override_path = normalize_optional_path(
-        args.gt_object_ignore_override_path
-    )
-    return validate_visualization_config(vars(args))
+    return validate_visualization_config(vars(parser.parse_args(argv)))
 
 
 def main():

@@ -7,8 +7,7 @@ import numpy as np
 import torch
 
 
-from visualization.config import load_visualization_config
-from visualization.multisensor_workflow import build_render_config
+from visualization.config import build_render_config, load_visualization_config
 from visualization.prediction import build_checkpoint_predictor
 from visualization.radar_data import (
     build_current_radar_dataset,
@@ -20,12 +19,12 @@ from visualization.geometry import (
     transform_radar_boxes_to_lidar,
 )
 import visualization.multisensor as multisensor
+import visualization.radar as radar
 from visualization.multisensor import (
-    add_ra_box_label,
     combine_camera_radar_frames,
-    get_radar_frame,
     visualize_bbx_on_camera,
 )
+from visualization.radar import add_ra_box_label, get_radar_frame
 from visualization.paths import get_label_dir
 from data.paths import get_label_files
 
@@ -221,7 +220,7 @@ class VisualizationCheckpointPredictorTest(unittest.TestCase):
                     return_value=FakeVisualizer(),
                 ),
                 mock.patch.object(
-                    multisensor,
+                    radar,
                     "get_radar_frame",
                     return_value=image.copy(),
                 ) as radar_mock,
@@ -261,6 +260,68 @@ class VisualizationCheckpointPredictorTest(unittest.TestCase):
 
             saved_files = list(Path(temp_dir).rglob("*.png"))
             self.assertEqual(len(saved_files), 1)
+
+    def test_camera_radar_layout_skips_lidar_and_reuses_radar_renderer(self):
+        class FakeRadarDataset:
+            def get_by_tesseract_idx(self, frame_name):
+                return {"frame_name": str(frame_name)}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cfg = make_multisensor_config(
+                sensor_layout="camera_radar",
+                ra_map_coordinate="polar",
+                show_prediction=False,
+                sequence=11,
+                frame=0,
+                output_dir=temp_dir,
+                display=False,
+            )
+            image = np.zeros((30, 40, 3), dtype=np.uint8)
+            label_dir = get_label_dir(cfg)
+            label_files = ["00034_00001.txt"]
+
+            with (
+                mock.patch.object(
+                    multisensor.o3d.visualization,
+                    "Visualizer",
+                ) as visualizer_mock,
+                mock.patch.object(
+                    radar,
+                    "get_radar_frame",
+                    return_value=image.copy(),
+                ) as radar_mock,
+                mock.patch.object(
+                    multisensor,
+                    "get_lidar_frame",
+                    return_value=image.copy(),
+                ) as lidar_mock,
+                mock.patch.object(
+                    multisensor,
+                    "get_camera_frame",
+                    return_value=image.copy(),
+                ) as camera_mock,
+            ):
+                multisensor.visualize_all_sensors(
+                    cfg=cfg,
+                    label_dir=label_dir,
+                    label_files=label_files,
+                    camera_dir="unused-camera",
+                    path_calib="unused-camera-calibration",
+                    lidar_dir=None,
+                    radar_dataset=FakeRadarDataset(),
+                    arr_range=np.linspace(0, 118, 256),
+                    arr_azimuth_deg=np.linspace(-53, 53, 107),
+                    R_l2r=torch.eye(3),
+                    T_l2r=torch.zeros(3),
+                )
+
+            visualizer_mock.assert_not_called()
+            lidar_mock.assert_not_called()
+            radar_mock.assert_called_once()
+            camera_mock.assert_called_once()
+            saved_files = list(Path(temp_dir).rglob("*.png"))
+            self.assertEqual(len(saved_files), 1)
+            self.assertIn("camera_radar_polar", saved_files[0].name)
 
 
 if __name__ == "__main__":

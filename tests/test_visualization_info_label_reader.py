@@ -104,6 +104,8 @@ class VisualizationInfoLabelReaderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             cfg = SimpleNamespace(
                 sequence=11,
+                sensor_layout="camera_lidar_radar",
+                ra_map_coordinate="cartesian",
                 picture_save_dir=temp_dir,
                 picture_extension="png",
                 prediction_checkpoint_path="",

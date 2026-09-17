@@ -1,6 +1,8 @@
 import inspect
 from pathlib import Path
+import tempfile
 import unittest
+from unittest import mock
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,14 +19,18 @@ from visualization.config import (
     PREDICTION_COLOR,
     RA_MAP_CARTESIAN_TITLE,
     RA_MAP_POLAR_TITLE,
+    SENSOR_LAYOUT_CAMERA_LIDAR_RADAR,
+    SENSOR_LAYOUT_CAMERA_RADAR,
+    build_render_config,
     load_visualization_config,
 )
-from visualization.multisensor import (
+from visualization.radar import (
     fig_to_cv2_image,
     visualize_bbx_on_ra_cartesian_with_yaw,
     visualize_bbx_on_ra_polar,
 )
-from visualization.multisensor_workflow import build_render_config
+from visualization.video import VideoWriter
+from visualize_cfg import VISUALIZE_CONFIG
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -72,6 +78,61 @@ class VisualizationArchitectureTests(unittest.TestCase):
             RA_MAP_CARTESIAN_TITLE,
             "RA map in Cartesian with bounding boxes",
         )
+
+    def test_sensor_layouts_and_default(self):
+        defaults = load_visualization_config()
+        self.assertEqual(
+            defaults.sensor_layout,
+            SENSOR_LAYOUT_CAMERA_LIDAR_RADAR,
+        )
+        for layout in (
+            SENSOR_LAYOUT_CAMERA_RADAR,
+            SENSOR_LAYOUT_CAMERA_LIDAR_RADAR,
+        ):
+            with self.subTest(layout=layout):
+                self.assertEqual(
+                    load_visualization_config(sensor_layout=layout).sensor_layout,
+                    layout,
+                )
+        with self.assertRaisesRegex(ValueError, "Unknown sensor layout"):
+            load_visualization_config(sensor_layout="camera_only")
+
+    def test_multisensor_mode_layout_coordinate_matrix(self):
+        for mode in (MODE_MULTISENSOR, MODE_MULTISENSOR_VIDEO):
+            for layout in (
+                SENSOR_LAYOUT_CAMERA_RADAR,
+                SENSOR_LAYOUT_CAMERA_LIDAR_RADAR,
+            ):
+                for coordinate, radar_mode in (("polar", 0), ("cartesian", 2)):
+                    with self.subTest(
+                        mode=mode,
+                        layout=layout,
+                        coordinate=coordinate,
+                    ):
+                        settings = load_visualization_config(
+                            mode=mode,
+                            sensor_layout=layout,
+                            ra_map_coordinate=coordinate,
+                        )
+                        renderer = build_render_config(settings)
+                        self.assertEqual(renderer.sensor_layout, layout)
+                        self.assertEqual(renderer.ra_map_coordinate, coordinate)
+                        self.assertEqual(renderer.radar_mode, radar_mode)
+                        self.assertEqual(renderer.ground_truth_box_color, "green")
+                        self.assertEqual(renderer.prediction_box_color, "red")
+                        self.assertIn(layout, renderer.multisensor_video_path)
+                        self.assertIn(coordinate, renderer.multisensor_video_path)
+
+    def test_unused_visualization_controls_are_removed(self):
+        for key in (
+            "box_coordinate_mode",
+            "model_type",
+            "gt_object_ignore_override_path",
+            "ignore_class_names",
+            "vis_scope",
+        ):
+            with self.subTest(key=key):
+                self.assertNotIn(key, VISUALIZE_CONFIG)
 
     def test_semantic_colors_are_canonical(self):
         self.assertEqual(GROUND_TRUTH_COLOR, "green")
@@ -137,6 +198,34 @@ class VisualizationArchitectureTests(unittest.TestCase):
         source = inspect.getsource(prediction)
         self.assertNotIn("import visualize", source)
         self.assertNotIn("from visualize import", source)
+
+    def test_standalone_radar_workflow_uses_canonical_radar_module(self):
+        source = (PROJECT_ROOT / "visualization/radar_workflow.py").read_text()
+        self.assertIn("from visualization.radar import get_radar_frame", source)
+        self.assertNotIn("from visualization.multisensor import", source)
+        self.assertNotIn("multisensor_workflow", source)
+
+        multisensor_source = (
+            PROJECT_ROOT / "visualization/multisensor.py"
+        ).read_text()
+        self.assertNotIn("def get_radar_frame(", multisensor_source)
+        self.assertNotIn("def visualize_bbx_on_ra_", multisensor_source)
+
+    def test_shared_video_writer_accepts_a_color_frame(self):
+        backend = mock.Mock()
+        backend.isOpened.return_value = True
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch(
+                "visualization.video.cv2.VideoWriter",
+                return_value=backend,
+            ):
+                writer = VideoWriter(Path(temp_dir) / "test.mp4", fps=10)
+                frame = np.zeros((6, 8, 3), dtype=np.uint8)
+                writer.write(frame)
+                writer.close()
+
+        backend.write.assert_called_once_with(frame)
+        backend.release.assert_called_once()
 
     def test_arr_visualization_loader_is_removed(self):
         self.assertFalse((PROJECT_ROOT / "loaders/kradar_dataset.py").exists())
