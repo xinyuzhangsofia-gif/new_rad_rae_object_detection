@@ -78,7 +78,7 @@ TRAIN_CONFIG = {
     "checkpoint_base_dir": CHECKPOINT_BASE_DIR,
     "checkpoint_filename_style": "compact",
     "log_base_dir": LOG_BASE_DIR,
-    "model_type": "model15",
+    "model_type": "model16",
     "model7_decoder_hidden_channels": "64",
 
     # Compatibility aggregation. Edit these settings in their named modules.
