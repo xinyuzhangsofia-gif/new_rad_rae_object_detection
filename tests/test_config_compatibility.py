@@ -1,4 +1,4 @@
-"""Configuration boundaries must preserve the legacy flat public mappings."""
+"""Verify configuration composition and workflow boundaries."""
 
 import os
 from pathlib import Path
@@ -9,9 +9,6 @@ import unittest
 from configs import data
 from configs.domain_shift import DOMAIN_SHIFT_CONFIG, EXPERIMENT_QUEUE_CONFIG
 from configs.evaluation import EVAL_CONFIG
-from configs.historical_overrides import (
-    HISTORICAL_EXPERIMENT_QUEUE_OVERRIDES,
-)
 from configs.resume import RESUME_CONFIG_OVERRIDES, build_resume_config
 from configs.runtime import (
     EVALUATION_RUNTIME_CONFIG,
@@ -19,6 +16,8 @@ from configs.runtime import (
     TRAIN_RUNTIME_CONFIG,
 )
 from configs.training import RESUME_CONFIG, TRAIN_CONFIG
+from models import MODEL_TYPES
+from training.configuration import LOSS_MODE_CHOICES, resolve_loss_mode
 
 
 class ConfigCompatibilityTests(unittest.TestCase):
@@ -28,7 +27,6 @@ class ConfigCompatibilityTests(unittest.TestCase):
             EXPERIMENT_QUEUE_CONFIG,
             TRAIN_RUNTIME_CONFIG,
             EXPERIMENT_QUEUE_RUNTIME_CONFIG,
-            HISTORICAL_EXPERIMENT_QUEUE_OVERRIDES,
         ):
             for key, value in section.items():
                 self.assertEqual(TRAIN_CONFIG[key], value)
@@ -39,18 +37,24 @@ class ConfigCompatibilityTests(unittest.TestCase):
             if key not in RESUME_CONFIG_OVERRIDES:
                 self.assertEqual(RESUME_CONFIG[key], value)
 
-    def test_effective_core_training_values_are_unchanged(self):
+    def test_core_training_configuration_is_valid_and_structurally_stable(self):
         expected = {
             "cartesian_gt_root": data.CARTESIAN_GT_ROOT,
             "box_coordinate_mode": "cartesian",
-            "loss_mode": "centerpoint",
-            "model_type": "model7",
             "split_mode": "kradar_file",
             "include_bus_as_target": True,
             "checkpoint_base_dir": "checkpoints",
             "checkpoint_filename_style": "compact",
         }
         self.assertEqual({key: TRAIN_CONFIG[key] for key in expected}, expected)
+        self.assertIn(TRAIN_CONFIG["model_type"], MODEL_TYPES)
+        self.assertIn(TRAIN_CONFIG["loss_mode"], LOSS_MODE_CHOICES)
+        resolved_loss_mode = resolve_loss_mode(
+            TRAIN_CONFIG["model_type"],
+            TRAIN_CONFIG["box_coordinate_mode"],
+            TRAIN_CONFIG["loss_mode"],
+        )
+        self.assertIn(resolved_loss_mode, {"centerpoint", "radenet", "yolox"})
         self.assertNotIn("checkpoint_layout", TRAIN_CONFIG)
         self.assertNotIn("train_ratio", TRAIN_CONFIG)
         self.assertNotIn("train_ratio", EVAL_CONFIG)

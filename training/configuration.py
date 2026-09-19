@@ -499,23 +499,10 @@ def resolve_effective_ignore_class_names(configured_ignore_class_names, include_
 
 
 def resolve_centerpoint_gwd_loss_weight(args, default=2.0):
-    """Normalize the GWD weight while accepting legacy configs mislabeled as GIoU."""
-    gwd_weight = getattr(args, "centerpoint_gwd_loss_weight", None)
-    legacy_giou_weight = getattr(args, "centerpoint_giou_loss_weight", None)
-    if gwd_weight is None:
-        gwd_weight = default if legacy_giou_weight is None else legacy_giou_weight
-    elif (
-        legacy_giou_weight is not None
-        and float(gwd_weight) != float(legacy_giou_weight)
-    ):
-        raise ValueError(
-            "centerpoint_gwd_loss_weight and legacy "
-            "centerpoint_giou_loss_weight disagree"
-        )
-
-    args.centerpoint_gwd_loss_weight = float(gwd_weight)
-    if hasattr(args, "centerpoint_giou_loss_weight"):
-        delattr(args, "centerpoint_giou_loss_weight")
+    """Normalize the configured GWD loss weight."""
+    args.centerpoint_gwd_loss_weight = float(
+        getattr(args, "centerpoint_gwd_loss_weight", default)
+    )
     return args
 
 
@@ -566,14 +553,12 @@ def apply_task_configuration(args):
         include_bus_as_target=args.include_bus_as_target,
     )
 
-    legacy_bus_ignore_margin = getattr(args, "bus_ignore_margin", 1.0)
     args.ignore_mask_margin = float(
-        getattr(args, "ignore_mask_margin", legacy_bus_ignore_margin)
+        getattr(args, "ignore_mask_margin", 1.0)
     )
 
-    legacy_bus_ignore_expand_ratio = getattr(args, "bus_ignore_expand_ratio", 1.0)
     args.ignore_mask_expand_ratio = float(
-        getattr(args, "ignore_mask_expand_ratio", legacy_bus_ignore_expand_ratio)
+        getattr(args, "ignore_mask_expand_ratio", 1.0)
     )
     if args.ignore_mask_expand_ratio <= 0.0:
         raise ValueError(

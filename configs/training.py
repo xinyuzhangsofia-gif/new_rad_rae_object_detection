@@ -1,8 +1,7 @@
-"""Stable model/training defaults and compatibility configuration exports."""
+"""Stable model/training defaults and composed configuration exports."""
 
 from configs.data import CARTESIAN_GT_ROOT, CHECKPOINT_BASE_DIR, LOG_BASE_DIR
 from configs.domain_shift import DOMAIN_SHIFT_CONFIG, EXPERIMENT_QUEUE_CONFIG
-from configs.historical_overrides import HISTORICAL_EXPERIMENT_QUEUE_OVERRIDES
 from configs.resume import build_resume_config
 from configs.runtime import (
     EXPERIMENT_QUEUE_RUNTIME_CONFIG,
@@ -12,12 +11,12 @@ from data.coordinates import SCOPE_FULL, SCOPE_NARROW
 
 
 # Edit stable model/training settings here, then run: python train.py
-# The imported sections below keep the historical flat-dictionary API used by
-# training, queue workers, checkpoints, and existing scripts.
+# The imported sections below compose the settings used by training and queue
+# workers into one runtime dictionary.
 TRAIN_CONFIG = {
     # Cartesian GT only. RAD/RAE radar tensors remain the model inputs.
     "box_coordinate_mode": "cartesian",
-    # radenet, centerpoint without normalization, or auto (legacy selection).
+    # radenet, centerpoint without normalization, or auto (model-compatible selection).
     "loss_mode": "radenet",
     "cartesian_gt_root": CARTESIAN_GT_ROOT,
 
@@ -81,12 +80,11 @@ TRAIN_CONFIG = {
     "model_type": "model16",
     "model7_decoder_hidden_channels": "64",
 
-    # Compatibility aggregation. Edit these settings in their named modules.
+    # Composed training, experiment, and runtime settings.
     **DOMAIN_SHIFT_CONFIG,
     **EXPERIMENT_QUEUE_CONFIG,
     **TRAIN_RUNTIME_CONFIG,
     **EXPERIMENT_QUEUE_RUNTIME_CONFIG,
-    **HISTORICAL_EXPERIMENT_QUEUE_OVERRIDES,
 }
 
 

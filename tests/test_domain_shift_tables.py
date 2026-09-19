@@ -337,7 +337,7 @@ class DomainShiftTablesTest(unittest.TestCase):
         self.assertIsNone(first_config["quality_loss_weight"])
         self.assertEqual(first_config, second_config)
 
-    def test_legacy_giou_config_is_read_as_gwd(self):
+    def test_missing_gwd_config_is_named_unknown(self):
         common = {
             "lr": 5e-5,
             "batch_size": 8,
@@ -345,12 +345,9 @@ class DomainShiftTablesTest(unittest.TestCase):
             "heatmap_radius": 3,
             "quality_loss_weight": 0.25,
         }
-        legacy_name, legacy_config = build_model_configuration(
+        missing_name, missing_config = build_model_configuration(
             model_type="model7",
-            checkpoint_config={
-                **common,
-                "centerpoint_giou_loss_weight": 2.0,
-            },
+            checkpoint_config=common,
         )
         current_name, current_config = build_model_configuration(
             model_type="model7",
@@ -359,8 +356,10 @@ class DomainShiftTablesTest(unittest.TestCase):
                 "centerpoint_gwd_loss_weight": 2.0,
             },
         )
-        self.assertEqual(legacy_name, current_name)
-        self.assertEqual(legacy_config, current_config)
+        self.assertIn("loss_unknown", missing_name)
+        self.assertIsNone(missing_config["centerpoint_gwd_loss_weight"])
+        self.assertNotEqual(missing_name, current_name)
+        self.assertEqual(current_config["centerpoint_gwd_loss_weight"], 2.0)
 
 
 if __name__ == "__main__":

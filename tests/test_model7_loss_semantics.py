@@ -8,19 +8,15 @@ from training.losses import centerpoint_detection_loss
 
 
 class Model7LossSemanticsTests(unittest.TestCase):
-    def test_legacy_giou_weight_is_normalized_to_gwd(self):
-        args = SimpleNamespace(centerpoint_giou_loss_weight=2.0)
+    def test_gwd_weight_uses_the_canonical_default(self):
+        args = SimpleNamespace()
         resolve_centerpoint_gwd_loss_weight(args)
         self.assertEqual(args.centerpoint_gwd_loss_weight, 2.0)
-        self.assertFalse(hasattr(args, "centerpoint_giou_loss_weight"))
 
-    def test_conflicting_legacy_and_current_weights_fail(self):
-        args = SimpleNamespace(
-            centerpoint_gwd_loss_weight=2.0,
-            centerpoint_giou_loss_weight=3.0,
-        )
-        with self.assertRaises(ValueError):
-            resolve_centerpoint_gwd_loss_weight(args)
+    def test_gwd_weight_is_normalized_to_float(self):
+        args = SimpleNamespace(centerpoint_gwd_loss_weight="3.0")
+        resolve_centerpoint_gwd_loss_weight(args)
+        self.assertEqual(args.centerpoint_gwd_loss_weight, 3.0)
 
     def test_model7_outputs_do_not_report_inactive_quality_or_giou_loss(self):
         outputs = {

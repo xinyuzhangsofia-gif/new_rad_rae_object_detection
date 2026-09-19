@@ -183,10 +183,7 @@ def build_model_configuration(
     batch_size = checkpoint_config.get("batch_size")
     seed = checkpoint_config.get("seed")
     heatmap_radius = checkpoint_config.get("heatmap_radius")
-    gwd_loss_weight = checkpoint_config.get(
-        "centerpoint_gwd_loss_weight",
-        checkpoint_config.get("centerpoint_giou_loss_weight"),
-    )
+    gwd_loss_weight = checkpoint_config.get("centerpoint_gwd_loss_weight")
     quality_loss_weight = checkpoint_config.get("quality_loss_weight")
     quality_loss_active = str(model_type) == "model6"
 

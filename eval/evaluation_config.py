@@ -16,10 +16,7 @@ from eval.distance_quartiles import normalize_distance_quartile_bins
 from models import MODEL_TYPES
 from training.torch_load import load_torch_checkpoint
 
-try:
-    from configs.evaluation import EVAL_CONFIG
-except ImportError:
-    EVAL_CONFIG = {}
+from configs.evaluation import EVAL_CONFIG
 
 _EVAL_CFG_MISSING = object()
 HEATMAP_SCORE_MODES = ("peak_times_local_mean", "peak_only")

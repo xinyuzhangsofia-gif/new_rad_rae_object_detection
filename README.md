@@ -51,7 +51,6 @@ runtime dictionaries expected by existing code:
 | --- | --- |
 | GPUs, workers, queue concurrency, and memory thresholds | `configs/runtime.py` |
 | Domain-shift sequences, tables, controlled splits, and queue behavior | `configs/domain_shift.py` |
-| Interrupted queue checkpoint overrides | `configs/historical_overrides.py` |
 | Shared output directories | `configs/data.py` |
 
 Use trusted checkpoints: project checkpoints can contain Python objects as well

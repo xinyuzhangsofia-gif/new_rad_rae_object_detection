@@ -183,25 +183,6 @@ def _launch_parallel_training_task(
         "experiment_queue_task_id": task_slug,
         "experiment_queue_group": task.experiment.name,
     })
-    # A task that was interrupted after writing epoch checkpoints can resume
-    # from the last complete checkpoint.  The mapping is intentionally
-    # keyed by the queue runtime slug so it is unambiguous across weather
-    # tables and experiment groups.
-    resume_checkpoints = base_config.get(
-        "experiment_queue_resume_checkpoints",
-        {},
-    )
-    resume_checkpoint = resume_checkpoints.get(task_slug)
-    if resume_checkpoint:
-        child_config.update({
-            "resume_checkpoint": str(resume_checkpoint),
-            "start_epoch": None,
-            "end_epoch": int(child_config.get("epochs", 30)),
-            "load_optimizer": True,
-            "initial_best_checkpoint": None,
-            "resume_save_in_checkpoint_dir": True,
-            "resume_tensorboard_log_dir": None,
-        })
     _write_training_job_config(config_path, child_config)
     log_file = log_path.open("w", encoding="utf-8", buffering=1)
     environment = os.environ.copy()

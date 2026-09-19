@@ -9,10 +9,9 @@ configs/training.py → train.py → training/runner.py
     ├─ configs/runtime.py → GPU、worker 和队列并发
     ├─ configs/domain_shift.py → 域偏移实验设计
     ├─ configs/resume.py → 断点续训覆盖项
-    └─ configs/historical_overrides.py → 历史任务恢复状态
-                                ├─ data/ → 数据、GT、坐标及划分
-                                ├─ models/factory.py → model1 … model16
-                                └─ training/ → 损失、训练、检查点、队列
+    ├─ data/ → 数据、GT、坐标及划分
+    ├─ models/factory.py → model1 … model16
+    └─ training/ → 损失、训练、检查点、队列
 configs/evaluation.py → evaluation.py → eval/workflow.py → eval/
 sequence_information.csv → data/sequence_metadata.py
     ├─ training/configuration.py → 训练域元数据
@@ -222,7 +221,6 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [configs/domain_shift.py](../configs/domain_shift.py) | — | 域偏移序列、实验表、受控划分和队列行为。 | 与普通训练超参数分离。 |
 | [configs/experiment_paths.py](../configs/experiment_paths.py) | — | Target Drop 与距离四分位活动目录的唯一常量，以及旧四分位 metadata/state 路径读取映射。 | 不创建旧目录或修改历史结果文件。 |
 | [configs/evaluation.py](../configs/evaluation.py) | 82 | `python evaluation.py` 的独立完整评估/报告配置。 | 与训练时 `training_eval_*` 和训练后 `post_training_eval_*` 配置分离。 |
-| [configs/historical_overrides.py](../configs/historical_overrides.py) | — | 中断的历史队列任务所需检查点覆盖项。 | 与稳定默认值隔离但保留信息。 |
 | [configs/resume.py](../configs/resume.py) | — | 断点续训的中性覆盖项；checkpoint 与日志目录由用户显式选择。 | 基于训练默认值合并；兼容导出仍在 `configs/training.py`。 |
 | [configs/runtime.py](../configs/runtime.py) | — | 训练、评估和实验队列的 GPU、worker、内存与轮询设置。 | 机器运行参数的统一入口。 |
 | [configs/training.py](../configs/training.py) | — | 稳定训练/模型默认值；分别包含训练时 `training_eval_*` 与训练后 `post_training_eval_*` 区段。 | 保留 `TRAIN_CONFIG` 和 `RESUME_CONFIG` 平铺公共接口，不混入独立评估配置。 |

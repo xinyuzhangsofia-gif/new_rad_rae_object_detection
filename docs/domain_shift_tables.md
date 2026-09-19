@@ -93,7 +93,7 @@ not create another table. A different seed, batch size, or effective loss settin
 creates a new table directory. Only a repeat with the same complete configuration,
 source sequences, and target sequences updates an existing cell. Historical
 checkpoints that did not store loss parameters are explicitly named with
-`loss_unknown`; the legacy `centerpoint_giou_loss_weight` field is read as GWD.
+`loss_unknown`.
 
 ## Rebuild Existing Results
 

@@ -159,7 +159,7 @@ class ExperimentQueueModuleTests(unittest.TestCase):
         )
         self.assertIsNone(reserved_out)
 
-    def test_worker_command_and_historical_resume_config_are_unchanged(self):
+    def test_worker_command_and_child_training_config(self):
         class Process:
             pid = 101
 
@@ -169,13 +169,9 @@ class ExperimentQueueModuleTests(unittest.TestCase):
             task = schema.ExperimentQueueTask(22, experiment, "target")
             runtime_slug = "overcast_022_group11_seed43_target"
             base_config = {
-                "epochs": 24,
                 "experiment_queue_enabled": True,
                 "post_training_eval_enabled": True,
                 "train_control_split_enabled": True,
-                "experiment_queue_resume_checkpoints": {
-                    runtime_slug: "checkpoints/overcast/interrupted.pth",
-                },
             }
 
             with mock.patch.object(
@@ -213,14 +209,6 @@ class ExperimentQueueModuleTests(unittest.TestCase):
             self.assertEqual(child_config["gpu_ids"], "1,2")
             self.assertFalse(child_config["post_training_eval_enabled"])
             self.assertFalse(child_config["train_control_split_enabled"])
-            self.assertEqual(
-                child_config["resume_checkpoint"],
-                "checkpoints/overcast/interrupted.pth",
-            )
-            self.assertIsNone(child_config["start_epoch"])
-            self.assertEqual(child_config["end_epoch"], 24)
-            self.assertTrue(child_config["load_optimizer"])
-            self.assertTrue(child_config["resume_save_in_checkpoint_dir"])
 
     def test_failed_training_process_is_persisted_as_failure_not_success(self):
         class FailedProcess:
