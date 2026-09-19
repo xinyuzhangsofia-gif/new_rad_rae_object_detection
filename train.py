@@ -1,12 +1,6 @@
-"""Compatibility training CLI.
+"""User-facing training entrypoint."""
 
-The implementation lives in :mod:`training.runner`.  This module stays
-at the repository root so existing commands, notebooks, queue workers, and
-saved experiment instructions can continue to use ``python train.py`` and
-``from train import ...`` unchanged.
-"""
-
-from training.runner import *  # noqa: F401,F403
+from training.runner import main
 
 
 if __name__ == "__main__":

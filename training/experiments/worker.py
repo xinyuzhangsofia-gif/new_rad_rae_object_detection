@@ -40,11 +40,11 @@ def run_training_job(config_path, result_path):
 
     try:
         if train_config.get("resume_checkpoint"):
-            from train_resume import main as train_resume_main
+            from training.resume import main as train_resume_main
 
             checkpoint_root = train_resume_main(resume_config=train_config)
         else:
-            from train import main as train_main
+            from training.runner import main as train_main
 
             checkpoint_root = train_main(
                 train_config=train_config,

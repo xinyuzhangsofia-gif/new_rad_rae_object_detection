@@ -3,7 +3,6 @@ import json
 import pickle
 import sys
 import tempfile
-import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -580,17 +579,14 @@ class ExperimentQueueTests(unittest.TestCase):
                 pickle.dump({"post_training_eval_enabled": False}, output_file)
 
             observed = {}
-            fake_train_module = types.ModuleType("train")
-
             def fake_train_main(train_config, _experiment_queue_child):
                 observed["config"] = train_config
                 observed["child"] = _experiment_queue_child
                 return checkpoint_root
 
-            fake_train_module.main = fake_train_main
-            with mock.patch.dict(
-                sys.modules,
-                {"train": fake_train_module},
+            with mock.patch(
+                "training.runner.main",
+                side_effect=fake_train_main,
             ):
                 return_code = run_training_job(config_path, result_path)
             payload = json.loads(result_path.read_text(encoding="utf-8"))

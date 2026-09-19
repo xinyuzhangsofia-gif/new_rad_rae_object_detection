@@ -257,16 +257,20 @@ class CartesianDataTests(unittest.TestCase):
         self.assertEqual(require_cartesian_data(" CARTESIAN "), "cartesian")
 
     def test_sensor_prediction_and_resume_reject_polar_checkpoints(self):
-        from train_resume import load_resume_checkpoint
+        from training.resume import load_resume_checkpoint
         checkpoint = {"config": {"box_coordinate_mode": "polar"}, "model_state_dict": {}}
         with self.assertRaisesRegex(ValueError, "Only Cartesian"):
             infer_checkpoint_box_coordinate_mode(checkpoint)
         model = mock.Mock()
-        with mock.patch("train_resume.load_torch_checkpoint", return_value=checkpoint):
-            with self.assertRaisesRegex(ValueError, "Only Cartesian"):
-                load_resume_checkpoint(
-                    model, mock.Mock(), None, str(self.gt_path), torch.device("cpu")
-                )
+        with self.assertRaisesRegex(ValueError, "Only Cartesian"):
+            load_resume_checkpoint(
+                model,
+                mock.Mock(),
+                None,
+                str(self.gt_path),
+                torch.device("cpu"),
+                checkpoint_loader=mock.Mock(return_value=checkpoint),
+            )
         model.load_state_dict.assert_not_called()
 
 
