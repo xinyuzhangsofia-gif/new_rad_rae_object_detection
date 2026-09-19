@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from configs.coordinates import require_cartesian_data
+from .cartesian_detection_heads import build_cartesian_decoder
+
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels=128, kernel_size=3, dilation=1, groups=32):
@@ -162,9 +165,8 @@ class RADRAERADEBackbone(nn.Module):
     RADE-Net-style radar-only U-Net with CBAM skip attention.
     """
 
-    def __init__(self, in_channels=101, decoder_channels=128, dropout=0.0, pad_width=5):
+    def __init__(self, in_channels=101, decoder_channels=128, dropout=0.0):
         super().__init__()
-        self.pad_width = pad_width
         self.start_conv = nn.Conv2d(in_channels=in_channels, out_channels=128, kernel_size=3, stride=1, padding=1)
         self.encoder_block_1 = DoubleConvResidual(128, 128, dropout=dropout)
         self.downsample_1 = Downsample(kernel_size=2, padding=0)
@@ -184,9 +186,13 @@ class RADRAERADEBackbone(nn.Module):
         self.decoder_block_3 = DoubleConvResidual(256, decoder_channels, dropout=dropout)
 
     def forward(self, rad, rae):
+        if rad.ndim != 4 or rae.ndim != 4:
+            raise ValueError("Model15 expects RAD/RAE tensors shaped [B, D/E, R, A].")
+        if rad.shape[0] != rae.shape[0] or rad.shape[-2:] != rae.shape[-2:]:
+            raise ValueError("Model15 RAD and RAE must share batch and spatial dimensions.")
+        height, width = rad.shape[-2:]
         x = torch.cat([rad, rae], dim=1)
-        if self.pad_width > 0:
-            x = F.pad(x, (0, self.pad_width, 0, 0))
+        x = F.pad(x, (0, (-width) % 8, 0, (-height) % 8))
 
         x = self.start_conv(x)
         encoder_1 = self.encoder_block_1(x)
@@ -232,77 +238,13 @@ class RADRAERADEBackbone(nn.Module):
         decoder_3 = self.decoder_block_3(concat_3)
 
         return {
-            "backbone_feat": decoder_3,
-        }
-
-
-class RADEOfficialHeatmapHead(nn.Module):
-    def __init__(self, in_channels, hidden_channels, num_classes):
-        super().__init__()
-        self.head = nn.Sequential(
-            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, num_classes, kernel_size=1),
-        )
-
-    def forward(self, x):
-        return torch.sigmoid(self.head(x))
-
-
-class RADEOfficialRegressionHead(nn.Module):
-    def __init__(self, in_channels, hidden_channels, out_channels=8):
-        super().__init__()
-        self.head = nn.Sequential(
-            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, out_channels, kernel_size=1),
-        )
-
-    def forward(self, x):
-        return self.head(x)
-
-
-class RADEOfficialDecoder(nn.Module):
-    def __init__(self, in_channels=128, hidden_channels=128, num_classes=2):
-        super().__init__()
-        self.heatmap_head = RADEOfficialHeatmapHead(
-            in_channels=in_channels,
-            hidden_channels=hidden_channels,
-            num_classes=num_classes,
-        )
-        self.regression_head = RADEOfficialRegressionHead(
-            in_channels=in_channels,
-            hidden_channels=hidden_channels,
-            out_channels=8,
-        )
-
-    def forward(self, x):
-        heatmap = self.heatmap_head(x)
-        regression = self.regression_head(x)
-        return {
-            "heatmap": heatmap,
-            "regression": regression,
+            "backbone_feat": decoder_3[..., :height, :width],
         }
 
 
 class RADRAERADENetOfficialModel(nn.Module):
     """
-    model15: RADE-Net-style backbone/neck with official-style heatmap and
-    regression outputs for RADE-Net loss.
+    model15: RADE-Net-style backbone/neck with selectable Cartesian head.
     """
 
     def __init__(
@@ -312,22 +254,29 @@ class RADRAERADENetOfficialModel(nn.Module):
             num_classes=2,
             decoder_hidden_channels=128,
             dropout=0.0,
+            box_coordinate_mode="cartesian",
+            loss_mode="radenet",
         ):
         super().__init__()
+        self.box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
         self.num_classes = num_classes
         self.backbone = RADRAERADEBackbone(
             in_channels=d_in + e_in,
             decoder_channels=128,
             dropout=dropout,
-            pad_width=5,
         )
         self.neck = DilatedResidualNeck(in_channels=128, dilation=(1, 2, 3))
-        self.decoder = RADEOfficialDecoder(
+        self.loss_mode, self.decoder = build_cartesian_decoder(
+            loss_mode=loss_mode,
             in_channels=128,
             hidden_channels=decoder_hidden_channels,
             num_classes=num_classes,
         )
-        self.register_buffer("_model15_radenet_official_marker", torch.ones(1), persistent=True)
+        self.register_buffer(
+            f"_model15_cartesian_{self.loss_mode}_marker",
+            torch.ones(1),
+            persistent=True,
+        )
 
     def forward(self, rad, rae):
         features = self.backbone(rad, rae)

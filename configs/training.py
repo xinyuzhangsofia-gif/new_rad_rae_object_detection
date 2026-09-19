@@ -77,7 +77,7 @@ TRAIN_CONFIG = {
     "checkpoint_base_dir": CHECKPOINT_BASE_DIR,
     "checkpoint_filename_style": "compact",
     "log_base_dir": LOG_BASE_DIR,
-    "model_type": "model16",
+    "model_type": "model13",
     "model7_decoder_hidden_channels": "64",
 
     # Composed training, experiment, and runtime settings.

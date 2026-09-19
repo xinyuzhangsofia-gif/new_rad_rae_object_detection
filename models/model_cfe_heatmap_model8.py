@@ -3,6 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.ops import DeformConv2d
 
+from configs.coordinates import (
+    BOX_COORDINATE_CARTESIAN,
+    validate_box_coordinate_mode,
+)
+from .cartesian_detection_heads import build_cartesian_decoder
+
 
 class ConvBNAct(nn.Module):
     def __init__(
@@ -468,7 +474,7 @@ class RADRAEFPNCFEFusionModel(nn.Module):
 
 class RADRAEFPNCFECenterPointModel(nn.Module):
     """
-    model8: model5 FPN heatmap detector with CFE-enhanced backbone stages.
+    model8: CFE-enhanced FPN backbone with a selectable Cartesian head.
     """
 
     def __init__(
@@ -479,28 +485,50 @@ class RADRAEFPNCFECenterPointModel(nn.Module):
             decoder_hidden_channels=128,
             fpn_channels=128,
             return_features=False,
+            box_coordinate_mode="polar",
+            loss_mode="auto",
         ):
         super().__init__()
         self.num_classes = num_classes
         self.return_features = return_features
+        self.box_coordinate_mode = validate_box_coordinate_mode(
+            box_coordinate_mode
+        )
         self.backbone = RADRAEFPNCFEFusionModel(
             d_in=d_in,
             e_in=e_in,
             fpn_channels=fpn_channels,
         )
-        self.decoder = CenterPointDecoder(
-            in_channels=fpn_channels,
-            hidden_channels=decoder_hidden_channels,
-            num_classes=num_classes,
-        )
+        if self.box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            self.loss_mode, self.decoder = build_cartesian_decoder(
+                loss_mode=loss_mode,
+                in_channels=fpn_channels,
+                hidden_channels=decoder_hidden_channels,
+                num_classes=num_classes,
+            )
+            self.register_buffer(
+                f"_model8_cartesian_{self.loss_mode}_marker",
+                torch.ones(1),
+                persistent=True,
+            )
+        else:
+            if str(loss_mode).strip().lower() == "radenet":
+                raise ValueError(
+                    "Model8 RADE mode requires box_coordinate_mode='cartesian'."
+                )
+            self.loss_mode = "centerpoint"
+            self.decoder = CenterPointDecoder(
+                in_channels=fpn_channels,
+                hidden_channels=decoder_hidden_channels,
+                num_classes=num_classes,
+            )
 
     def forward(self, rad, rae):
         features = self.backbone(rad, rae)
         decoded = self.decoder(features["fused_feat"])
-        outputs = {
-            **decoded,
-            "heatmap_logits": decoded["cls_logits"],
-        }
+        outputs = {**decoded}
+        if self.loss_mode == "centerpoint":
+            outputs["heatmap_logits"] = decoded["cls_logits"]
         if self.return_features:
             outputs = {
                 **features,

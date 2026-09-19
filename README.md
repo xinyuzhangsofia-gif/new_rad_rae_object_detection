@@ -59,10 +59,9 @@ as model tensors.
 ## Cartesian-only data pipeline
 
 Training, resume, evaluation, and checkpoint visualization accept Cartesian GT
-and Cartesian checkpoints only. Model7 (CenterPoint or RADE-Net), Model15, and
-Model16 are the supported Cartesian training workflows. Other model definitions
-remain available as historical implementations; this cleanup does not redesign
-them for Cartesian training.
+and Cartesian checkpoints only. Models 7, 8, 12, 13, and 15 support selectable
+CenterPoint or RADE-Net Cartesian heads; Model16 remains RADE-Net-only. Other
+model definitions remain available as historical implementations.
 
 Set shared roots before starting a command:
 

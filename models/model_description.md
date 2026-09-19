@@ -11,7 +11,9 @@ RAD: [B, 64, R, A]
 RAE: [B, 37, R, A]
 ```
 
-Every model implementation is self-contained under `models/`.
+Each backbone remains independently implemented under `models/`. Models 7, 8,
+12, 13, and 15 intentionally share the Cartesian detection heads in
+`cartesian_detection_heads.py` so their mode semantics cannot drift apart.
 
 ## Architecture Overview
 
@@ -24,14 +26,14 @@ Every model implementation is self-contained under `models/`.
 | Model5 | Separate RAD/RAE deformable FPN encoders | FPN aggregation + RAD/RAE fusion | CenterPoint classification + box regression |
 | Model6 | Separate RAD/RAE deformable FPN encoders | FPN aggregation + RAD/RAE fusion | CenterPoint classification + quality head + box regression |
 | Model7 | Separate RAD/RAE Swin Transformer + FPN encoders | RAD/RAE fusion + residual refinement | Coordinate-aware head: CenterPoint or RADE-Net style |
-| Model8 | Separate RAD/RAE CFE-enhanced deformable FPN encoders | FPN aggregation + RAD/RAE fusion | CenterPoint classification + box regression |
+| Model8 | Separate RAD/RAE CFE-enhanced deformable FPN encoders | FPN aggregation + RAD/RAE fusion | Selectable Cartesian CenterPoint / RADE-Net head |
 | Model9 | Separate RAD/RAE CFE-enhanced deformable pyramid encoders | Multi-scale RAD/RAE fusion + BiFPN + decoder fusion | CenterPoint classification + box regression |
 | Model10 | Separate RAD/RAE deformable FPN pyramid encoders | Multi-scale RAD/RAE fusion + separate classification/regression feature mixing | Split CenterPoint head |
 | Model11 | Separate RAD/RAE deformable FPN encoders | FPN aggregation + RAD/RAE fusion | QFL-style CenterPoint classification + box regression |
-| Model12 | Separate RAD/RAE deformable FPN encoders | FPN aggregation + RAD/RAE fusion | YOLOX-style decoupled classification/objectness/regression head |
-| Model13 | RADE-Net-style U-Net backbone with CBAM | Dilated residual neck | CenterPoint-style classification + box regression |
+| Model12 | Separate RAD/RAE deformable FPN encoders | FPN aggregation + RAD/RAE fusion | Selectable Cartesian CenterPoint / RADE-Net head; legacy Polar YOLOX head |
+| Model13 | RADE-Net-style U-Net backbone with CBAM | Dilated residual neck | Selectable Cartesian CenterPoint / RADE-Net head |
 | Model14 | Separate lightweight RAD/RAE Swin Transformer + FPN encoders | RAD/RAE fusion | YOLOX-style decoupled head |
-| Model15 | RADE-Net-style U-Net backbone with CBAM | Dilated residual neck | Official-style RADE-Net heatmap + 8-channel regression |
+| Model15 | RADE-Net-style U-Net backbone with CBAM | Dilated residual neck | Selectable Cartesian CenterPoint / RADE-Net head |
 | Model16 | Separate RAD/RAE Swin Transformer + FPN encoders | RAD/RAE fusion | Official-style RADE-Net heatmap + 8-channel regression |
 
 ## Model1 — Stage CNN CenterPoint
@@ -154,11 +156,11 @@ Cartesian + RADE-Net:
     Model7RADECartesianDecoder
 ```
 
-**Main components:** `SwinFPNEncoder`, `RADRAESwinFPNEncoder`, `RADRAEFusion`, `CenterPointDecoder`, `Model7RADEHeatmapHead`, `Model7RADERegressionHead`, and `Model7RADECartesianDecoder`.
+**Main components:** `SwinFPNEncoder`, `RADRAESwinFPNEncoder`, `RADRAEFusion`, the legacy Polar `CenterPointDecoder`, and the shared Cartesian decoders.
 
 **Main outputs:** CenterPoint branches in polar or Cartesian CenterPoint mode; `heatmap` and 8-channel `regression` in Cartesian RADE-Net mode.
 
-## Model8 — CFE Deformable FPN CenterPoint
+## Model8 — CFE Deformable FPN Cartesian Dual-Mode Detector
 
 **File:** `model_cfe_heatmap_model8.py`
 
@@ -166,13 +168,13 @@ Cartesian + RADE-Net:
 
 ```text
 RAD -> FPNCFEEncoder --\
-                       -> RADRAEFusion -> CenterPointDecoder
+                       -> RADRAEFusion -> selectable Cartesian decoder
 RAE -> FPNCFEEncoder --/
 ```
 
 **Main components:** `DeformConvBNAct`, `SpatialConvBNAct`, `DilatedConvBNAct`, `ConvolutionalFeatureEnhancement`, `FPNCFEEncoder`, `RADRAEFPNCFEEncoder`, `RADRAEFusion`, and `CenterPointDecoder`.
 
-**Main outputs:** CenterPoint class logits and the center, height, size, and yaw box branches.
+**Main outputs:** CenterPoint split branches or RADE-Net `heatmap` and unified 8-channel `regression`.
 
 ## Model9 — CFE Deformable BiFPN CenterPoint
 
@@ -225,7 +227,7 @@ RAE -> FPNDeformEncoder --/                  |-- QFL classification
 
 **Main outputs:** `cls_logits` and its `qfl_cls_logits` alias, plus center offset, center height, size, yaw, and box regression.
 
-## Model12 — Deformable FPN YOLOX-Style Detector
+## Model12 — Deformable FPN Cartesian Dual-Mode Detector
 
 **File:** `model_yolox_fpn_heatmap_model12.py`
 
@@ -233,23 +235,15 @@ RAE -> FPNDeformEncoder --/                  |-- QFL classification
 
 ```text
 RAD -> FPNDeformEncoder --\
-                          -> RADRAEFusion -> CenterPointYOLOXDecoder
-RAE -> FPNDeformEncoder --/                  |
-                                             shared stem
-                                             |-- classification tower -> class logits
-                                             `-- regression tower
-                                                 |-- objectness
-                                                 |-- center offset
-                                                 |-- center height
-                                                 |-- size
-                                                 `-- yaw
+                          -> RADRAEFusion -> selectable Cartesian decoder
+RAE -> FPNDeformEncoder --/
 ```
 
-**Main components:** `FPNDeformEncoder`, `RADRAEFPNDeformEncoder`, `RADRAEFusion`, `RADRAEFPNDeformFusionModel`, and `CenterPointYOLOXDecoder`.
+**Main components:** `FPNDeformEncoder`, `RADRAEFPNDeformEncoder`, `RADRAEFusion`, `RADRAEFPNDeformFusionModel`, and the shared Cartesian decoders. The old YOLOX decoder remains only for legacy Polar construction.
 
-**Main outputs:** `cls_logits`, `objectness_logits`, center offset, center height, size, yaw, and box regression.
+**Main outputs:** CenterPoint split branches or RADE-Net `heatmap` and unified regression.
 
-## Model13 — RADE-Net CBAM CenterPoint
+## Model13 — Cartesian RADE-Net CBAM
 
 **File:** `model_radenet_cbam_model13.py`
 
@@ -261,12 +255,12 @@ RAD + RAE
    -> RADE-Net-style U-Net backbone
    -> CBAM-attended skip connections
    -> DilatedResidualNeck
-   -> RADECenterPointDecoder
+   -> selectable Cartesian CenterPoint / RADE-Net decoder
 ```
 
-**Main components:** `RADRAERADEBackbone`, `DoubleConvResidual`, `Bottleneck`, `ConvolutionalBlockAttention`, `ChannelAttentionModule`, `SpatialAttentionModule`, `DilatedResidualNeck`, `ExpandedCenterHead`, `ExpandedRegHead`, and `RADECenterPointDecoder`.
+**Main components:** `RADRAERADEBackbone`, `DoubleConvResidual`, `Bottleneck`, `ConvolutionalBlockAttention`, `ChannelAttentionModule`, `SpatialAttentionModule`, `DilatedResidualNeck`, and the shared Cartesian decoders.
 
-**Main outputs:** class logits and an 8-channel box regression split into center offset, center height, size, and yaw.
+**Main outputs:** CenterPoint split branches or a RADE centre heatmap and 8-channel metre-space regression. RAD/RAE tensors remain the input; exact Cartesian GT supplies `x, y, z, length, width, height, yaw`. Old Polar Model13 checkpoints remain incompatible.
 
 ## Model14 — Lightweight Swin-FPN YOLOX-Style Detector
 
@@ -292,7 +286,7 @@ RAE -> lightweight SwinFPNEncoder --/                     |
 
 **Main outputs:** `cls_logits`, `objectness_logits`, center offset, center height, size, yaw, and box regression.
 
-## Model15 — RADE-Net Official-Style Detector
+## Model15 — RADE-Net Backbone Cartesian Dual-Mode Detector
 
 **File:** `model_radenet_official_model15.py`
 
@@ -304,14 +298,12 @@ RAD + RAE
    -> RADE-Net-style U-Net backbone
    -> CBAM-attended skip connections
    -> DilatedResidualNeck
-   -> RADEOfficialDecoder
-       |-- RADEOfficialHeatmapHead
-       `-- RADEOfficialRegressionHead
+   -> selectable Cartesian CenterPoint / RADE-Net decoder
 ```
 
-**Main components:** `RADRAERADEBackbone`, `ConvolutionalBlockAttention`, `DilatedResidualNeck`, `RADEOfficialHeatmapHead`, `RADEOfficialRegressionHead`, and `RADEOfficialDecoder`.
+**Main components:** `RADRAERADEBackbone`, `ConvolutionalBlockAttention`, `DilatedResidualNeck`, and the shared Cartesian decoders.
 
-**Main outputs:** `heatmap` and `regression`; the regression head produces 8 channels.
+**Main outputs:** CenterPoint split branches or RADE-Net `heatmap` and 8-channel `regression`. Computational padding is cropped before decoding so it never changes the physical R/A grid.
 
 ## Model16 — Swin-FPN RADE-Net Official-Style Detector
 
@@ -340,11 +332,11 @@ RAE -> SwinFPNEncoder --/                  |-- RADEOfficialHeatmapHead
 - **Model4:** deformable stage CNN encoders with fused CenterPoint decoding.
 - **Model5:** deformable FPN encoders with fused CenterPoint decoding.
 - **Model6:** deformable FPN encoding with CenterPoint classification, quality, and box branches.
-- **Model8:** CFE-enhanced deformable FPN encoders with CenterPoint decoding.
+- **Model8:** CFE-enhanced deformable FPN encoders with a Cartesian dual-mode head.
 - **Model9:** CFE-enhanced deformable pyramids with BiFPN fusion and CenterPoint decoding.
 - **Model10:** deformable FPN pyramids with separate feature mixing for classification and regression.
 - **Model11:** deformable FPN encoding with QFL-style classification and box regression.
-- **Model12:** deformable FPN encoding with a YOLOX-style decoupled detection head.
+- **Model12:** deformable FPN encoding with a Cartesian dual-mode head (and legacy Polar YOLOX construction).
 
 ### Transformer Family
 
@@ -354,8 +346,8 @@ RAE -> SwinFPNEncoder --/                  |-- RADEOfficialHeatmapHead
 
 ### RADE-Net Family
 
-- **Model13:** a CBAM U-Net backbone and dilated residual neck with CenterPoint-style heads.
-- **Model15:** a CBAM U-Net backbone and dilated residual neck with official-style RADE-Net heads.
+- **Model13:** a CBAM U-Net backbone and dilated residual neck with a Cartesian dual-mode head.
+- **Model15:** a CBAM U-Net backbone and dilated residual neck with a Cartesian dual-mode head.
 
 ## Notes
 

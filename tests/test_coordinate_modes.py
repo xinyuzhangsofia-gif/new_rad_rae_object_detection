@@ -62,7 +62,7 @@ class CoordinateModeTests(unittest.TestCase):
         self.assertEqual(cartesian_args.model_type, "model7")
         self.assertEqual(
             cartesian_args.cartesian_training_workflow,
-            "radenet_official_in_model7",
+            "radenet_cartesian_in_model7",
         )
         self.assertEqual(
             resolve_loss_mode(
@@ -74,7 +74,7 @@ class CoordinateModeTests(unittest.TestCase):
 
     def test_training_cfg_selects_radenet_or_unnormalized_centerpoint(self):
         for requested_mode, expected_workflow in (
-            ("radenet", "radenet_official_in_model7"),
+            ("radenet", "radenet_cartesian_in_model7"),
             ("centerpoint", "centerpoint_cartesian_in_model7"),
         ):
             args = SimpleNamespace(

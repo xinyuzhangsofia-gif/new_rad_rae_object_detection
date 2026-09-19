@@ -142,6 +142,29 @@ def _has_state_marker(state_dict, marker):
     )
 
 
+def _dual_mode_marker(state_dict, mode=None):
+    modes = (mode,) if mode is not None else ("centerpoint", "radenet")
+    for model_number in (7, 8, 12, 13, 15):
+        for candidate_mode in modes:
+            marker = (
+                f"_model{model_number}_cartesian_"
+                f"{candidate_mode}_marker"
+            )
+            if _has_state_marker(state_dict, marker):
+                return model_number, candidate_mode
+    return None
+
+
+def _reject_legacy_model13_checkpoint(state_dict):
+    if _has_state_marker(state_dict, "_model13_radenet_marker"):
+        raise ValueError(
+            "The legacy Polar model13 checkpoint is not supported by the "
+            "Cartesian-only model13 architecture. Train a new Cartesian "
+            "model13 checkpoint; changing its coordinate config does not "
+            "convert the detector weights."
+        )
+
+
 def load_model_checkpoint(
         model,
         checkpoint_path=None,
@@ -158,6 +181,7 @@ def load_model_checkpoint(
         checkpoint = load_torch_checkpoint(checkpoint_path, map_location=device)
 
     state_dict = get_checkpoint_state_dict(checkpoint)
+    _reject_legacy_model13_checkpoint(state_dict)
     load_result = model.load_state_dict(state_dict, strict=strict)
     model.eval()
 
@@ -244,6 +268,7 @@ def infer_checkpoint_box_coordinate_mode(checkpoint):
     """Recover the stored coordinate mode, including legacy marker fallback."""
     config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
     state_dict = get_checkpoint_state_dict(checkpoint)
+    _reject_legacy_model13_checkpoint(state_dict)
     checkpoint_model_type = str(config.get("model_type", "")).strip().lower()
     inferred_mode = (
         BOX_COORDINATE_CARTESIAN
@@ -254,6 +279,8 @@ def infer_checkpoint_box_coordinate_mode(checkpoint):
                 "_model7_cartesian_centerpoint_marker",
             )
             or _has_state_marker(state_dict, "_model15_radenet_official_marker")
+            or _has_state_marker(state_dict, "_model13_cartesian_radenet_marker")
+            or _dual_mode_marker(state_dict) is not None
             or _has_state_marker(
                 state_dict,
                 "_model16_swin_radenet_official_marker",
@@ -271,9 +298,13 @@ def infer_checkpoint_loss_mode(checkpoint, model_type, box_coordinate_mode):
     """Recover detector-head/loss mode from config or historical markers."""
     config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
     state_dict = get_checkpoint_state_dict(checkpoint)
+    _reject_legacy_model13_checkpoint(state_dict)
     configured_loss_mode = config.get("loss_mode")
     if configured_loss_mode in (None, "", "auto"):
-        if _has_state_marker(state_dict, "_model7_cartesian_radenet_marker"):
+        dual_marker = _dual_mode_marker(state_dict)
+        if dual_marker is not None:
+            configured_loss_mode = dual_marker[1]
+        elif _has_state_marker(state_dict, "_model7_cartesian_radenet_marker"):
             configured_loss_mode = "radenet"
         elif _has_state_marker(
             state_dict,
@@ -641,6 +672,7 @@ def build_model_for_checkpoint(
                 "checkpoint_path is required when checkpoint is not provided."
             )
         checkpoint = load_torch_checkpoint(checkpoint_path, map_location="cpu")
+    _reject_legacy_model13_checkpoint(get_checkpoint_state_dict(checkpoint))
     overrides = infer_checkpoint_decoder_overrides(checkpoint)
     build_kwargs = {
         "model_type": model_type,
@@ -668,6 +700,7 @@ def infer_model_type_from_checkpoint(checkpoint_or_path):
         checkpoint_path = None
         checkpoint = checkpoint_or_path
     state_dict = get_checkpoint_state_dict(checkpoint)
+    _reject_legacy_model13_checkpoint(state_dict)
     if isinstance(checkpoint, dict):
         model_type = checkpoint.get("config", {}).get("model_type")
         if model_type:
@@ -677,13 +710,16 @@ def infer_model_type_from_checkpoint(checkpoint_or_path):
         return "model11"
     if "_model14_swin_yolox_marker" in state_dict:
         return "model14"
+    dual_marker = _dual_mode_marker(state_dict)
+    if dual_marker is not None:
+        return f"model{dual_marker[0]}"
     if "_model15_radenet_official_marker" in state_dict:
         return "model15"
     if "_model16_swin_radenet_official_marker" in state_dict:
         return "model16"
     if "_model7_cartesian_radenet_marker" in state_dict:
         return "model7"
-    if "_model13_radenet_marker" in state_dict:
+    if _has_state_marker(state_dict, "_model13_cartesian_radenet_marker"):
         return "model13"
     if "_model12_yolox_marker" in state_dict:
         return "model12"

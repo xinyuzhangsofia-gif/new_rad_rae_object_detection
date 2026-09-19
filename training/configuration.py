@@ -28,7 +28,15 @@ SEDAN_CLASS_NAME = CLASS_NAMES[0]
 DEFAULT_GT_OBJECT_IGNORE_OVERRIDE_FILENAME = "object_ignore_override.json"
 OFFICIAL_MODEL15_BASE_LR = 0.001
 OFFICIAL_MODEL15_MIN_LR = 0.00001
-CARTESIAN_RADENET_MODELS = {"model7", "model15", "model16"}
+CARTESIAN_DUAL_MODE_MODELS = {
+    "model7",
+    "model8",
+    "model12",
+    "model13",
+    "model15",
+}
+CARTESIAN_RADENET_MODELS = CARTESIAN_DUAL_MODE_MODELS | {"model16"}
+CARTESIAN_TRAINING_MODELS = CARTESIAN_RADENET_MODELS
 LOSS_MODE_CHOICES = {"auto", "radenet", "centerpoint"}
 MODEL7_DECODER_HIDDEN_CHANNEL_CHOICES = {64, 128}
 DOMAIN_SHIFT_TRAIN_BRANCH_CHOICES = {"source", "target"}
@@ -400,21 +408,24 @@ def apply_training_coordinate_mode(args):
         raise ValueError(
             "box_coordinate_mode='cartesian' requires cartesian_gt_root."
         )
-    if configured_model_type not in CARTESIAN_RADENET_MODELS:
+    if configured_model_type not in CARTESIAN_TRAINING_MODELS:
         raise ValueError(
-            "Cartesian training supports model7 (CenterPoint or RADE-Net), "
-            "model15, and model16. Other model implementations are retained "
-            "for reference, not as Cartesian data workflows."
+            "Cartesian training supports dual-mode models 7, 8, 12, 13, "
+            "and 15, plus RADE-only model16. Other model implementations "
+            "are retained for reference, not as Cartesian data workflows."
         )
     args.model_type = configured_model_type
-    if configured_model_type == "model7" and args.loss_mode == "centerpoint":
-        args.cartesian_training_workflow = "centerpoint_cartesian_in_model7"
-    else:
+    effective_loss_mode = resolve_loss_mode(
+        configured_model_type,
+        box_coordinate_mode=args.box_coordinate_mode,
+        loss_mode=args.loss_mode,
+    )
+    if configured_model_type in CARTESIAN_DUAL_MODE_MODELS:
         args.cartesian_training_workflow = (
-            "radenet_official_in_model7"
-            if configured_model_type == "model7"
-            else "radenet_official"
+            f"{effective_loss_mode}_cartesian_in_{configured_model_type}"
         )
+    else:
+        args.cartesian_training_workflow = "radenet_official"
     args.training_eval_official_enabled = True
     return args
 
@@ -609,38 +620,45 @@ def resolve_loss_mode(
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     requested_loss_mode = normalize_loss_mode(loss_mode)
 
+    if model_type in {"model13", "model15"}:
+        if box_coordinate_mode != BOX_COORDINATE_CARTESIAN:
+            raise ValueError(
+                f"{model_type} requires box_coordinate_mode='cartesian'; "
+                "both selectable heads regress Cartesian boxes."
+            )
+
     if requested_loss_mode == "radenet":
         if model_type not in CARTESIAN_RADENET_MODELS:
             raise ValueError(
                 f"loss_mode='radenet' is not supported for {model_type}; "
-                "use a RADE-Net model (model7, model15, or model16)."
+                "use model7, model8, model12, model13, model15, or model16."
             )
         if (
-            model_type == "model7"
+            model_type in CARTESIAN_DUAL_MODE_MODELS
             and box_coordinate_mode != BOX_COORDINATE_CARTESIAN
         ):
             raise ValueError(
-                "model7 with loss_mode='radenet' requires "
+                f"{model_type} with loss_mode='radenet' requires "
                 "box_coordinate_mode='cartesian'."
             )
         return "radenet"
 
     if requested_loss_mode == "centerpoint":
-        if model_type in {"model12", "model14", "model15", "model16"}:
+        if model_type in {"model14", "model16"}:
             raise ValueError(
                 f"loss_mode='centerpoint' is not supported for {model_type}; "
                 "this model uses a different detection head."
             )
         return "centerpoint"
 
-    if model_type in {"model12", "model14"}:
-        return "yolox"
     if (
-        model_type == "model7"
+        model_type in CARTESIAN_DUAL_MODE_MODELS
         and box_coordinate_mode == BOX_COORDINATE_CARTESIAN
     ):
         return "radenet"
-    if model_type in {"model15", "model16"}:
+    if model_type in {"model12", "model14"}:
+        return "yolox"
+    if model_type == "model16":
         return "radenet"
     return "centerpoint"
 

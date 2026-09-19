@@ -8,7 +8,7 @@ from .model_fpn_nodeform_heatmap_model3 import RADRAEFPNNoDeformCenterPointModel
 from .model_fpn_quality_heatmap_model6 import RADRAEFPNQualityCenterPointModel
 from .model_fpn_split_heatmap_model10 import RADRAEFPNMultiFeatureCenterPointModel
 from .model_qfl_fpn_heatmap_model11 import RADRAEQFLFPNCenterPointModel
-from .model_radenet_cbam_model13 import RADRAERADENetCenterPointModel
+from .model_radenet_cbam_model13 import RADRAERADENetCartesianModel
 from .model_radenet_official_model15 import RADRAERADENetOfficialModel
 from .model_swin_heatmap_model7 import RADRAESwinFPNCenterPointModel
 from .model_swin_radenet_official_model16 import RADRAESwinRADENetOfficialModel
@@ -29,7 +29,7 @@ __all__ = [
     "RADRAEFPNQualityCenterPointModel",
     "RADRAEFPNMultiFeatureCenterPointModel",
     "RADRAEQFLFPNCenterPointModel",
-    "RADRAERADENetCenterPointModel",
+    "RADRAERADENetCartesianModel",
     "RADRAERADENetOfficialModel",
     "RADRAESwinFPNCenterPointModel",
     "RADRAESwinRADENetOfficialModel",

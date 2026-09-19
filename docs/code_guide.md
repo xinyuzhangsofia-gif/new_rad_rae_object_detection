@@ -131,7 +131,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 
 Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单作为历史资产保留，未重新生成。模型内部 RAE 网格和 Polar 雷达显示仍保留；Polar AP 与独立评估坐标选择器已删除。
 
-当前支持的 Cartesian 训练组合是 Model7（CenterPoint / RADE-Net）、Model15、Model16。其余模型实现仍保留为历史结构；这次没有改造所有模型的检测头或损失。
+当前支持的 Cartesian 训练组合是 Model7、8、12、13、15（都可选择 CenterPoint / RADE-Net）以及 RADE-Net-only 的 Model16。五个双模式模型共享同一输出契约，但保留各自独立 backbone。
 
 ## 本次已经做了什么
 
@@ -252,7 +252,8 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [models/factory.py](../models/factory.py) | 185 | 将 `model1` 到 `model16` 映射到具体网络，并设置默认通道数、坐标和损失模式。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_bifpn_heatmap_model2.py](../models/model_bifpn_heatmap_model2.py) | 314 | Model2：多层金字塔编码器和可学习加权 BiFPN 融合。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_cfe_bifpn_heatmap_model9.py](../models/model_cfe_bifpn_heatmap_model9.py) | 212 | Model9：组合 CFE/可变形金字塔编码和加权 BiFPN。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
-| [models/model_cfe_heatmap_model8.py](../models/model_cfe_heatmap_model8.py) | 262 | Model8：在 FPN 中加入卷积特征增强和空洞上下文。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
+| [models/cartesian_detection_heads.py](../models/cartesian_detection_heads.py) | — | 五个双模式模型共享的 Cartesian CenterPoint / RADE-Net 检测头。 | 两种模式都输出米制 Cartesian 框；不要把 loss 与不匹配的 head 混用。 |
+| [models/model_cfe_heatmap_model8.py](../models/model_cfe_heatmap_model8.py) | 262 | Model8：在 FPN 中加入卷积特征增强和空洞上下文。 | Cartesian 训练可选择 CenterPoint 或 RADE-Net 头。 |
 | [models/model_con2d_heatmap_model1.py](../models/model_con2d_heatmap_model1.py) | 392 | Model1：普通分阶段 Conv2D 双视图编码器、残差融合和 CenterPoint 检测头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_deform_heatmap_model4.py](../models/model_deform_heatmap_model4.py) | 435 | Model4：分阶段可变形卷积编码器、残差融合和 CenterPoint 头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_fpn_heatmap_model5.py](../models/model_fpn_heatmap_model5.py) | 186 | Model5：可变形 FPN 双视图编码器和 CenterPoint 解码器。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
@@ -260,12 +261,12 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [models/model_fpn_quality_heatmap_model6.py](../models/model_fpn_quality_heatmap_model6.py) | 92 | Model6：在 Model5 基础上增加独立质量预测头和质量感知分数。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_fpn_split_heatmap_model10.py](../models/model_fpn_split_heatmap_model10.py) | 243 | Model10：保留并混合多个 FPN 尺度，通过分支特征解码。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_qfl_fpn_heatmap_model11.py](../models/model_qfl_fpn_heatmap_model11.py) | 85 | Model11：Model5 风格 FPN 加 Quality Focal Loss 兼容解码器。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
-| [models/model_radenet_cbam_model13.py](../models/model_radenet_cbam_model13.py) | 346 | Model13：RADE-Net 风格残差网络，并加入通道与空间注意力。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
-| [models/model_radenet_official_model15.py](../models/model_radenet_official_model15.py) | 111 | Model15：RADE 骨干上的官方风格 RADE-Net 热力图和回归头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
+| [models/model_radenet_cbam_model13.py](../models/model_radenet_cbam_model13.py) | — | Model13：以 RAD/RAE 为输入的 CBAM U-Net，原生回归 Cartesian 米制框。 | 支持 Cartesian CenterPoint / RADE-Net；旧 Polar 权重不可用于新检测头。 |
+| [models/model_radenet_official_model15.py](../models/model_radenet_official_model15.py) | 111 | Model15：RADE 骨干连接共享 Cartesian 双模式头。 | 临时 U-Net padding 会在输出前裁掉，不改变物理 R/A 网格。 |
 | [models/model_swin_heatmap_model7.py](../models/model_swin_heatmap_model7.py) | 298 | Model7：Swin 窗口注意力 FPN、双视图融合，并支持 CenterPoint 或模型内官方 RADE-Net Cartesian 头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_swin_radenet_official_model16.py](../models/model_swin_radenet_official_model16.py) | 41 | Model16：Model7 Swin-FPN 特征提取器连接官方风格 RADE-Net 解码器。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_swin_yolox_model14.py](../models/model_swin_yolox_model14.py) | 88 | Model14：轻量 Swin-FPN 融合和 YOLOX 检测头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
-| [models/model_yolox_fpn_heatmap_model12.py](../models/model_yolox_fpn_heatmap_model12.py) | 112 | Model12：Model5 风格 FPN 加 YOLOX/SimOTA 稠密检测头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
+| [models/model_yolox_fpn_heatmap_model12.py](../models/model_yolox_fpn_heatmap_model12.py) | 112 | Model12：Model5 风格 FPN，Cartesian 训练连接共享双模式头。 | 旧 YOLOX 头仅保留给历史 Polar 构造。 |
 
 ### training
 

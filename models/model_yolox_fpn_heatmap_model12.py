@@ -3,6 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.ops import DeformConv2d
 
+from configs.coordinates import (
+    BOX_COORDINATE_CARTESIAN,
+    validate_box_coordinate_mode,
+)
+from .cartesian_detection_heads import build_cartesian_decoder
+
 
 class ConvBNAct(nn.Module):
     def __init__(
@@ -348,7 +354,9 @@ class CenterPointYOLOXDecoder(nn.Module):
 
 class RADRAEYOLOXFPNCenterPointModel(nn.Module):
     """
-    model12: FPN CenterPoint detector with a YOLOX-style decoupled head.
+    model12: deformable FPN with selectable Cartesian CenterPoint/RADE heads.
+
+    The historical YOLOX head remains available only for legacy Polar runs.
     """
 
     def __init__(
@@ -358,20 +366,47 @@ class RADRAEYOLOXFPNCenterPointModel(nn.Module):
             num_classes=2,
             decoder_hidden_channels=64,
             fpn_channels=64,
+            box_coordinate_mode="polar",
+            loss_mode="auto",
         ):
         super().__init__()
         self.num_classes = num_classes
-        self.register_buffer("_model12_yolox_marker", torch.ones(1), persistent=True)
+        self.box_coordinate_mode = validate_box_coordinate_mode(
+            box_coordinate_mode
+        )
         self.backbone = RADRAEFPNDeformFusionModel(
             d_in=d_in,
             e_in=e_in,
             fpn_channels=fpn_channels,
         )
-        self.decoder = CenterPointYOLOXDecoder(
-            in_channels=fpn_channels,
-            hidden_channels=decoder_hidden_channels,
-            num_classes=num_classes,
-        )
+        if self.box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+            self.loss_mode, self.decoder = build_cartesian_decoder(
+                loss_mode=loss_mode,
+                in_channels=fpn_channels,
+                hidden_channels=decoder_hidden_channels,
+                num_classes=num_classes,
+            )
+            self.register_buffer(
+                f"_model12_cartesian_{self.loss_mode}_marker",
+                torch.ones(1),
+                persistent=True,
+            )
+        else:
+            normalized_loss_mode = str(loss_mode).strip().lower()
+            if normalized_loss_mode not in {"", "auto", "yolox"}:
+                raise ValueError(
+                    "Model12 CenterPoint/RADE modes require "
+                    "box_coordinate_mode='cartesian'."
+                )
+            self.loss_mode = "yolox"
+            self.register_buffer(
+                "_model12_yolox_marker", torch.ones(1), persistent=True
+            )
+            self.decoder = CenterPointYOLOXDecoder(
+                in_channels=fpn_channels,
+                hidden_channels=decoder_hidden_channels,
+                num_classes=num_classes,
+            )
 
     def forward(self, rad, rae):
         features = self.backbone(rad, rae)

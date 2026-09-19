@@ -1,6 +1,11 @@
+"""Model13: RAD/RAE CBAM U-Net with Cartesian-only metric box regression."""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from configs.coordinates import require_cartesian_data
+from .cartesian_detection_heads import build_cartesian_decoder
 
 
 class SingleConv(nn.Module):
@@ -157,55 +162,13 @@ class DilatedResidualNeck(nn.Module):
         return self.neck(x)
 
 
-class ExpandedCenterHead(nn.Module):
-    def __init__(self, in_channels, hidden_channels, num_classes):
-        super().__init__()
-        self.head = nn.Sequential(
-            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, num_classes, kernel_size=1),
-        )
-        nn.init.constant_(self.head[-1].bias, -2.19)
-
-    def forward(self, x):
-        return self.head(x)
-
-
-class ExpandedRegHead(nn.Module):
-    def __init__(self, in_channels, hidden_channels, out_channels=8):
-        super().__init__()
-        self.head = nn.Sequential(
-            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, out_channels, kernel_size=1),
-        )
-
-    def forward(self, x):
-        return self.head(x)
-
-
 class RADRAERADEBackbone(nn.Module):
     """
     RADE-Net-style radar-only U-Net with CBAM skip attention.
     """
 
-    def __init__(self, in_channels=101, decoder_channels=128, dropout=0.0, pad_width=5):
+    def __init__(self, in_channels=101, decoder_channels=128, dropout=0.0):
         super().__init__()
-        self.pad_width = pad_width
         self.start_conv = nn.Conv2d(in_channels=in_channels, out_channels=128, kernel_size=3, stride=1, padding=1)
         self.encoder_block_1 = DoubleConvResidual(128, 128, dropout=dropout)
         self.downsample_1 = Downsample(kernel_size=2, padding=0)
@@ -225,9 +188,15 @@ class RADRAERADEBackbone(nn.Module):
         self.decoder_block_3 = DoubleConvResidual(256, decoder_channels, dropout=dropout)
 
     def forward(self, rad, rae):
+        if rad.ndim != 4 or rae.ndim != 4:
+            raise ValueError("Model13 expects RAD/RAE tensors shaped [B, D/E, R, A].")
+        if rad.shape[0] != rae.shape[0] or rad.shape[-2:] != rae.shape[-2:]:
+            raise ValueError("Model13 RAD and RAE must share batch and spatial dimensions.")
+        height, width = rad.shape[-2:]
         x = torch.cat([rad, rae], dim=1)
-        if self.pad_width > 0:
-            x = F.pad(x, (0, self.pad_width, 0, 0))
+        # Three pooling stages require multiples of eight. Padding is purely
+        # computational and must never become part of the physical RA grid.
+        x = F.pad(x, (0, (-width) % 8, 0, (-height) % 8))
 
         x = self.start_conv(x)
         encoder_1 = self.encoder_block_1(x)
@@ -273,41 +242,16 @@ class RADRAERADEBackbone(nn.Module):
         decoder_3 = self.decoder_block_3(concat_3)
 
         return {
-            "backbone_feat": decoder_3,
+            "backbone_feat": decoder_3[..., :height, :width],
         }
 
 
-class RADECenterPointDecoder(nn.Module):
-    def __init__(self, in_channels=128, hidden_channels=128, num_classes=2):
-        super().__init__()
-        self.cls_head = ExpandedCenterHead(
-            in_channels=in_channels,
-            hidden_channels=hidden_channels,
-            num_classes=num_classes,
-        )
-        self.reg_head = ExpandedRegHead(
-            in_channels=in_channels,
-            hidden_channels=hidden_channels,
-            out_channels=8,
-        )
-
-    def forward(self, x):
-        cls_logits = self.cls_head(x)
-        box_reg = self.reg_head(x)
-        return {
-            "cls_logits": cls_logits,
-            "center_offset": box_reg[:, 0:2],
-            "center_height": box_reg[:, 2:3],
-            "size": box_reg[:, 3:6],
-            "yaw": box_reg[:, 6:8],
-            "box_reg": box_reg,
-        }
-
-
-class RADRAERADENetCenterPointModel(nn.Module):
+class RADRAERADENetCartesianModel(nn.Module):
     """
-    model13: RADE-Net-style CBAM U-Net backbone with the paper's dilated neck and
-    decoupled CenterPoint-style heads, adapted to MVRSS RAD/RAE inputs.
+    Model13: CBAM U-Net and dilated neck trained on exact Cartesian GT boxes.
+
+    Inputs remain sensor RAD/RAE tensors [B, D/E, R, A]. Only the native
+    Cartesian CenterPoint and RADE head contracts are selectable.
     """
 
     def __init__(
@@ -317,22 +261,54 @@ class RADRAERADENetCenterPointModel(nn.Module):
             num_classes=2,
             decoder_hidden_channels=128,
             dropout=0.0,
+            box_coordinate_mode="cartesian",
+            loss_mode="radenet",
         ):
         super().__init__()
+        self.box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
         self.num_classes = num_classes
         self.backbone = RADRAERADEBackbone(
             in_channels=d_in + e_in,
             decoder_channels=128,
             dropout=dropout,
-            pad_width=5,
         )
         self.neck = DilatedResidualNeck(in_channels=128, dilation=(1, 2, 3))
-        self.decoder = RADECenterPointDecoder(
+        self.loss_mode, self.decoder = build_cartesian_decoder(
+            loss_mode=loss_mode,
             in_channels=128,
             hidden_channels=decoder_hidden_channels,
             num_classes=num_classes,
         )
-        self.register_buffer("_model13_radenet_marker", torch.ones(1), persistent=True)
+        self.register_buffer(
+            f"_model13_cartesian_{self.loss_mode}_marker",
+            torch.ones(1),
+            persistent=True,
+        )
+
+    def _load_from_state_dict(
+            self, state_dict, prefix, local_metadata, strict,
+            missing_keys, unexpected_keys, error_msgs,
+        ):
+        # Also covers manual resume and DataParallel, even with strict=False.
+        # The previous Model13 decoder has different box semantics and cannot
+        # be interpreted as a checkpoint of this Cartesian architecture.
+        expected_marker = prefix + f"_model13_cartesian_{self.loss_mode}_marker"
+        has_old_marker = any(
+            key.endswith("_model13_radenet_marker") for key in state_dict
+        )
+        has_expected_marker = expected_marker in state_dict or any(
+            key.endswith(f".{expected_marker}") for key in state_dict
+        )
+        if has_old_marker or not has_expected_marker:
+            raise RuntimeError(
+                f"Model13 {self.loss_mode} mode requires a matching native "
+                "Cartesian checkpoint; checkpoints from another head or the "
+                "old Polar architecture cannot be loaded."
+            )
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict,
+            missing_keys, unexpected_keys, error_msgs,
+        )
 
     def forward(self, rad, rae):
         features = self.backbone(rad, rae)
@@ -342,5 +318,4 @@ class RADRAERADENetCenterPointModel(nn.Module):
             **features,
             "fused_feat": fused_feat,
             **decoded,
-            "heatmap_logits": decoded["cls_logits"],
         }

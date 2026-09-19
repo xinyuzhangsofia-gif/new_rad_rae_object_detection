@@ -61,15 +61,16 @@ EXPECTED_PUBLIC_MODELS = {
         "RADRAESwinFPNCenterPointModel",
         "(d_in=64, e_in=37, num_classes=2, decoder_hidden_channels=128, "
         "fpn_channels=128, box_coordinate_mode='polar', loss_mode='auto')",
-        338,
-        "f31cb8db1451ce392176a167517a63123d5dee0eab673bb1295d41b154caf959",
+        339,
+        "e488658e5402a3b6ee4f0d750b165be68b7268dbdd79a77415ba297b393c2bb4",
     ),
     "model8": (
         "RADRAEFPNCFECenterPointModel",
         "(d_in=64, e_in=37, num_classes=2, decoder_hidden_channels=128, "
-        "fpn_channels=128, return_features=False)",
-        766,
-        "e0e56ed7d00f2f3aecdd848a83b7515c3f494d8705586d7a683dd3f1876b6520",
+        "fpn_channels=128, return_features=False, box_coordinate_mode='polar', "
+        "loss_mode='auto')",
+        767,
+        "119df94f29d3e1d06efb7af6490c17c5bb26890d60f3c1cec6c166a057ae4241",
     ),
     "model9": (
         "RADRAECFEBiFPNCenterPointModel",
@@ -95,16 +96,16 @@ EXPECTED_PUBLIC_MODELS = {
     "model12": (
         "RADRAEYOLOXFPNCenterPointModel",
         "(d_in=64, e_in=37, num_classes=2, decoder_hidden_channels=64, "
-        "fpn_channels=64)",
-        265,
-        "71f1263379baa8255614d890841088ee563bc4694068a499f4e1f762fd2d3757",
+        "fpn_channels=64, box_coordinate_mode='polar', loss_mode='auto')",
+        251,
+        "d1b6d49bd65bdbd711c419538134f6ca3eaee285c6041012ec7c29de8f17bbcb",
     ),
     "model13": (
-        "RADRAERADENetCenterPointModel",
+        "RADRAERADENetCartesianModel",
         "(d_in=64, e_in=37, num_classes=2, decoder_hidden_channels=128, "
-        "dropout=0.0)",
+        "dropout=0.0, box_coordinate_mode='cartesian', loss_mode='radenet')",
         177,
-        "4f9308224949dc3cc3d709696aa6d10a79440b40942be7d82160f43b71cc0177",
+        "d124194e4f59a07f63043c04995c5facb35f887d1504aed4df7e448df723cc59",
     ),
     "model14": (
         "RADRAESwinYOLOXCenterPointModel",
@@ -116,9 +117,9 @@ EXPECTED_PUBLIC_MODELS = {
     "model15": (
         "RADRAERADENetOfficialModel",
         "(d_in=64, e_in=37, num_classes=2, decoder_hidden_channels=128, "
-        "dropout=0.0)",
+        "dropout=0.0, box_coordinate_mode='cartesian', loss_mode='radenet')",
         177,
-        "0eeaa1ec332d137ac9b27b7335be1c499592b3a18dfa5b3a3c6708f3fbc53c42",
+        "54f7e542aa6ffafb9e6e2fb9010b492c94f9c7a51ccdfe047102e18c4d2ac5a6",
     ),
     "model16": (
         "RADRAESwinRADENetOfficialModel",
@@ -130,17 +131,18 @@ EXPECTED_PUBLIC_MODELS = {
 }
 
 EXPECTED_FORWARD_KEYS = {
+    "model13": [
+        "backbone_feat",
+        "fused_feat",
+        "heatmap",
+        "regression",
+    ],
     "model12": [
         "rad_feat",
         "rae_feat",
         "fused_feat",
-        "cls_logits",
-        "objectness_logits",
-        "center_offset",
-        "center_height",
-        "size",
-        "yaw",
-        "box_reg",
+        "heatmap",
+        "regression",
     ],
     "model14": [
         "rad_feat",
@@ -218,7 +220,21 @@ class ModelArchitectureIndependenceTests(unittest.TestCase):
         for model_type in EXPECTED_MODELS:
             with self.subTest(model_type=model_type):
                 expected = EXPECTED_PUBLIC_MODELS[model_type]
-                model = build_model(model_type, torch.device("cpu"))
+                model_kwargs = (
+                    {
+                        "box_coordinate_mode": "cartesian",
+                        "loss_mode": "radenet",
+                    }
+                    if model_type in {
+                        "model7", "model8", "model12", "model13", "model15"
+                    }
+                    else {}
+                )
+                model = build_model(
+                    model_type,
+                    torch.device("cpu"),
+                    **model_kwargs,
+                )
                 self.assertEqual(type(model).__name__, expected[0])
                 self.assertEqual(str(inspect.signature(type(model))), expected[1])
                 self.assertEqual(_state_dict_signature(model), expected[2:])
@@ -231,7 +247,21 @@ class ModelArchitectureIndependenceTests(unittest.TestCase):
 
         for model_type, expected_keys in EXPECTED_FORWARD_KEYS.items():
             with self.subTest(model_type=model_type):
-                model = build_model(model_type, torch.device("cpu")).eval()
+                model_kwargs = (
+                    {
+                        "box_coordinate_mode": "cartesian",
+                        "loss_mode": "radenet",
+                    }
+                    if model_type in {
+                        "model7", "model8", "model12", "model13", "model15"
+                    }
+                    else {}
+                )
+                model = build_model(
+                    model_type,
+                    torch.device("cpu"),
+                    **model_kwargs,
+                ).eval()
                 with torch.no_grad():
                     outputs = model(rad, rae)
                 self.assertEqual(list(outputs), expected_keys)

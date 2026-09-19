@@ -139,15 +139,12 @@ def print_training_configuration(args, loss_mode):
             "Model7 decoder hidden channels: "
             f"{args.model7_decoder_hidden_channels}"
         )
-    if args.cartesian_training_workflow == "radenet_official_in_model7":
+    if args.cartesian_training_workflow.startswith(
+        ("centerpoint_cartesian_in_", "radenet_cartesian_in_")
+    ):
         print(
-            "Model7 Cartesian detector: original RADE-Net head implemented "
-            "directly inside model7"
-        )
-    elif args.cartesian_training_workflow == "centerpoint_cartesian_in_model7":
-        print(
-            "Model7 Cartesian detector: CenterPoint decoder with metric "
-            "Cartesian box regression"
+            f"{args.model_type.capitalize()} Cartesian detector: "
+            f"{loss_mode} head with metric Cartesian box regression"
         )
     print(
         "Training evaluator: "

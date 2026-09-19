@@ -8,6 +8,7 @@ from configs.coordinates import (
     BOX_COORDINATE_POLAR,
     validate_box_coordinate_mode,
 )
+from .cartesian_detection_heads import build_cartesian_decoder
 
 
 class ConvBNAct(nn.Module):
@@ -362,72 +363,6 @@ class RADRAESwinFPNFusionModel(nn.Module):
         }
 
 
-class Model7RADEHeatmapHead(nn.Module):
-    """Original RADE-Net expanded heatmap head, copied into model7."""
-
-    def __init__(self, in_channels, hidden_channels, num_classes):
-        super().__init__()
-        self.head = nn.Sequential(
-            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, num_classes, kernel_size=1),
-        )
-
-    def forward(self, x):
-        return torch.sigmoid(self.head(x))
-
-
-class Model7RADERegressionHead(nn.Module):
-    """Original RADE-Net [dx,dy,dz,l,w,h,sin(yaw),cos(yaw)] head."""
-
-    def __init__(self, in_channels, hidden_channels):
-        super().__init__()
-        self.head = nn.Sequential(
-            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(32, hidden_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(hidden_channels, 8, kernel_size=1),
-        )
-
-    def forward(self, x):
-        return self.head(x)
-
-
-class Model7RADECartesianDecoder(nn.Module):
-    """RADE-Net Cartesian detector implemented directly inside model7."""
-
-    def __init__(self, in_channels, hidden_channels, num_classes):
-        super().__init__()
-        self.heatmap_head = Model7RADEHeatmapHead(
-            in_channels=in_channels,
-            hidden_channels=hidden_channels,
-            num_classes=num_classes,
-        )
-        self.regression_head = Model7RADERegressionHead(
-            in_channels=in_channels,
-            hidden_channels=hidden_channels,
-        )
-
-    def forward(self, x):
-        return {
-            "heatmap": self.heatmap_head(x),
-            "regression": self.regression_head(x),
-        }
-
-
 class RADRAESwinFPNCenterPointModel(nn.Module):
     """
     model7 with one coordinate-aware detection implementation:
@@ -460,32 +395,30 @@ class RADRAESwinFPNCenterPointModel(nn.Module):
             fpn_channels=fpn_channels,
         )
         if self.box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-            if loss_mode == "centerpoint":
-                # Cartesian CenterPoint uses the same dense branch contract
-                # as the other CenterPoint models, while its loss decodes the
-                # branches into metric Cartesian boxes.
-                self.decoder = CenterPointDecoder(
-                    in_channels=fpn_channels,
-                    hidden_channels=decoder_hidden_channels,
-                    num_classes=num_classes,
-                )
+            self.loss_mode, self.decoder = build_cartesian_decoder(
+                loss_mode=loss_mode,
+                in_channels=fpn_channels,
+                hidden_channels=decoder_hidden_channels,
+                num_classes=num_classes,
+            )
+            if self.loss_mode == "centerpoint":
                 self.register_buffer(
                     "_model7_cartesian_centerpoint_marker",
                     torch.ones(1),
                     persistent=True,
                 )
             else:
-                self.decoder = Model7RADECartesianDecoder(
-                    in_channels=fpn_channels,
-                    hidden_channels=decoder_hidden_channels,
-                    num_classes=num_classes,
-                )
                 self.register_buffer(
                     "_model7_cartesian_radenet_marker",
                     torch.ones(1),
                     persistent=True,
                 )
         else:
+            if str(loss_mode).strip().lower() == "radenet":
+                raise ValueError(
+                    "Model7 RADE mode requires box_coordinate_mode='cartesian'."
+                )
+            self.loss_mode = "centerpoint"
             self.decoder = CenterPointDecoder(
                 in_channels=fpn_channels,
                 hidden_channels=decoder_hidden_channels,
