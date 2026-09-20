@@ -7,8 +7,12 @@ import sys
 import torch
 
 from configs.coordinates import require_cartesian_data
-from configs.training import RESUME_CONFIG
-from training.checkpoints import save_replacing_named_checkpoint_copy
+from configs.resume import build_resume_config
+from configs.training import TRAIN_CONFIG
+from training.checkpoints import (
+    save_replacing_named_checkpoint_copy,
+    validate_current_checkpoint,
+)
 from training.runner import (
     build_training_args,
     create_training_checkpoint_directories,
@@ -27,16 +31,22 @@ def validate_resume_args(args):
 def _validate_resume_options(args):
     if args.resume_checkpoint in (None, ""):
         raise ValueError(
-            "Set RESUME_CONFIG['resume_checkpoint'] in "
-            "configs/resume.py before running train_resume.py"
+            "Set resume_checkpoint in configs/resume.py before running "
+            "train_resume.py"
         )
     if args.end_epoch <= 0:
-        raise ValueError("RESUME_CONFIG['end_epoch'] must be greater than 0")
+        raise ValueError(
+            "end_epoch in configs/resume.py must be greater than 0"
+        )
     return args
 
 
 def build_resume_args(resume_config=None):
-    config = RESUME_CONFIG if resume_config is None else resume_config
+    config = (
+        build_resume_config(TRAIN_CONFIG)
+        if resume_config is None
+        else resume_config
+    )
     return _validate_resume_options(build_training_args(config))
 
 
@@ -53,37 +63,28 @@ def load_resume_checkpoint(
     expected_box_coordinate_mode=None,
     checkpoint_loader=load_torch_checkpoint,
 ):
-    """Restore an interrupted run while preserving legacy compatibility checks."""
+    """Restore an interrupted run after validating the current contract."""
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
 
     checkpoint = checkpoint_loader(checkpoint_path, map_location=device)
-    checkpoint_config = (
-        checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
-    )
-    checkpoint_model_type = checkpoint_config.get("model_type")
-    checkpoint_num_classes = checkpoint_config.get("num_classes")
-    checkpoint_include_bus_as_target = checkpoint_config.get(
-        "include_bus_as_target"
-    )
-    checkpoint_box_coordinate_mode = checkpoint_config.get(
-        "box_coordinate_mode"
-    )
-    if checkpoint_box_coordinate_mode is not None:
-        require_cartesian_data(checkpoint_box_coordinate_mode)
+    checkpoint_config = validate_current_checkpoint(checkpoint)
+    checkpoint_model_type = checkpoint_config["model_type"]
+    checkpoint_num_classes = checkpoint_config["num_classes"]
+    checkpoint_include_bus_as_target = checkpoint_config["include_bus_as_target"]
+    checkpoint_box_coordinate_mode = checkpoint_config["box_coordinate_mode"]
+    require_cartesian_data(checkpoint_box_coordinate_mode)
 
     if (
         expected_model_type is not None
-        and checkpoint_model_type is not None
         and checkpoint_model_type != expected_model_type
     ):
         raise ValueError(
             f"Checkpoint model_type={checkpoint_model_type!r}, but "
-            f"RESUME_CONFIG model_type={expected_model_type!r}"
+            f"resume configuration model_type={expected_model_type!r}"
         )
     if (
         expected_num_classes is not None
-        and checkpoint_num_classes is not None
         and int(checkpoint_num_classes) != int(expected_num_classes)
     ):
         raise ValueError(
@@ -93,43 +94,40 @@ def load_resume_checkpoint(
         )
     if (
         expected_include_bus_as_target is not None
-        and checkpoint_include_bus_as_target is not None
         and bool(checkpoint_include_bus_as_target)
         != bool(expected_include_bus_as_target)
     ):
         raise ValueError(
-            "Checkpoint include_bus_as_target does not match RESUME_CONFIG "
+            "Checkpoint include_bus_as_target does not match the resume "
+            "configuration "
             f"({checkpoint_include_bus_as_target} vs "
             f"{expected_include_bus_as_target})."
         )
     if (
         expected_box_coordinate_mode is not None
-        and checkpoint_box_coordinate_mode is not None
         and str(checkpoint_box_coordinate_mode)
         != str(expected_box_coordinate_mode)
     ):
         raise ValueError(
-            "Checkpoint box_coordinate_mode does not match RESUME_CONFIG "
+            "Checkpoint box_coordinate_mode does not match the resume "
+            "configuration "
             f"({checkpoint_box_coordinate_mode!r} vs "
             f"{expected_box_coordinate_mode!r})."
         )
 
-    state_dict = (
-        checkpoint["model_state_dict"]
-        if isinstance(checkpoint, dict)
-        else checkpoint
-    )
+    state_dict = checkpoint["model_state_dict"]
     model_for_state_dict = (
         model.module if isinstance(model, torch.nn.DataParallel) else model
     )
-    model_for_state_dict.load_state_dict(state_dict)
+    model_for_state_dict.load_state_dict(state_dict, strict=True)
 
     optimizer_loaded = False
-    if (
-        load_optimizer
-        and isinstance(checkpoint, dict)
-        and "optimizer_state_dict" in checkpoint
-    ):
+    if load_optimizer:
+        if checkpoint.get("optimizer_state_dict") is None:
+            raise ValueError(
+                "Checkpoint is missing required current training state: "
+                "optimizer_state_dict"
+            )
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         for state in optimizer.state.values():
             for key, value in state.items():
@@ -138,17 +136,16 @@ def load_resume_checkpoint(
         optimizer_loaded = True
 
     scheduler_loaded = False
-    if (
-        scheduler is not None
-        and isinstance(checkpoint, dict)
-        and checkpoint.get("scheduler_state_dict") is not None
-    ):
+    if scheduler is not None:
+        if checkpoint.get("scheduler_state_dict") is None:
+            raise ValueError(
+                "Checkpoint is missing required current training state: "
+                "scheduler_state_dict"
+            )
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         scheduler_loaded = True
 
-    checkpoint_epoch = None
-    if isinstance(checkpoint, dict) and checkpoint.get("epoch") is not None:
-        checkpoint_epoch = int(checkpoint["epoch"])
+    checkpoint_epoch = int(checkpoint["epoch"])
 
     return (
         checkpoint_epoch,
@@ -165,7 +162,8 @@ def resolve_resume_start_epoch(configured_start_epoch, checkpoint_epoch):
         return int(configured_start_epoch)
     if checkpoint_epoch is None:
         raise ValueError(
-            "Set RESUME_CONFIG['start_epoch']; checkpoint does not store an epoch."
+            "Set start_epoch in configs/resume.py; checkpoint does not store "
+            "an epoch."
         )
     return int(checkpoint_epoch) + 1
 
@@ -243,6 +241,7 @@ def initialize_best_state(best_state, initial_best_checkpoint, checkpoint_dir):
         )
 
     checkpoint = load_torch_checkpoint(initial_best_checkpoint, map_location="cpu")
+    validate_current_checkpoint(checkpoint)
     best_epoch = int(checkpoint.get("epoch", 0))
     best_metric_key = checkpoint.get(
         "selection_metric_key",
@@ -264,7 +263,6 @@ def initialize_best_state(best_state, initial_best_checkpoint, checkpoint_dir):
         checkpoint_dir=checkpoint_dir,
         source_checkpoint_path=initial_best_checkpoint,
         best_epoch=best_epoch,
-        best_map=best_map,
         name_prefix="global_best",
     )
     best_state.map_score = best_map
@@ -277,9 +275,9 @@ def initialize_best_state(best_state, initial_best_checkpoint, checkpoint_dir):
 def main(resume_config=None):
     if resume_config is None and len(sys.argv) > 1:
         raise ValueError(
-            "train_resume.py reads the merged RESUME_CONFIG exported from "
-            "configs/training.py. Edit overrides in configs/resume.py, then "
-            "run: python train_resume.py"
+            "train_resume.py uses TRAIN_CONFIG together with the resume "
+            "overrides in configs/resume.py. Edit those overrides, then run: "
+            "python train_resume.py"
         )
 
     args = build_resume_args(resume_config=resume_config)
@@ -307,7 +305,6 @@ def main(resume_config=None):
             args, "resume_tensorboard_log_dir", None
         ),
         initialize_best_state_callback=initialize_resume_best_state,
-        # Legacy resume omitted this keyword and therefore used evaluator default.
         include_detection_metrics_setting=False,
         print_checkpoint_directory=True,
         print_saved_checkpoints=True,

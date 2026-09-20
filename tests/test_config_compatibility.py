@@ -15,7 +15,7 @@ from configs.runtime import (
     EXPERIMENT_QUEUE_RUNTIME_CONFIG,
     TRAIN_RUNTIME_CONFIG,
 )
-from configs.training import RESUME_CONFIG, TRAIN_CONFIG
+from configs.training import TRAIN_CONFIG
 from models import MODEL_TYPES
 from training.configuration import LOSS_MODE_CHOICES, resolve_loss_mode
 
@@ -32,10 +32,16 @@ class ConfigCompatibilityTests(unittest.TestCase):
                 self.assertEqual(TRAIN_CONFIG[key], value)
 
     def test_resume_config_reuses_training_defaults(self):
-        self.assertEqual(RESUME_CONFIG, build_resume_config(TRAIN_CONFIG))
+        training_config_before = dict(TRAIN_CONFIG)
+        resume_config = build_resume_config(TRAIN_CONFIG)
+
+        self.assertIsNot(resume_config, TRAIN_CONFIG)
+        self.assertEqual(TRAIN_CONFIG, training_config_before)
         for key, value in TRAIN_CONFIG.items():
             if key not in RESUME_CONFIG_OVERRIDES:
-                self.assertEqual(RESUME_CONFIG[key], value)
+                self.assertEqual(resume_config[key], value)
+        for key, value in RESUME_CONFIG_OVERRIDES.items():
+            self.assertEqual(resume_config[key], value)
 
     def test_core_training_configuration_is_valid_and_structurally_stable(self):
         expected = {
@@ -44,7 +50,6 @@ class ConfigCompatibilityTests(unittest.TestCase):
             "split_mode": "kradar_file",
             "include_bus_as_target": True,
             "checkpoint_base_dir": "checkpoints",
-            "checkpoint_filename_style": "compact",
         }
         self.assertEqual({key: TRAIN_CONFIG[key] for key in expected}, expected)
         self.assertIn(TRAIN_CONFIG["model_type"], MODEL_TYPES)
@@ -56,6 +61,7 @@ class ConfigCompatibilityTests(unittest.TestCase):
         )
         self.assertIn(resolved_loss_mode, {"centerpoint", "radenet", "yolox"})
         self.assertNotIn("checkpoint_layout", TRAIN_CONFIG)
+        self.assertNotIn("checkpoint_filename_style", TRAIN_CONFIG)
         self.assertNotIn("train_ratio", TRAIN_CONFIG)
         self.assertNotIn("train_ratio", EVAL_CONFIG)
         self.assertNotIn("training_eval_official_enabled", TRAIN_CONFIG)

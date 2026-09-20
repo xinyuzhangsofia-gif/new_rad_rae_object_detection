@@ -9,20 +9,27 @@ from unittest import mock
 
 import torch
 
-from configs.training import RESUME_CONFIG, TRAIN_CONFIG
-from configs.resume import RESUME_CONFIG_OVERRIDES
+from configs.resume import RESUME_CONFIG_OVERRIDES, build_resume_config
+from configs.training import TRAIN_CONFIG
 from eval import metrics_runner
 from training import configuration, resume, runner
 from training.checkpoints import build_checkpoint_payload
 from training.configuration import SUPPORTED_TRAINING_SPLIT_MODES
 from training.logging_utils import write_tensorboard_run_config
 from training.checkpoints import BestCheckpointState
+from tests.checkpoint_fixtures import current_checkpoint
 
 
 class SharedTrainingConfigurationTests(unittest.TestCase):
+    @staticmethod
+    def _resume_config(**overrides):
+        config = build_resume_config(TRAIN_CONFIG)
+        config.update(overrides)
+        return config
+
     def test_warm_start_is_not_part_of_the_training_contract(self):
         self.assertNotIn("init_from_checkpoint", TRAIN_CONFIG)
-        self.assertNotIn("init_from_checkpoint", RESUME_CONFIG)
+        self.assertNotIn("init_from_checkpoint", self._resume_config())
         self.assertNotIn(
             "initialize_from_checkpoint",
             inspect.signature(runner.build_training_components).parameters,
@@ -39,8 +46,7 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
         for split_mode in SUPPORTED_TRAINING_SPLIT_MODES:
             with self.subTest(split_mode=split_mode):
                 normal = dict(TRAIN_CONFIG, split_mode=split_mode)
-                resumed = dict(
-                    RESUME_CONFIG,
+                resumed = self._resume_config(
                     split_mode=split_mode,
                     resume_checkpoint="checkpoint.pth",
                 )
@@ -49,7 +55,7 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
 
         for builder, base_config in (
             (runner.build_train_args, TRAIN_CONFIG),
-            (resume.build_resume_args, RESUME_CONFIG),
+            (resume.build_resume_args, self._resume_config()),
         ):
             for removed_mode in (
                 "file",
@@ -71,6 +77,8 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
             model7_decoder_hidden_channels="64",
             box_coordinate_mode="cartesian",
             include_bus_as_target=True,
+            class_names={0: "Sedan", 1: "Bus or Truck"},
+            class_to_idx={"Sedan": 0, "Bus or Truck": 1},
             lr=5e-5,
         )
         dataset = [object(), object()]
@@ -124,13 +132,16 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
         run.assert_called_once()
 
         with mock.patch.object(resume, "run_training", return_value="resumed") as run:
-            result = resume.main(resume_config=dict(
-                RESUME_CONFIG,
+            resume_config = self._resume_config(
                 resume_checkpoint="checkpoint.pth",
-            ))
+            )
+            result = resume.main(resume_config=resume_config)
         self.assertEqual(result, "resumed")
         run.assert_called_once()
-        self.assertEqual(run.call_args.args[0].epochs, RESUME_CONFIG["end_epoch"])
+        self.assertEqual(
+            run.call_args.args[0].epochs,
+            resume_config["end_epoch"],
+        )
         self.assertIs(
             run.call_args.kwargs["restore_training_state"],
             resume.restore_resume_training_state,
@@ -139,8 +150,8 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
     def test_resume_defaults_require_explicit_checkpoint_selection(self):
         self.assertIsNone(RESUME_CONFIG_OVERRIDES["resume_checkpoint"])
         self.assertIsNone(RESUME_CONFIG_OVERRIDES["resume_tensorboard_log_dir"])
-        with self.assertRaisesRegex(ValueError, "Set RESUME_CONFIG"):
-            resume.build_resume_args(dict(RESUME_CONFIG))
+        with self.assertRaisesRegex(ValueError, "Set resume_checkpoint"):
+            resume.build_resume_args(self._resume_config())
 
 
 class ResumeRestorationTests(unittest.TestCase):
@@ -153,21 +164,13 @@ class ResumeRestorationTests(unittest.TestCase):
         optimizer.step()
         scheduler.step()
         path = Path(directory) / "epoch_007.pth"
-        torch.save(
-            {
-                "epoch": 7,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "scheduler_state_dict": scheduler.state_dict(),
-                "config": {
-                    "model_type": "model7",
-                    "num_classes": 2,
-                    "include_bus_as_target": True,
-                    "box_coordinate_mode": "cartesian",
-                },
-            },
-            path,
+        checkpoint = current_checkpoint(
+            model_state_dict=model.state_dict(),
+            epoch=7,
         )
+        checkpoint["optimizer_state_dict"] = optimizer.state_dict()
+        checkpoint["scheduler_state_dict"] = scheduler.state_dict()
+        torch.save(checkpoint, path)
         return path, model, optimizer, scheduler
 
     def test_model_optimizer_scheduler_and_epoch_are_restored(self):
@@ -263,13 +266,13 @@ class ResumeRestorationTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as directory:
                     model = torch.nn.Linear(2, 1)
                     path = Path(directory) / "checkpoint.pth"
-                    torch.save(
-                        {
-                            "model_state_dict": model.state_dict(),
-                            "config": checkpoint_config,
-                        },
-                        path,
+                    checkpoint = current_checkpoint(
+                        model_state_dict=model.state_dict(),
+                        **checkpoint_config,
                     )
+                    checkpoint["optimizer_state_dict"] = {}
+                    checkpoint["scheduler_state_dict"] = None
+                    torch.save(checkpoint, path)
                     optimizer = torch.optim.Adam(model.parameters())
                     with self.assertRaises(ValueError):
                         resume.load_resume_checkpoint(
@@ -305,14 +308,12 @@ class ResumeRestorationTests(unittest.TestCase):
     def test_initial_best_metadata_is_restored(self):
         with tempfile.TemporaryDirectory() as directory:
             checkpoint_path = Path(directory) / "best.pth"
-            torch.save(
-                {
-                    "epoch": 5,
-                    "selection_metric_key": "official_bev_mAP_0.3",
-                    "selection_metric_value": 0.42,
-                },
-                checkpoint_path,
-            )
+            checkpoint = current_checkpoint(epoch=5)
+            checkpoint.update({
+                "selection_metric_key": "official_bev_mAP_0.3",
+                "selection_metric_value": 0.42,
+            })
+            torch.save(checkpoint, checkpoint_path)
             state = BestCheckpointState()
             with mock.patch.object(
                 resume,
@@ -518,6 +519,15 @@ class SharedEpochWorkflowTests(unittest.TestCase):
             max_detections=64,
             num_classes=2,
             model_type="model7",
+            box_coordinate_mode="cartesian",
+            loss_mode="centerpoint",
+            include_bus_as_target=True,
+            class_names={0: "Sedan", 1: "Bus or Truck"},
+            class_to_idx={"Sedan": 0, "Bus or Truck": 1},
+            split_mode="kradar_file",
+            train_sequences=(1,),
+            val_sequences=(2,),
+            domain_shift_experiment_enabled=False,
             seed=42,
             limit_samples=None,
             training_eval_enabled=True,
@@ -572,6 +582,10 @@ class SharedEpochWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("init_from_checkpoint", payload["config"])
         self.assertNotIn("checkpoint_layout", payload["config"])
+        self.assertNotIn("checkpoint_filename_style", payload["config"])
+        self.assertNotIn("controled_sequences", payload["config"])
+        self.assertNotIn("reference_sequences", payload["config"])
+        self.assertNotIn("control_ridx_bins", payload["config"])
         self.assertFalse(
             payload["config"]["training_eval_train_set_enabled"]
         )

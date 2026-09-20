@@ -10,7 +10,7 @@ Run commands from the repository root after configuring local data and checkpoin
 | Task | Configuration | Command |
 | --- | --- | --- |
 | Train a detector | Stable defaults in `configs/training.py` | `python train.py` |
-| Resume training | Run-specific overrides in `configs/resume.py`; compatibility export in `configs/training.py` | `python train_resume.py` |
+| Resume training | Training defaults from `configs/training.py` plus run-specific overrides in `configs/resume.py` | `python train_resume.py` |
 | Evaluate checkpoints | `configs/evaluation.py` and CLI options | `python evaluation.py` |
 | Visualize predictions | `visualize_cfg.py` and CLI options | `python visualize.py` |
 
@@ -218,6 +218,10 @@ Runtime state or lock files stored beside an experiment table must move with
 that table into its semantic family directory. Historical recorded paths in
 state/control metadata are resolved at read time; no duplicate legacy
 experiment directories or symlinks are maintained.
+
+Current checkpoints must be produced by the current repository version and
+contain the canonical `config` metadata required for model reconstruction.
+Historical checkpoint schemas are not supported.
 
 Distance-quartile re-evaluation consumes upstream queue-state manifests containing
 completed checkpoint locations. Deleting these manifests

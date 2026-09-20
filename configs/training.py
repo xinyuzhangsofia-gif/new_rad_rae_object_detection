@@ -1,8 +1,7 @@
-"""Stable model/training defaults and composed configuration exports."""
+"""Stable model and training defaults."""
 
 from configs.data import CARTESIAN_GT_ROOT, CHECKPOINT_BASE_DIR, LOG_BASE_DIR
 from configs.domain_shift import DOMAIN_SHIFT_CONFIG, EXPERIMENT_QUEUE_CONFIG
-from configs.resume import build_resume_config
 from configs.runtime import (
     EXPERIMENT_QUEUE_RUNTIME_CONFIG,
     TRAIN_RUNTIME_CONFIG,
@@ -75,7 +74,6 @@ TRAIN_CONFIG = {
     "limit_samples": None,
     "checkpoint_epoch_step": 1,
     "checkpoint_base_dir": CHECKPOINT_BASE_DIR,
-    "checkpoint_filename_style": "compact",
     "log_base_dir": LOG_BASE_DIR,
     "model_type": "model7",
     "model7_decoder_hidden_channels": "64",
@@ -88,9 +86,4 @@ TRAIN_CONFIG = {
 }
 
 
-# Backward-compatible import used by train_resume.py and external scripts.
-# Resume-only choices live in configs/resume.py and reuse all training defaults.
-RESUME_CONFIG = build_resume_config(TRAIN_CONFIG)
-
-
-__all__ = ["TRAIN_CONFIG", "RESUME_CONFIG", "SCOPE_FULL", "SCOPE_NARROW"]
+__all__ = ["TRAIN_CONFIG", "SCOPE_FULL", "SCOPE_NARROW"]

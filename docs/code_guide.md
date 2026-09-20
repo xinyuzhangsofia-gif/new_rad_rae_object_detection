@@ -192,7 +192,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 已完成（可视化） | `visualize.py`、`visualize_cfg.py`、`visualization/` | 单帧/视频和 RA/多传感器模式统一分派；Camera+Radar 与 Camera+LiDAR+Radar 都复用 Polar/Cartesian RA renderer，GT 绿色、预测红色。 |
 | 已完成（损失） | `training/losses/` | `__init__.py` 提供公开 API，通用数学、目标、GWD、SimOTA 和三个 loss family 分责，配置模式解析仍由 `training.configuration` 唯一负责。 |
 | 已完成（数据划分） | `data/split/` | `ordinary.py` 分派普通模式，`manifests.py`、`sequences.py` 和 `controlled/` 分责实现；精确成员、seed 和生成文件保持不变，无兼容 facade。 |
-| 6 | `legacy_module.py` | 只在确认历史模型/checkpoint pickle 不再需要后处理；本次未修改。 |
+| 已完成（检查点） | `training/checkpoints.py`、`eval/checkpoints.py`、`training/resume.py` | 只接受当前保存器生成、包含规范配置元数据的字典检查点；不支持历史 schema、字段别名、marker 推断或相邻目录修复。 |
 
 当前可视化通过 `visualization/radar_data.py` 使用 `data.dataset.KRadarRADRAEDataset` 读取 RAD/RAE `.npy`。旧 `arrDREA` MAT 接口不再属于活动工作流。Model1–16 不是重复备份，其结构/权重键仍需分别保留。
 
@@ -205,7 +205,6 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 文件 | 行数 | 功能 | 处理建议 |
 | --- | ---: | --- | --- |
 | [evaluation.py](../evaluation.py) | 27 | 独立评估命令入口；评估工作流在 eval/workflow.py。 | 保留主要入口；不继续复制工作流。 |
-| [legacy_module.py](../legacy_module.py) | 373 | 历史 RAD/RAE 编码器、固定框检测器及卷积组件；未发现当前源码直接导入。 | 暂保留；确认不需历史模型/检查点后再归档。 |
 | [train.py](../train.py) | 13 | 训练命令入口，调用 `training/runner.py`，并导出 worker 使用的接口。 | 保留主要入口；不继续复制工作流。 |
 | [train_resume.py](../train_resume.py) | — | 断点续训入口；转发到 `training/resume.py` 与共享 runner。 | 保留现有命令和公开辅助函数。 |
 | [visualize.py](../visualize.py) | — | 唯一用户可视化入口，只调用统一 workflow。 | 用户编辑 `visualize_cfg.py` 后运行 `python visualize.py`。 |
@@ -221,9 +220,9 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [configs/domain_shift.py](../configs/domain_shift.py) | — | 域偏移序列、实验表、受控划分和队列行为。 | 与普通训练超参数分离。 |
 | [configs/experiment_paths.py](../configs/experiment_paths.py) | — | Target Drop 与距离四分位活动目录的唯一常量，以及旧四分位 metadata/state 路径读取映射。 | 不创建旧目录或修改历史结果文件。 |
 | [configs/evaluation.py](../configs/evaluation.py) | 82 | `python evaluation.py` 的独立完整评估/报告配置。 | 与训练时 `training_eval_*` 和训练后 `post_training_eval_*` 配置分离。 |
-| [configs/resume.py](../configs/resume.py) | — | 断点续训的中性覆盖项；checkpoint 与日志目录由用户显式选择。 | 基于训练默认值合并；兼容导出仍在 `configs/training.py`。 |
+| [configs/resume.py](../configs/resume.py) | — | 断点续训的中性覆盖项；checkpoint 与日志目录由用户显式选择。 | `training/resume.py` 需要续训时将这些覆盖项与 `TRAIN_CONFIG` 合并。 |
 | [configs/runtime.py](../configs/runtime.py) | — | 训练、评估和实验队列的 GPU、worker、内存与轮询设置。 | 机器运行参数的统一入口。 |
-| [configs/training.py](../configs/training.py) | — | 稳定训练/模型默认值；分别包含训练时 `training_eval_*` 与训练后 `post_training_eval_*` 区段。 | 保留 `TRAIN_CONFIG` 和 `RESUME_CONFIG` 平铺公共接口，不混入独立评估配置。 |
+| [configs/training.py](../configs/training.py) | — | 稳定训练/模型默认值；分别包含训练时 `training_eval_*` 与训练后 `post_training_eval_*` 区段。 | 只公开 `TRAIN_CONFIG`；不混入续训覆盖项或独立评估配置。 |
 
 ### data
 

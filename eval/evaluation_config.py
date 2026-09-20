@@ -119,10 +119,7 @@ def select_evaluation_device(cuda_text, gpu_ids_text):
 
 def parse_args():
     cfg_defaults = {
-        "checkpoint_root": (
-            "checkpoints/object_detection/20260619_155520_209652__model_12__seq1_4-6_11_14_20_3_18/"
-            "0620_model_12_global_best_epoch_059_seq1-11.pth"
-        ),
+        "checkpoint_root": None,
         "epoch_step": 1,
         "start_epoch": None,
         "end_epoch": None,

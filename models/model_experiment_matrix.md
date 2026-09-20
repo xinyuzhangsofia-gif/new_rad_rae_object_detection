@@ -122,7 +122,7 @@ No deletion or retention decision is implied by these structural matches.
   - Model14 YOLOX: `evaluation_plots/past trys/png_photos/model14/val_seq_3_18__e043__legacy_eval.yml`.
 - Historical evidence deliberately not promoted into the main metric columns:
   - Model8 epoch 37: BEV 0.351094 / 3D 0.187922; current Cartesian loss/coordinate identity is not recorded.
-  - Model13 epoch 10: BEV 0.365456 / 3D 0.184954; `eval/checkpoints.py` explicitly rejects its old `_model13_radenet_marker` contract.
+  - Model13 epoch 10: BEV 0.365456 / 3D 0.184954; its obsolete checkpoint contract is not supported by the current loader.
   - Model15 epoch 17: BEV 0.410037 / 3D 0.227594; current code now crops computational padding before the neck/head and uses new mode markers, so this is not exact-current evidence.
   - Older Model7 YAMLs without explicit loss identity were not used to improve the exact-current Model7 row.
 - Weather Target Drop, Source Drop, and distance-quartile artifacts provide extensive Model7 Cartesian CenterPoint domain-shift evidence (including seeds 42/43/44), but they use different domains/splits and are excluded from ordinary architecture-ranking metrics.
