@@ -17,7 +17,7 @@ TRAIN_CONFIG = {
     # Cartesian GT only. RAD/RAE radar tensors remain the model inputs.
     "box_coordinate_mode": "cartesian",
     # radenet, centerpoint without normalization, or auto (model-compatible selection).
-    "loss_mode": "radenet",
+    "loss_mode": "centerpoint",
     "cartesian_gt_root": CARTESIAN_GT_ROOT,
 
     # Model and optimization.
@@ -77,7 +77,7 @@ TRAIN_CONFIG = {
     "checkpoint_base_dir": CHECKPOINT_BASE_DIR,
     "checkpoint_filename_style": "compact",
     "log_base_dir": LOG_BASE_DIR,
-    "model_type": "model13",
+    "model_type": "model7",
     "model7_decoder_hidden_channels": "64",
 
     # Composed training, experiment, and runtime settings.
