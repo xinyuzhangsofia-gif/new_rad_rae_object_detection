@@ -219,10 +219,6 @@ that table into its semantic family directory. Historical recorded paths in
 state/control metadata are resolved at read time; no duplicate legacy
 experiment directories or symlinks are maintained.
 
-Current checkpoints must be produced by the current repository version and
-contain the canonical `config` metadata required for model reconstruction.
-Historical checkpoint schemas are not supported.
-
 Distance-quartile re-evaluation consumes upstream queue-state manifests containing
 completed checkpoint locations. Deleting these manifests
 does **not** automatically recover completed tasks from the checkpoint folders.

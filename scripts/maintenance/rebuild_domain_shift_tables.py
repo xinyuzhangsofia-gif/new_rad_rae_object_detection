@@ -16,7 +16,7 @@ from eval.domain_shift_tables import (
     select_comparison_epochs,
     update_domain_shift_tables,
 )
-from eval.checkpoints import current_checkpoint_model_overrides
+from eval.checkpoints import infer_checkpoint_decoder_overrides
 from eval.result_serialization import load_evaluation_yaml
 from training.torch_load import load_torch_checkpoint
 
@@ -139,7 +139,7 @@ def attach_model_configuration(
         checkpoint = load_torch_checkpoint(checkpoint_path, map_location="cpu")
         if isinstance(checkpoint, dict):
             checkpoint_config = checkpoint.get("config", {}) or {}
-        model_overrides = current_checkpoint_model_overrides(checkpoint)
+        model_overrides = infer_checkpoint_decoder_overrides(checkpoint)
         metadata["configuration_checkpoint_path"] = str(checkpoint_path)
 
     config_name, configuration = build_model_configuration(

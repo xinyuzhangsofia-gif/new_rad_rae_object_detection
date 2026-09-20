@@ -1,5 +1,4 @@
 import os
-import re
 import shutil
 import copy
 from dataclasses import dataclass
@@ -11,6 +10,7 @@ from training.configuration import (
     normalize_train_sequence_half_ratio,
     normalize_train_sequence_half_selection,
 )
+from training.torch_load import load_torch_checkpoint
 
 
 MODEL_RUN_NAME_PREFIXES = {
@@ -27,127 +27,6 @@ MODEL_RUN_NAME_PREFIXES = {
 }
 
 EXPERIMENT_NAME = "object_detection"
-
-CURRENT_CHECKPOINT_REQUIRED_FIELDS = (
-    "model_state_dict",
-    "config",
-    "epoch",
-)
-CURRENT_CHECKPOINT_REQUIRED_CONFIG_FIELDS = (
-    "model_type",
-    "box_coordinate_mode",
-    "loss_mode",
-    "num_classes",
-    "include_bus_as_target",
-    "class_names",
-    "class_to_idx",
-    "model7_decoder_hidden_channels",
-    "max_detections",
-    "train_scope",
-    "cartesian_gt_root",
-    "split_mode",
-    "split_dir",
-    "train_sequences",
-    "val_sequences",
-    "train_sequence_half_selection",
-    "train_sequence_half_ratio",
-    "seed",
-    "domain_shift_experiment_enabled",
-    "domain_shift_train_branch",
-    "shared_train_sequences",
-    "source_train_sequences",
-    "target_train_sequences",
-    "target_test_sequences",
-    "train_control_split_enabled",
-    "train_control_split_dir",
-    "controlled_split_base_dir",
-    "control_window_position",
-    "control_class_names",
-    "control_range_m_bins",
-    "control_num_trials",
-    "control_total_bbox_tolerance_ratio",
-)
-
-
-def validate_current_checkpoint(checkpoint):
-    """Validate and return the canonical config stored by the current saver."""
-    if not isinstance(checkpoint, dict):
-        raise ValueError(
-            "Checkpoint must be a dictionary produced by the current repository."
-        )
-
-    for field in CURRENT_CHECKPOINT_REQUIRED_FIELDS:
-        if field not in checkpoint or checkpoint[field] is None:
-            raise ValueError(
-                f"Checkpoint is missing required current metadata: {field}"
-            )
-
-    config = checkpoint["config"]
-    if not isinstance(config, dict):
-        raise ValueError("Checkpoint is missing required current metadata: config")
-    for field in CURRENT_CHECKPOINT_REQUIRED_CONFIG_FIELDS:
-        if field not in config:
-            raise ValueError(
-                "Checkpoint is missing required current metadata: "
-                f"config.{field}"
-            )
-
-    for field in (
-        "model_type",
-        "box_coordinate_mode",
-        "loss_mode",
-        "num_classes",
-        "include_bus_as_target",
-        "class_names",
-        "class_to_idx",
-    ):
-        if config[field] is None or config[field] == "":
-            raise ValueError(
-                "Checkpoint is missing required current metadata: "
-                f"config.{field}"
-            )
-
-    num_classes = int(config["num_classes"])
-    try:
-        class_ids = {int(class_id) for class_id in dict(config["class_names"])}
-        mapped_ids = {
-            int(class_id)
-            for class_id in dict(config["class_to_idx"]).values()
-        }
-    except (TypeError, ValueError):
-        raise ValueError(
-            "Checkpoint has invalid current metadata: config.class_names/class_to_idx"
-        ) from None
-    expected_class_ids = set(range(num_classes))
-    if class_ids != expected_class_ids or mapped_ids != expected_class_ids:
-        raise ValueError(
-            "Checkpoint has invalid current metadata: "
-            "config.class_names/class_to_idx do not match config.num_classes"
-        )
-
-    if (
-        bool(config["domain_shift_experiment_enabled"])
-        or config["domain_shift_train_branch"] not in (None, "")
-    ):
-        if config["domain_shift_train_branch"] not in {"source", "target"}:
-            raise ValueError(
-                "Checkpoint has invalid current metadata: "
-                "config.domain_shift_train_branch"
-            )
-        for field in (
-            "domain_shift_train_branch",
-            "shared_train_sequences",
-            "source_train_sequences",
-            "target_train_sequences",
-            "target_test_sequences",
-        ):
-            if config[field] in (None, "", ()):
-                raise ValueError(
-                    "Checkpoint is missing required current metadata: "
-                    f"config.{field}"
-                )
-
-    return config
 
 
 def checkpoint_run_relative_path(checkpoint_dir, checkpoint_base_dir):
@@ -280,24 +159,108 @@ def _configured_sequences(cfg):
     return tuple(sequences)
 
 
+def _checkpoint_sequences(args, cfg):
+    train_sequences = getattr(args, "train_sequences", None)
+    val_sequences = getattr(args, "val_sequences", None)
+    if train_sequences not in (None, "", ()):
+        if isinstance(train_sequences, int):
+            train_sequences = (train_sequences,)
+        if isinstance(val_sequences, int):
+            val_sequences = (val_sequences,)
+        combined = list(train_sequences)
+        for sequence in val_sequences or ():
+            if sequence not in combined:
+                combined.append(sequence)
+        return tuple(combined)
+    return _configured_sequences(cfg)
+
+
+def _payload_model_type(payload):
+    if isinstance(payload, dict):
+        config = payload.get("config", {})
+        return config.get("run_model_type", config.get("model_type"))
+    return None
+
+
+def _payload_sequences(payload):
+    if not isinstance(payload, dict):
+        return None
+
+    config = payload.get("config", {})
+    train_sequences = config.get("train_sequences")
+    val_sequences = config.get("val_sequences")
+    if train_sequences not in (None, "", ()):
+        if isinstance(train_sequences, int):
+            train_sequences = (train_sequences,)
+        if isinstance(val_sequences, int):
+            val_sequences = (val_sequences,)
+        combined = list(train_sequences)
+        for sequence in val_sequences or ():
+            if sequence not in combined:
+                combined.append(sequence)
+        return tuple(combined)
+
+    sequences = config.get("sequences")
+    if sequences is not None:
+        return tuple(sequences)
+
+    sequence = config.get("sequence")
+    if sequence is not None:
+        return (sequence,)
+
+    return None
+
+
+def _payload_half_selection(payload):
+    if not isinstance(payload, dict):
+        return {}, None
+    config = payload.get("config", {})
+    return (
+        config.get("train_sequence_half_selection"),
+        config.get("train_sequence_half_ratio"),
+    )
+
+
+def _payload_checkpoint_filename_style(payload):
+    if not isinstance(payload, dict):
+        return "legacy"
+    config = payload.get("config", {})
+    return str(config.get("checkpoint_filename_style", "legacy")).strip().lower()
+
+
 def format_checkpoint_filename(
         name_prefix,
         epoch,
         saved_at,
+        metric_key,
+        metric_value,
+        model_type,
+        sequences,
+        train_sequence_half_selection=None,
+        train_sequence_half_ratio=None,
+        compact=False,
     ):
-    if name_prefix not in (None, "best", "global_best"):
-        raise ValueError(
-            "name_prefix must be None, 'best', or 'global_best' for the "
-            "current compact checkpoint layout"
-        )
     date_text = str(saved_at).replace("-", "").replace("/", "")
     if len(date_text) >= 8 and date_text[:8].isdigit():
         date_text = date_text[4:8]
 
-    filename_parts = [date_text]
-    if name_prefix is not None:
+    if compact:
+        filename_parts = [date_text]
+        if name_prefix not in (None, "", "candidate"):
+            filename_parts.append(str(name_prefix))
+        filename_parts.append(f"epoch_{epoch:03d}")
+        return "_".join(filename_parts) + ".pth"
+
+    model_name = get_model_run_name_prefix(model_type) or "model_unknown"
+    sequence_name = format_sequence_run_name(
+        sequences,
+        train_sequence_half_selection=train_sequence_half_selection,
+        train_sequence_half_ratio=train_sequence_half_ratio,
+    )
+    filename_parts = [date_text, model_name]
+    if name_prefix not in (None, "", "candidate"):
         filename_parts.append(str(name_prefix))
-    filename_parts.append(f"epoch_{epoch:03d}")
+    filename_parts.extend([f"epoch_{epoch:03d}", sequence_name])
     return "_".join(filename_parts) + ".pth"
 
 
@@ -389,6 +352,19 @@ def create_checkpoint_run_dirs(
     return {sequences: _create_unique_checkpoint_dir(checkpoint_dir)}
 
 
+def metric_for_filename(value):
+    return f"{value:.4f}".replace(".", "p")
+
+
+def metric_key_for_filename(metric_key):
+    key_text = str(metric_key or "metric")
+    key_text = key_text.replace(".", "p")
+    return "".join(
+        character if (character.isalnum() or character in {"_", "-"}) else "_"
+        for character in key_text
+    )
+
+
 def build_checkpoint_payload(
         model,
         optimizer,
@@ -421,6 +397,11 @@ def build_checkpoint_payload(
             "sequence": cfg.sequence,
             "sequences": getattr(cfg, "sequences", None),
             "epochs": args.epochs,
+            "checkpoint_filename_style": getattr(
+                args,
+                "checkpoint_filename_style",
+                "legacy",
+            ),
             "resume_checkpoint": getattr(args, "resume_checkpoint", None),
             "resume_save_in_checkpoint_dir": getattr(
                 args,
@@ -454,7 +435,7 @@ def build_checkpoint_payload(
                 "cartesian_training_workflow",
                 None,
             ),
-            "loss_mode": getattr(args, "loss_mode", None),
+            "loss_mode": getattr(args, "loss_mode", "auto"),
             "model7_decoder_hidden_channels": getattr(
                 args,
                 "model7_decoder_hidden_channels",
@@ -474,7 +455,7 @@ def build_checkpoint_payload(
             "box_coordinate_mode": getattr(
                 args,
                 "box_coordinate_mode",
-                None,
+                "polar",
             ),
             "weather_group": getattr(args, "weather_group", None),
             "weather_group_source": getattr(
@@ -597,10 +578,14 @@ def build_checkpoint_payload(
                 "train_sequence_half_ratio",
                 None,
             ),
+            "controled_sequences": getattr(args, "controled_sequences", None),
+            "reference_sequences": getattr(args, "reference_sequences", None),
             "controlled_split_base_dir": getattr(args, "controlled_split_base_dir", None),
             "control_window_position": getattr(args, "control_window_position", None),
             "control_class_names": getattr(args, "control_class_names", None),
             "control_range_m_bins": getattr(args, "control_range_m_bins", None),
+            # Keep the legacy field readable for older checkpoints/configs.
+            "control_ridx_bins": getattr(args, "control_ridx_bins", None),
             "control_num_trials": getattr(args, "control_num_trials", None),
             "control_total_bbox_tolerance_ratio": getattr(
                 args,
@@ -620,7 +605,6 @@ def build_checkpoint_payload(
     if "mAP" in val_metrics:
         payload["mAP"] = val_metrics["mAP"]
 
-    validate_current_checkpoint(payload)
     if clone_for_memory:
         payload = clone_checkpoint_payload_for_memory(payload)
 
@@ -642,6 +626,12 @@ def clone_checkpoint_payload_for_memory(value):
     return copy.deepcopy(value)
 
 
+def get_model_state_dict_from_checkpoint(checkpoint):
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        return checkpoint["model_state_dict"]
+    return checkpoint
+
+
 def save_epoch_checkpoint(
         checkpoint_dir,
         model,
@@ -657,10 +647,35 @@ def save_epoch_checkpoint(
         is_best
     ):
     saved_at = datetime.now().strftime("%Y%m%d_%H%M%S")
+    metric_key = val_metrics.get("selection_metric_key", "mAP")
+    metric_value = val_metrics.get(
+        "selection_metric_value",
+        val_metrics.get("mAP", 0.0),
+    )
     filename = format_checkpoint_filename(
         name_prefix=None,
         epoch=epoch,
         saved_at=saved_at,
+        metric_key=metric_key,
+        metric_value=metric_value,
+        model_type=getattr(args, "run_model_type", getattr(args, "model_type", None)),
+        sequences=_checkpoint_sequences(args, cfg),
+        train_sequence_half_selection=getattr(
+            args,
+            "train_sequence_half_selection",
+            None,
+        ),
+        train_sequence_half_ratio=getattr(
+            args,
+            "train_sequence_half_ratio",
+            None,
+        ),
+        compact=(
+            str(
+                getattr(args, "checkpoint_filename_style", "legacy")
+            ).strip().lower()
+            == "compact"
+        ),
     )
     checkpoint_path = os.path.join(checkpoint_dir, filename)
 
@@ -688,13 +703,40 @@ def save_named_checkpoint_copy(
         checkpoint_dir,
         source_checkpoint_path,
         best_epoch,
+        best_map,
         name_prefix,
+        model_type=None,
+        sequences=None,
+        metric_key=None,
     ):
     saved_at = datetime.now().strftime("%Y%m%d_%H%M%S")
+    source_checkpoint = load_torch_checkpoint(source_checkpoint_path, map_location="cpu")
+    if model_type is None:
+        model_type = _payload_model_type(source_checkpoint)
+    if sequences is None:
+        sequences = _payload_sequences(source_checkpoint)
+    if metric_key is None and isinstance(source_checkpoint, dict):
+        metric_key = source_checkpoint.get("selection_metric_key")
+    half_selection, half_ratio = _payload_half_selection(source_checkpoint)
+    compact = (
+        _payload_checkpoint_filename_style(source_checkpoint) == "compact"
+    )
+    if sequences is None:
+        sequences = ("unknown",)
+    if metric_key is None:
+        metric_key = "mAP"
+
     best_filename = format_checkpoint_filename(
         name_prefix=name_prefix,
         epoch=best_epoch,
         saved_at=saved_at,
+        metric_key=metric_key,
+        metric_value=best_map,
+        model_type=model_type,
+        sequences=sequences,
+        train_sequence_half_selection=half_selection,
+        train_sequence_half_ratio=half_ratio,
+        compact=compact,
     )
     best_checkpoint_path = os.path.join(checkpoint_dir, best_filename)
     shutil.copy2(source_checkpoint_path, best_checkpoint_path)
@@ -705,13 +747,37 @@ def save_named_checkpoint_payload(
         checkpoint_dir,
         payload,
         best_epoch,
+        best_map,
         name_prefix,
+        model_type=None,
+        sequences=None,
+        metric_key=None,
     ):
     saved_at = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if model_type is None:
+        model_type = _payload_model_type(payload)
+    if sequences is None:
+        sequences = _payload_sequences(payload)
+    if metric_key is None and isinstance(payload, dict):
+        metric_key = payload.get("selection_metric_key")
+    half_selection, half_ratio = _payload_half_selection(payload)
+    compact = _payload_checkpoint_filename_style(payload) == "compact"
+    if sequences is None:
+        sequences = ("unknown",)
+    if metric_key is None:
+        metric_key = "mAP"
+
     best_filename = format_checkpoint_filename(
         name_prefix=name_prefix,
         epoch=best_epoch,
         saved_at=saved_at,
+        metric_key=metric_key,
+        metric_value=best_map,
+        model_type=model_type,
+        sequences=sequences,
+        train_sequence_half_selection=half_selection,
+        train_sequence_half_ratio=half_ratio,
+        compact=compact,
     )
     best_checkpoint_path = os.path.join(checkpoint_dir, best_filename)
     torch.save(payload, best_checkpoint_path)
@@ -722,9 +788,10 @@ def remove_named_checkpoints(checkpoint_dir, name_prefix):
     if not os.path.isdir(checkpoint_dir):
         return
 
-    pattern = rf"^\d{{4}}_{re.escape(str(name_prefix))}_epoch_\d+\.pth$"
     for filename in os.listdir(checkpoint_dir):
-        if re.fullmatch(pattern, filename):
+        is_legacy_match = filename.startswith(f"{name_prefix}_epoch_")
+        is_new_match = f"_{name_prefix}_epoch_" in filename
+        if (is_legacy_match or is_new_match) and filename.endswith(".pth"):
             os.remove(os.path.join(checkpoint_dir, filename))
 
 
@@ -732,14 +799,22 @@ def save_replacing_named_checkpoint_copy(
         checkpoint_dir,
         source_checkpoint_path,
         best_epoch,
+        best_map,
         name_prefix,
+        model_type=None,
+        sequences=None,
+        metric_key=None,
     ):
     remove_named_checkpoints(checkpoint_dir, name_prefix)
     return save_named_checkpoint_copy(
         checkpoint_dir=checkpoint_dir,
         source_checkpoint_path=source_checkpoint_path,
         best_epoch=best_epoch,
+        best_map=best_map,
         name_prefix=name_prefix,
+        model_type=model_type,
+        sequences=sequences,
+        metric_key=metric_key,
     )
 
 
@@ -747,14 +822,22 @@ def save_replacing_named_checkpoint_payload(
         checkpoint_dir,
         payload,
         best_epoch,
+        best_map,
         name_prefix,
+        model_type=None,
+        sequences=None,
+        metric_key=None,
     ):
     remove_named_checkpoints(checkpoint_dir, name_prefix)
     return save_named_checkpoint_payload(
         checkpoint_dir=checkpoint_dir,
         payload=payload,
         best_epoch=best_epoch,
+        best_map=best_map,
         name_prefix=name_prefix,
+        model_type=model_type,
+        sequences=sequences,
+        metric_key=metric_key,
     )
 
 
@@ -762,12 +845,20 @@ def save_best_checkpoint_copy(
         checkpoint_dir,
         source_checkpoint_path,
         best_epoch,
+        best_map,
+        model_type=None,
+        sequences=None,
+        metric_key=None,
     ):
     return save_named_checkpoint_copy(
         checkpoint_dir=checkpoint_dir,
         source_checkpoint_path=source_checkpoint_path,
         best_epoch=best_epoch,
+        best_map=best_map,
         name_prefix="best",
+        model_type=model_type,
+        sequences=sequences,
+        metric_key=metric_key,
     )
 
 def default_best_metric_key(
@@ -985,19 +1076,28 @@ def save_epoch_and_update_best_checkpoint(
         )
 
     if is_best:
+        best_metric_key, best_metric_value = selection_metric_value(val_metrics)
         if checkpoint_path is not None:
             global_best_path = save_replacing_named_checkpoint_copy(
                 checkpoint_dir=checkpoint_dir,
                 source_checkpoint_path=checkpoint_path,
                 best_epoch=epoch,
+                best_map=best_metric_value,
                 name_prefix="global_best",
+                model_type=getattr(args, "model_type", None),
+                sequences=getattr(cfg, "sequences", None) or (cfg.sequence,),
+                metric_key=best_metric_key,
             )
         else:
             global_best_path = save_replacing_named_checkpoint_payload(
                 checkpoint_dir=checkpoint_dir,
                 payload=checkpoint_payload,
                 best_epoch=epoch,
+                best_map=best_metric_value,
                 name_prefix="global_best",
+                model_type=getattr(args, "model_type", None),
+                sequences=getattr(cfg, "sequences", None) or (cfg.sequence,),
+                metric_key=best_metric_key,
             )
 
         best_state.update(
@@ -1050,6 +1150,9 @@ def save_window_best_checkpoint_if_ready(
             checkpoint_dir=sequence_checkpoint_dir,
             source_checkpoint_path=window_best_state.checkpoint_path,
             best_epoch=window_best_state.epoch,
+            best_map=window_best_state.map_score,
+            sequences=sequence,
+            metric_key=window_best_state.metric_key,
         )
     best_checkpoint_path = best_checkpoint_paths[checkpoint_key]
     window_best_state.reset()
@@ -1071,14 +1174,20 @@ def save_global_best_checkpoint(best_state, checkpoint_dirs, checkpoint_key):
                 checkpoint_dir=sequence_checkpoint_dir,
                 source_checkpoint_path=best_state.checkpoint_path,
                 best_epoch=best_state.epoch,
+                best_map=best_state.map_score,
                 name_prefix="global_best",
+                sequences=sequence,
+                metric_key=best_state.metric_key,
             )
         else:
             global_best_checkpoint_paths[sequence] = save_named_checkpoint_payload(
                 checkpoint_dir=sequence_checkpoint_dir,
                 payload=best_state.checkpoint_payload,
                 best_epoch=best_state.epoch,
+                best_map=best_state.map_score,
                 name_prefix="global_best",
+                sequences=sequence,
+                metric_key=best_state.metric_key,
             )
     global_best_checkpoint_path = global_best_checkpoint_paths[checkpoint_key]
 

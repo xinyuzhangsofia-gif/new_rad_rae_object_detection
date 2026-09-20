@@ -457,6 +457,39 @@ def resolve_class_config(include_bus_as_target):
     return {0: SEDAN_CLASS_NAME}, {SEDAN_CLASS_NAME: 0}
 
 
+def infer_include_bus_as_target_from_checkpoint_config(checkpoint_config):
+    if not isinstance(checkpoint_config, dict):
+        return None
+
+    explicit_value = checkpoint_config.get("include_bus_as_target")
+    if explicit_value is not None:
+        return normalize_bool_flag(
+            explicit_value,
+            name="checkpoint.config.include_bus_as_target",
+        )
+
+    checkpoint_num_classes = checkpoint_config.get("num_classes")
+    if checkpoint_num_classes is not None:
+        checkpoint_num_classes = int(checkpoint_num_classes)
+        if checkpoint_num_classes == 1:
+            return False
+        if checkpoint_num_classes == 2:
+            return True
+
+    checkpoint_class_names = checkpoint_config.get("class_names")
+    if isinstance(checkpoint_class_names, dict):
+        class_names = {
+            str(class_name)
+            for class_name in checkpoint_class_names.values()
+        }
+        if class_names == {SEDAN_CLASS_NAME}:
+            return False
+        if SEDAN_CLASS_NAME in class_names and BUS_CLASS_NAME in class_names:
+            return True
+
+    return None
+
+
 def resolve_effective_ignore_class_names(configured_ignore_class_names, include_bus_as_target):
     ignore_names = []
     seen = set()

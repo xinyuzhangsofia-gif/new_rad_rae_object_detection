@@ -28,7 +28,6 @@ from eval.checkpoints import (
     apply_checkpoint_config_defaults,
     infer_checkpoint_box_coordinate_mode,
 )
-from tests.checkpoint_fixtures import current_checkpoint
 from eval.evaluation_config import parse_args as parse_evaluation_args
 from training.configuration import apply_training_coordinate_mode
 from visualization.workflow import parse_args as parse_visualization_args
@@ -243,7 +242,7 @@ class CartesianDataTests(unittest.TestCase):
                 self.assertEqual(error.exception.code, 2)
 
     def test_cartesian_override_cannot_disguise_a_polar_checkpoint(self):
-        checkpoint = current_checkpoint(box_coordinate_mode="polar")
+        checkpoint = {"config": {"box_coordinate_mode": "polar", "model_type": "model7"}, "model_state_dict": {}}
         with mock.patch("eval.checkpoints.load_torch_checkpoint", return_value=checkpoint):
             with self.assertRaisesRegex(ValueError, "Only Cartesian"):
                 apply_checkpoint_config_defaults(
@@ -259,7 +258,7 @@ class CartesianDataTests(unittest.TestCase):
 
     def test_sensor_prediction_and_resume_reject_polar_checkpoints(self):
         from training.resume import load_resume_checkpoint
-        checkpoint = current_checkpoint(box_coordinate_mode="polar")
+        checkpoint = {"config": {"box_coordinate_mode": "polar"}, "model_state_dict": {}}
         with self.assertRaisesRegex(ValueError, "Only Cartesian"):
             infer_checkpoint_box_coordinate_mode(checkpoint)
         model = mock.Mock()

@@ -7,14 +7,13 @@ import torch
 
 from eval.checkpoints import (
     build_model_for_checkpoint,
-    current_checkpoint_model_overrides,
     infer_checkpoint_box_coordinate_mode,
+    infer_checkpoint_decoder_overrides,
     infer_checkpoint_loss_mode,
     infer_checkpoint_num_classes,
     infer_model_type_from_checkpoint,
     load_model_checkpoint,
 )
-from tests.checkpoint_fixtures import current_checkpoint
 from eval.decoding import (
     cartesian_rotated_nms_indices,
     decode_batch_predictions,
@@ -61,48 +60,94 @@ class _OutputModel(torch.nn.Module):
 
 class CheckpointReconstructionTests(unittest.TestCase):
     def test_complete_metadata_is_authoritative(self):
-        checkpoint = current_checkpoint(
-            model_state_dict={
-                "_model15_cartesian_radenet_marker": torch.tensor(1),
+        checkpoint = {
+            "config": {
+                "model_type": "model15",
+                "box_coordinate_mode": "cartesian",
+                "loss_mode": "radenet",
+                "num_classes": 2,
             },
-            model_type="model15",
-            loss_mode="radenet",
-        )
+            "model_state_dict": {
+                "_model15_radenet_official_marker": torch.tensor(1),
+            },
+        }
 
         self.assertEqual(infer_model_type_from_checkpoint(checkpoint), "model15")
         box_mode = infer_checkpoint_box_coordinate_mode(checkpoint)
         self.assertEqual(box_mode, "cartesian")
         self.assertEqual(
-            infer_checkpoint_loss_mode(checkpoint),
+            infer_checkpoint_loss_mode(checkpoint, "model15", box_mode),
             "radenet",
         )
         self.assertEqual(infer_checkpoint_num_classes(checkpoint), 2)
 
-    def test_missing_required_metadata_fails_clearly(self):
-        checkpoint = current_checkpoint()
-        del checkpoint["config"]["model_type"]
-        with self.assertRaisesRegex(
-            ValueError,
-            "Checkpoint is missing required current metadata: config.model_type",
-        ):
-            infer_model_type_from_checkpoint(checkpoint)
+    def test_historical_model7_metadata_comes_from_state_dict(self):
+        checkpoint = {
+            "model_state_dict": {
+                "_model7_cartesian_centerpoint_marker": torch.tensor(1),
+                "backbone.attn.relative_position_bias_table": torch.zeros(1),
+                "decoder.cls_decoder.decoder.0.weight": torch.zeros(
+                    (32, 96, 3, 3)
+                ),
+                "decoder.cls_decoder.decoder.2.weight": torch.zeros(
+                    (1, 32, 1, 1)
+                ),
+            }
+        }
 
-    def test_auto_loss_mode_uses_current_resolution_semantics(self):
-        checkpoint = current_checkpoint(loss_mode="auto", model_type="model15")
-        self.assertEqual(infer_checkpoint_loss_mode(checkpoint), "radenet")
+        self.assertEqual(infer_model_type_from_checkpoint(checkpoint), "model7")
+        box_mode = infer_checkpoint_box_coordinate_mode(checkpoint)
+        self.assertEqual(box_mode, "cartesian")
+        self.assertEqual(
+            infer_checkpoint_loss_mode(checkpoint, "model7", box_mode),
+            "centerpoint",
+        )
+        self.assertEqual(
+            infer_checkpoint_decoder_overrides(checkpoint)["num_classes"],
+            1,
+        )
 
-    def test_build_model_uses_saved_model7_decoder_width(self):
-        checkpoint = current_checkpoint(model7_decoder_hidden_channels="32")
+    def test_yolox_family_decoder_shapes_are_inferred_once(self):
+        checkpoint = {
+            "model_state_dict": {
+                "_model12_yolox_marker": torch.tensor(1),
+                "decoder.stem.0.weight": torch.zeros((24, 48, 1, 1)),
+                "decoder.cls_head.weight": torch.zeros((3, 24, 1, 1)),
+            }
+        }
+
+        self.assertEqual(infer_model_type_from_checkpoint(checkpoint), "model12")
+        overrides = infer_checkpoint_decoder_overrides(checkpoint)
+        self.assertEqual(overrides["decoder_hidden_channels"], 24)
+        self.assertEqual(overrides["feature_channels"], 48)
+        self.assertEqual(overrides["num_classes"], 3)
+        self.assertEqual(infer_checkpoint_num_classes(checkpoint), 3)
+
+    def test_build_model_uses_inferred_historical_channels(self):
+        checkpoint = {
+            "model_state_dict": {
+                "_model7_cartesian_centerpoint_marker": torch.tensor(1),
+                "decoder.cls_decoder.decoder.0.weight": torch.zeros(
+                    (32, 96, 3, 3)
+                ),
+                "decoder.cls_decoder.decoder.2.weight": torch.zeros(
+                    (2, 32, 1, 1)
+                ),
+            }
+        }
         sentinel = object()
         with mock.patch("eval.checkpoints.build_model", return_value=sentinel) as build:
             model, overrides = build_model_for_checkpoint(
+                model_type="model7",
                 device=torch.device("cpu"),
+                num_classes=2,
                 checkpoint=checkpoint,
+                box_coordinate_mode="cartesian",
+                loss_mode="centerpoint",
             )
 
         self.assertIs(model, sentinel)
         self.assertEqual(overrides["decoder_hidden_channels"], 32)
-        self.assertEqual(current_checkpoint_model_overrides(checkpoint), overrides)
         build.assert_called_once_with(
             model_type="model7",
             device=torch.device("cpu"),
@@ -110,31 +155,25 @@ class CheckpointReconstructionTests(unittest.TestCase):
             box_coordinate_mode="cartesian",
             loss_mode="centerpoint",
             decoder_hidden_channels=32,
+            feature_channels=96,
         )
 
-    def test_current_payload_loads_strictly_and_raw_state_dict_is_rejected(self):
+    def test_raw_and_payload_state_dicts_load_without_format_changes(self):
         expected = torch.tensor([[2.0, -1.0]])
-        checkpoint = current_checkpoint(
-            model_state_dict={"weight": expected.clone()}
-        )
-        model = torch.nn.Linear(2, 1, bias=False)
-        model.train()
-        load_model_checkpoint(model=model, checkpoint=checkpoint)
-        torch.testing.assert_close(model.weight, expected)
-        self.assertFalse(model.training)
-
-        with self.assertRaisesRegex(ValueError, "model_state_dict"):
-            load_model_checkpoint(model=model, checkpoint={"weight": expected})
-
-    def test_wrong_head_state_dict_fails_instead_of_partial_loading(self):
-        checkpoint = current_checkpoint(
-            model_state_dict={"unexpected_head.weight": torch.ones(1)}
-        )
-        with self.assertRaises(RuntimeError):
-            load_model_checkpoint(
-                model=torch.nn.Linear(2, 1, bias=False),
-                checkpoint=checkpoint,
-            )
+        for checkpoint in (
+            {"weight": expected.clone()},
+            {"model_state_dict": {"weight": expected.clone()}},
+        ):
+            with self.subTest(payload="model_state_dict" in checkpoint):
+                model = torch.nn.Linear(2, 1, bias=False)
+                model.train()
+                load_model_checkpoint(
+                    model=model,
+                    checkpoint=checkpoint,
+                    strict=True,
+                )
+                torch.testing.assert_close(model.weight, expected)
+                self.assertFalse(model.training)
 
 
 class SharedInferenceTests(unittest.TestCase):

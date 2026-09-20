@@ -11,6 +11,8 @@ from training.torch_load import load_torch_checkpoint
 from eval.checkpoints import (
     build_model_for_checkpoint,
     infer_checkpoint_box_coordinate_mode,
+    infer_checkpoint_loss_mode,
+    infer_checkpoint_num_classes,
     infer_model_type_from_checkpoint,
     load_model_checkpoint,
 )
@@ -59,12 +61,24 @@ class CheckpointPredictor:
             checkpoint
         )
         self.scope_mode = checkpoint_config.get("train_scope", SCOPE_FULL)
-        self.model_type = infer_model_type_from_checkpoint(checkpoint)
+        self.model_type = (
+            checkpoint_config.get("model_type")
+            or infer_model_type_from_checkpoint(checkpoint)
+        )
+        loss_mode = infer_checkpoint_loss_mode(
+            checkpoint=checkpoint,
+            model_type=self.model_type,
+            box_coordinate_mode=self.box_coordinate_mode,
+        )
 
         self.num_classes, self.class_names, _ = resolve_visualization_classes(
             checkpoint_config,
+            inferred_num_classes=infer_checkpoint_num_classes(checkpoint),
         )
-        checkpoint_max_detections = checkpoint_config.get("max_detections")
+        checkpoint_max_detections = checkpoint_config.get(
+            "max_detections",
+            checkpoint_config.get("num_boxes"),
+        )
         self.max_detections = int(
             checkpoint_max_detections
             if checkpoint_max_detections is not None
@@ -77,13 +91,18 @@ class CheckpointPredictor:
         self.yolox_nms_iou = float(cfg.prediction_yolox_nms_iou)
 
         model, _ = build_model_for_checkpoint(
+            model_type=self.model_type,
             device=self.device,
             checkpoint=checkpoint,
+            num_classes=self.num_classes,
+            box_coordinate_mode=self.box_coordinate_mode,
+            loss_mode=loss_mode,
         )
         self.model = load_model_checkpoint(
             model=model,
             checkpoint=checkpoint,
             device=self.device,
+            strict=True,
         )
 
         print(

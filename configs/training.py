@@ -74,6 +74,7 @@ TRAIN_CONFIG = {
     "limit_samples": None,
     "checkpoint_epoch_step": 1,
     "checkpoint_base_dir": CHECKPOINT_BASE_DIR,
+    "checkpoint_filename_style": "compact",
     "log_base_dir": LOG_BASE_DIR,
     "model_type": "model7",
     "model7_decoder_hidden_channels": "64",

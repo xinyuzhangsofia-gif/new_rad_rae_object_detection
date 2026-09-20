@@ -285,6 +285,31 @@ class RADRAERADENetCartesianModel(nn.Module):
             persistent=True,
         )
 
+    def _load_from_state_dict(
+            self, state_dict, prefix, local_metadata, strict,
+            missing_keys, unexpected_keys, error_msgs,
+        ):
+        # Also covers manual resume and DataParallel, even with strict=False.
+        # The previous Model13 decoder has different box semantics and cannot
+        # be interpreted as a checkpoint of this Cartesian architecture.
+        expected_marker = prefix + f"_model13_cartesian_{self.loss_mode}_marker"
+        has_old_marker = any(
+            key.endswith("_model13_radenet_marker") for key in state_dict
+        )
+        has_expected_marker = expected_marker in state_dict or any(
+            key.endswith(f".{expected_marker}") for key in state_dict
+        )
+        if has_old_marker or not has_expected_marker:
+            raise RuntimeError(
+                f"Model13 {self.loss_mode} mode requires a matching native "
+                "Cartesian checkpoint; checkpoints from another head or the "
+                "old Polar architecture cannot be loaded."
+            )
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict,
+            missing_keys, unexpected_keys, error_msgs,
+        )
+
     def forward(self, rad, rae):
         features = self.backbone(rad, rae)
         fused_feat = self.neck(features["backbone_feat"])
