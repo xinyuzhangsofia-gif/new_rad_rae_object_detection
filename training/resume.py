@@ -115,6 +115,18 @@ def load_resume_checkpoint(
             f"{expected_box_coordinate_mode!r})."
         )
 
+    required_training_fields = []
+    if load_optimizer:
+        required_training_fields.append("optimizer_state_dict")
+    if scheduler is not None:
+        required_training_fields.append("scheduler_state_dict")
+    for field in required_training_fields:
+        if checkpoint.get(field) is None:
+            raise ValueError(
+                "Checkpoint is missing required current training state: "
+                f"{field}"
+            )
+
     state_dict = checkpoint["model_state_dict"]
     model_for_state_dict = (
         model.module if isinstance(model, torch.nn.DataParallel) else model
@@ -123,11 +135,6 @@ def load_resume_checkpoint(
 
     optimizer_loaded = False
     if load_optimizer:
-        if checkpoint.get("optimizer_state_dict") is None:
-            raise ValueError(
-                "Checkpoint is missing required current training state: "
-                "optimizer_state_dict"
-            )
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         for state in optimizer.state.values():
             for key, value in state.items():
@@ -137,11 +144,6 @@ def load_resume_checkpoint(
 
     scheduler_loaded = False
     if scheduler is not None:
-        if checkpoint.get("scheduler_state_dict") is None:
-            raise ValueError(
-                "Checkpoint is missing required current training state: "
-                "scheduler_state_dict"
-            )
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         scheduler_loaded = True
 
@@ -242,23 +244,14 @@ def initialize_best_state(best_state, initial_best_checkpoint, checkpoint_dir):
 
     checkpoint = load_torch_checkpoint(initial_best_checkpoint, map_location="cpu")
     validate_current_checkpoint(checkpoint)
-    best_epoch = int(checkpoint.get("epoch", 0))
-    best_metric_key = checkpoint.get(
-        "selection_metric_key",
-        checkpoint.get("val_metrics", {}).get("selection_metric_key", "mAP"),
-    )
-    best_map = float(
-        checkpoint.get(
-            "selection_metric_value",
-            checkpoint.get("val_metrics", {}).get(
-                "selection_metric_value",
-                checkpoint.get(
-                    "mAP",
-                    checkpoint.get("val_metrics", {}).get("mAP", -1.0),
-                ),
-            ),
-        )
-    )
+    best_epoch = int(checkpoint["epoch"])
+    for field in ("selection_metric_key", "selection_metric_value"):
+        if checkpoint.get(field) is None:
+            raise ValueError(
+                f"Initial best checkpoint is missing required current training state: {field}"
+            )
+    best_metric_key = checkpoint["selection_metric_key"]
+    best_map = float(checkpoint["selection_metric_value"])
     copied_path = save_replacing_named_checkpoint_copy(
         checkpoint_dir=checkpoint_dir,
         source_checkpoint_path=initial_best_checkpoint,

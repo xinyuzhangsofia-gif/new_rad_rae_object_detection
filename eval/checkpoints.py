@@ -85,10 +85,9 @@ def find_epoch_checkpoints(
         )
 
     if os.path.isfile(checkpoint_root):
-        epoch = checkpoint_epoch(checkpoint_root)
-        if epoch is None:
-            checkpoint = load_torch_checkpoint(checkpoint_root, map_location="cpu")
-            epoch = checkpoint.get("epoch", 0) if isinstance(checkpoint, dict) else 0
+        checkpoint = load_torch_checkpoint(checkpoint_root, map_location="cpu")
+        validate_current_checkpoint(checkpoint)
+        epoch = int(checkpoint["epoch"])
         if start_epoch is not None and epoch < start_epoch:
             return []
         if end_epoch is not None and epoch > end_epoch:
@@ -347,10 +346,7 @@ def infer_model_variant_name(
         train_sequence_half_selection=train_sequence_half_selection,
         train_sequence_half_ratio=train_sequence_half_ratio,
         train_control_split_enabled=train_control_split_enabled,
-        learning_rate=checkpoint_config.get(
-            "lr",
-            checkpoint_config.get("learning_rate"),
-        ),
+        learning_rate=checkpoint_config.get("lr"),
     )
 
 

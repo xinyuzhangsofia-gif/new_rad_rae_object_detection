@@ -360,7 +360,7 @@ class EvaluationReportingPathTests(unittest.TestCase):
         self.assertIn("bev@0.3=20.0000", lines[0])
         self.assertIn("bev@0.5=4.0000", lines[0])
 
-    def test_missing_checkpoint_metadata_has_stable_fallbacks(self):
+    def test_unspecified_report_identity_uses_placeholder_values(self):
         output_dir = evaluation_output_dir(
             base_dir="/tmp/evaluation_plots",
             weather_group=None,

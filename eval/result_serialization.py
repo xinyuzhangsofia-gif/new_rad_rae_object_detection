@@ -34,7 +34,7 @@ def read_report_metadata(report_path):
 
 
 def load_evaluation_yaml(yaml_path):
-    """Load an evaluation YAML without normalizing historical fields."""
+    """Load an evaluation YAML while preserving stored result fields."""
     return yaml.safe_load(
         Path(yaml_path).read_text(encoding="utf-8")
     ) or {}

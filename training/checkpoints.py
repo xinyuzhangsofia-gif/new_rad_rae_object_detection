@@ -13,19 +13,6 @@ from training.configuration import (
 )
 
 
-MODEL_RUN_NAME_PREFIXES = {
-    "model1": "con2d_heatmap_model1",
-    "model2": "bifpn_heatmap_model2",
-    "model3": "fpn_nodeform_heatmap_model3",
-    "model4": "deform_heatmap_model4",
-    "model5": "fpn_heatmap_model5",
-    "model6": "fpn_quality_heatmap_model6",
-    "model7": "swin_heatmap_model7",
-    "model8": "cfe_heatmap_model8",
-    "model9": "cfe_bifpn_heatmap_model9",
-    "model10": "fpn_split_heatmap_model10",
-}
-
 EXPERIMENT_NAME = "object_detection"
 
 CURRENT_CHECKPOINT_REQUIRED_FIELDS = (
@@ -240,15 +227,6 @@ def get_model_run_name_prefix(model_type):
     return model_text
 
 
-def format_model_sequence_run_name(sequences, model_type=None):
-    sequence_name = format_sequence_run_name(sequences)
-    model_prefix = get_model_run_name_prefix(model_type)
-    if model_prefix is None:
-        return sequence_name
-
-    return f"{model_prefix}__{sequence_name}"
-
-
 def format_timestamp_model_sequence_run_name(
         sequences,
         model_type=None,
@@ -271,15 +249,6 @@ def format_timestamp_model_sequence_run_name(
     return f"{timestamp}__{model_prefix}__{sequence_name}"
 
 
-def _configured_sequences(cfg):
-    sequences = getattr(cfg, "sequences", None)
-    if sequences is None:
-        sequences = (cfg.sequence,)
-    if isinstance(sequences, int):
-        sequences = (sequences,)
-    return tuple(sequences)
-
-
 def format_checkpoint_filename(
         name_prefix,
         epoch,
@@ -299,26 +268,6 @@ def format_checkpoint_filename(
         filename_parts.append(str(name_prefix))
     filename_parts.append(f"epoch_{epoch:03d}")
     return "_".join(filename_parts) + ".pth"
-
-
-def create_checkpoint_run_dir(
-        base_dir,
-        experiment_name,
-        sequence,
-        model_type=None,
-        train_sequence_half_selection=None,
-        train_sequence_half_ratio=None,
-    ):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    run_name = format_timestamp_model_sequence_run_name(
-        sequence,
-        model_type,
-        timestamp,
-        train_sequence_half_selection=train_sequence_half_selection,
-        train_sequence_half_ratio=train_sequence_half_ratio,
-    )
-    checkpoint_dir = os.path.join(base_dir, experiment_name, run_name)
-    return _create_unique_checkpoint_dir(checkpoint_dir)
 
 
 def create_checkpoint_run_dirs(

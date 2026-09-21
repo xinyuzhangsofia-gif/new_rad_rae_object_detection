@@ -53,6 +53,25 @@ class CheckpointSelectionTests(unittest.TestCase):
                 end_epoch=24,
             )
 
+    def test_direct_checkpoint_requires_current_epoch_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            for filename in ("selected.pth", "0920_epoch_004.pth"):
+                with self.subTest(filename=filename):
+                    checkpoint_path = Path(temporary_dir) / filename
+                    checkpoint = current_checkpoint(epoch=4)
+                    torch.save(checkpoint, checkpoint_path)
+                    self.assertEqual(
+                        find_epoch_checkpoints(str(checkpoint_path), epoch_step=1),
+                        [(4, str(checkpoint_path))],
+                    )
+
+                    del checkpoint["epoch"]
+                    torch.save(checkpoint, checkpoint_path)
+                    with self.assertRaisesRegex(
+                        ValueError, "required current metadata: epoch"
+                    ):
+                        find_epoch_checkpoints(str(checkpoint_path), epoch_step=1)
+
     def test_current_domain_shift_metadata_is_read_directly(self):
         checkpoint = current_checkpoint(
             train_sequences=(9, 11),

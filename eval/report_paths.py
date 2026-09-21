@@ -200,12 +200,7 @@ def sanitize_filename(text):
 
 
 def weather_prefixed_model_variant_name(weather_group, model_variant_name):
-    """Prefix evaluation output identities with checkpoint weather metadata.
-
-    Checkpoints created before ``weather_group`` was introduced return the
-    unmodified model variant, so their existing evaluation outputs remain
-    backward-compatible.
-    """
+    """Prefix evaluation output identities when weather metadata is available."""
     if weather_group in (None, ""):
         return str(model_variant_name or "model_unknown")
     weather_tag = sanitize_filename(str(weather_group).strip().lower())

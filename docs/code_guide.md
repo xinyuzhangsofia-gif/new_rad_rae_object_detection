@@ -304,7 +304,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | --- | ---: | --- | --- |
 | [eval/__init__.py](../eval/__init__.py) | 1 | 声明评估支持包。 | 保留：包边界/公开导出，不按行数删除。 |
 | [eval/adapter.py](../eval/adapter.py) | 695 | 将项目框与类别转换为官方 K-Radar/KITTI 评估格式，并计算补充 TP/FP/FN 指标。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [eval/checkpoints.py](../eval/checkpoints.py) | 767 | 查找 epoch 检查点、推断新旧元数据、重建匹配模型并安全加载权重。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
+| [eval/checkpoints.py](../eval/checkpoints.py) | 767 | 查找 epoch 检查点、读取当前规范元数据、重建匹配模型并严格加载权重。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/coco_style.py](../eval/coco_style.py) | 333 | 对旋转 BEV/3D 框计算 COCO 风格多 IoU AP。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/custom_iou_range.py](../eval/custom_iou_range.py) | 288 | 在可配置 IoU 阈值范围内计算 AP。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/decoding.py](../eval/decoding.py) | 525 | 将模型输出转换为米制框和分数，并执行热力图处理、质量融合、NMS 和范围过滤。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |

@@ -242,6 +242,45 @@ class ResumeRestorationTests(unittest.TestCase):
         self.assertTrue(result[3])
         self.assertEqual(scheduler.state_dict(), saved_scheduler.state_dict())
 
+    def test_incomplete_resume_state_fails_before_model_restoration(self):
+        for missing_field in (
+            "optimizer_state_dict",
+            "scheduler_state_dict",
+            "epoch",
+            "config",
+        ):
+            with self.subTest(missing_field=missing_field):
+                with tempfile.TemporaryDirectory() as directory:
+                    checkpoint_path = Path(directory) / "checkpoint.pth"
+                    saved_model = torch.nn.Linear(2, 1)
+                    model = torch.nn.Linear(2, 1)
+                    original_weights = {
+                        key: value.clone()
+                        for key, value in model.state_dict().items()
+                    }
+                    optimizer = torch.optim.Adam(model.parameters())
+                    scheduler = torch.optim.lr_scheduler.StepLR(
+                        optimizer, step_size=3
+                    )
+                    checkpoint = current_checkpoint(
+                        model_state_dict=saved_model.state_dict(),
+                    )
+                    checkpoint["optimizer_state_dict"] = optimizer.state_dict()
+                    checkpoint["scheduler_state_dict"] = scheduler.state_dict()
+                    del checkpoint[missing_field]
+                    torch.save(checkpoint, checkpoint_path)
+
+                    with self.assertRaisesRegex(ValueError, missing_field):
+                        resume.load_resume_checkpoint(
+                            model=model,
+                            optimizer=optimizer,
+                            scheduler=scheduler,
+                            checkpoint_path=str(checkpoint_path),
+                            device=torch.device("cpu"),
+                        )
+                    for key, value in model.state_dict().items():
+                        torch.testing.assert_close(value, original_weights[key])
+
     def test_resume_epoch_resolution_is_one_based_and_inclusive(self):
         self.assertEqual(resume.resolve_resume_start_epoch(None, 7), 8)
         self.assertEqual(resume.resolve_resume_start_epoch(11, 7), 11)
@@ -331,6 +370,26 @@ class ResumeRestorationTests(unittest.TestCase):
         self.assertEqual(state.metric_key, "official_bev_mAP_0.3")
         self.assertEqual(state.map_score, 0.42)
         self.assertEqual(state.global_best_path, "copied.pth")
+
+    def test_initial_best_requires_saved_selection_metric(self):
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint_path = Path(directory) / "best.pth"
+            checkpoint = current_checkpoint(epoch=5)
+            checkpoint["val_metrics"] = {
+                "selection_metric_key": "mAP",
+                "selection_metric_value": 0.42,
+            }
+            torch.save(checkpoint, checkpoint_path)
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "required current training state: selection_metric_key",
+            ):
+                resume.initialize_best_state(
+                    best_state=BestCheckpointState(),
+                    initial_best_checkpoint=str(checkpoint_path),
+                    checkpoint_dir=directory,
+                )
 
 
 class SharedEpochWorkflowTests(unittest.TestCase):
