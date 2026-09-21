@@ -1,7 +1,5 @@
 """Convert canonical decoded detections into visualization coordinates."""
 
-import torch
-
 from configs.coordinates import BOX_COORDINATE_CARTESIAN, require_cartesian_data
 from data.geometry import metric_boxes_to_raw_local_rae
 from eval.decoding import decode_batch_predictions

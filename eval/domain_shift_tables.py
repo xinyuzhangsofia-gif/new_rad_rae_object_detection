@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import csv
 import fcntl
-import io
 import json
 import math
 import os

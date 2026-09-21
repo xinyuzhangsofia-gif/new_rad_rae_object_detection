@@ -1,18 +1,11 @@
-"""Standalone evaluation workflow.
-
-Reusable helpers live in sibling ``eval`` modules.  ``evaluation.py`` remains
-the backwards-compatible command-line facade.
-"""
+"""Standalone evaluation workflow used by the evaluation.py entrypoint."""
 
 import os
 from pathlib import Path
 
 import tqdm
 
-from eval.checkpoints import *
-from eval.decoding import *
-from eval.evaluation_config import *
-from eval.metrics_runner import *
+from eval.evaluation_config import parse_args
 from eval.domain_shift_summaries import refresh_weather_domain_shift_summary
 from eval.report_paths import (
     default_eval_table_txt_path,
@@ -41,7 +34,14 @@ from eval.tensorboard_reporting import (
     create_evaluation_tensorboard_writer,
     write_evaluation_tensorboard_result,
 )
-from eval.runner import *
+from eval.runner import (
+    build_eval_context,
+    build_group_plot_selection_entries,
+    evaluate_checkpoint_result,
+    group_plot_selection_specs,
+    save_group_best_only_plot_exports,
+    update_domain_comparison_outputs,
+)
 
 
 def main():

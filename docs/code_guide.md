@@ -16,7 +16,7 @@ configs/evaluation.py → evaluation.py → eval/workflow.py → eval/
 sequence_information.csv → data/sequence_metadata.py
     ├─ training/configuration.py → 训练域元数据
     └─ eval/domain_shift_tables.py → evaluation_results/ 域比较表
-eval/reporting.py → 报告兼容 facade
+eval/workflow.py → 独立评估命令入口
     ├─ report_paths.py → 输出目录、文件名及 plot/YAML/TXT 路径
     ├─ result_serialization.py → TXT/YAML、历史 metadata 和数值格式
     ├─ result_selection.py → 主指标及 group-best 确定性选择
@@ -133,7 +133,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 
 Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单作为历史资产保留，未重新生成。模型内部 RAE 网格和 Polar 雷达显示仍保留；Polar AP 与独立评估坐标选择器已删除。
 
-当前支持的 Cartesian 训练组合是 Model7、8、12、13、15（都可选择 CenterPoint / RADE-Net）以及 RADE-Net-only 的 Model16。五个双模式模型共享同一输出契约，但保留各自独立 backbone。
+当前支持的 Cartesian 训练组合是 Model7、8、12、13、15（都可选择 CenterPoint / RADE-Net）、YOLOX-only 的 Model14，以及 RADE-Net-only 的 Model16。五个双模式模型共享同一输出契约，但保留各自独立 backbone。
 
 ## 本次已经做了什么
 
@@ -148,7 +148,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 - 可视化统一由 `visualize.py` + `visualize_cfg.py` 驱动；四种模式共享 RAD/RAE、checkpoint、RA renderer、多传感器和视频模块，旧 MAT/ARR 与独立脚本已删除。
 - 将域偏移实验队列按职责拆为 `schema`、`tables`、`state`、`scheduling` 和 `execution`；`training/experiments/queue.py` 只保留按 seed 的两阶段编排：当前 seed 全部训练完成后才并行评估，评估全部完成后才进入下一 seed。已删除串行和训练/评估交错执行模式及 `experiment_queue_execution_mode`；任务身份、表顺序、恢复、GPU、worker 命令和结果写回规则未改变。
 - 距离四分位实验入口共享完成检查点发现、命令公共段、CUDA/subprocess 队列、锁/原子状态及报告 metadata 校验；GT 四分位和相对 TD 仍由该脚本定义。固定距离与 Source Drop 执行入口均已删除。
-- 将 `eval/reporting.py` 改为兼容 facade；路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现。序列/天气元数据位于 `data/sequence_metadata.py`；域注册、模型配置身份、三张比较表和记录更新位于 `eval/domain_shift_tables.py`。
+- 评估报告的路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现；`eval/workflow.py` 是命令入口。序列/天气元数据位于 `data/sequence_metadata.py`；域注册、模型配置身份、三张比较表和记录更新位于 `eval/domain_shift_tables.py`。
 - 损失公开 API 和数值实现统一在 `training/losses/`，CenterPoint、RADE-Net、YOLOX、GWD、目标生成和 SimOTA 各有唯一职责模块。Model14 YOLOX 现用 Cartesian 米制框和精确 info GT；其他模型的数值回归测试继续保护既有行为。
 - 所有划分逻辑统一在 `data/split/`：`ordinary.py` 只分派两种普通模式，`manifests.py` 和 `sequences.py` 各自管理具体成员语义；Controlled Split 的 `matching.py`、`generation.py`、`reporting.py` 和 `runtime.py` 保持科学匹配、生成、输出与训练时加载职责。不保留并行的旧入口。
 
@@ -189,7 +189,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 已完成 | `visualize.py`、`visualization/`、`eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py` | 检查点解释/模型重建、前向与解码/NMS 继续复用 `eval/`；`visualization/` 只负责渲染适配、传感器投影、布局和输出，不保留旧转发。 |
 | 已完成（队列） | `training/experiments/queue.py` 与 `training/experiments/` | 队列内部职责已分离，唯一执行路径是 seed 两阶段屏障；`queue.py` 是唯一高层编排入口，四分位独立重评脚本不与队列合并。 |
 | 已完成（分析脚本） | `scripts/experiments/evaluate_quartile_experiments.py` 与 `scripts/experiments/analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；保留四分位 CLI 的科学定义、输出 state schema 与表聚合。Source Drop 执行逻辑已删除。 |
-| 已完成（报告） | `eval/reporting.py` 与 `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | facade 保留旧导入；输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
+| 已完成（报告） | `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | 输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
 | 已完成（实验目录） | `experiments/{target_drop,distance_quartiles}/` | 两个活动实验族使用唯一语义路径；`distance_ranges` 与 `source_drop` 只保留历史归档资产。 |
 | 已完成（可视化） | `visualize.py`、`visualize_cfg.py`、`visualization/` | 单帧/视频和 RA/多传感器模式统一分派；Camera+Radar 与 Camera+LiDAR+Radar 都复用 Polar/Cartesian RA renderer，GT 绿色、预测红色。 |
 | 已完成（损失） | `training/losses/` | `__init__.py` 提供公开 API，通用数学、目标、GWD、SimOTA 和三个 loss family 分责，配置模式解析仍由 `training.configuration` 唯一负责。 |

@@ -299,9 +299,7 @@ def main(resume_config=None):
         ),
         initialize_best_state_callback=initialize_resume_best_state,
         include_detection_metrics_setting=False,
-        print_checkpoint_directory=True,
-        print_saved_checkpoints=True,
-        print_global_best=True,
+        report_resume_progress=True,
     )
 
 

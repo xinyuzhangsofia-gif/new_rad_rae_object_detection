@@ -3,9 +3,6 @@
 from dataclasses import dataclass
 import math
 
-import torch
-
-
 RDR_SP_CUBE = {
     "ROI": {
         "z": (-2.0, 6.0),

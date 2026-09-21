@@ -2,13 +2,11 @@
 
 import csv
 import re
-import time
 import unicodedata
 from pathlib import Path
 
 from training.experiments.schema import (
     DomainShiftExperiment,
-    VALID_BRANCHES,
 )
 
 

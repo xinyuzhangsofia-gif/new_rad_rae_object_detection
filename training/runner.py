@@ -1,8 +1,7 @@
-"""Shared training workflow and normal-training orchestration.
+"""Shared training workflow used by the train.py entrypoint.
 
-The root ``train.py`` module remains a compatibility facade. Resume training
-injects checkpoint restoration and run-directory policies into ``run_training``
-instead of maintaining a second epoch pipeline.
+Resume training supplies restoration and run-directory policies to the same
+epoch pipeline.
 """
 
 import sys
@@ -401,6 +400,7 @@ def write_training_run_config(
 
 
 def _training_evaluation_kwargs(args, include_detection_metrics_setting):
+    """Keep the current normal/resume evaluation-setting difference."""
     kwargs = {
         "num_classes": args.num_classes,
         "official_class_name_map": args.official_class_name_map,
@@ -576,11 +576,13 @@ def run_training(
     existing_tensorboard_log_dir=None,
     initialize_best_state_callback=None,
     include_detection_metrics_setting=True,
-    print_checkpoint_directory=False,
-    print_saved_checkpoints=False,
-    print_global_best=False,
+    report_resume_progress=False,
 ):
-    """Run shared preparation, epoch execution, and finalization."""
+    """Run shared preparation, epochs, and finalization.
+
+    Restoration, directory resolution, TensorBoard reuse, and initial best
+    state are resume policies. The reporting flag affects messages only.
+    """
     args = prepare_training_configuration(args)
     set_seed(args.seed)
     cfg = DataConfig()
@@ -631,7 +633,7 @@ def run_training(
         args,
         configured_sequences,
     )
-    if print_checkpoint_directory:
+    if report_resume_progress:
         print(f"Saving checkpoints to: {checkpoint_dir}")
 
     tensorboard_run_relative_path = None
@@ -677,7 +679,7 @@ def run_training(
         end_epoch=end_epoch,
         loss_mode=loss_mode,
         include_detection_metrics_setting=include_detection_metrics_setting,
-        print_saved_checkpoints=print_saved_checkpoints,
+        print_saved_checkpoints=report_resume_progress,
     )
 
     writer.close()
@@ -687,7 +689,7 @@ def run_training(
             checkpoint_dirs=checkpoint_dirs,
             checkpoint_key=checkpoint_key,
         )
-        if print_global_best and global_best_path is not None:
+        if report_resume_progress and global_best_path is not None:
             print(f"Current global best checkpoint: {global_best_path}")
     del model, optimizer, scheduler, train_loader, val_loader
     run_post_training_evaluation(

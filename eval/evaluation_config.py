@@ -14,11 +14,9 @@ from configs.coordinates import (
 from eval.custom_iou_range import DEFAULT_CUSTOM_IOU_THRESHOLDS
 from eval.distance_quartiles import normalize_distance_quartile_bins
 from models import MODEL_TYPES
-from training.torch_load import load_torch_checkpoint
 
 from configs.evaluation import EVAL_CONFIG
 
-_EVAL_CFG_MISSING = object()
 HEATMAP_SCORE_MODES = ("peak_times_local_mean", "peak_only")
 OFFICIAL_CLASS_TOKEN_BY_DATASET_NAME = {
     "Sedan": "sed",
@@ -27,9 +25,7 @@ OFFICIAL_CLASS_TOKEN_BY_DATASET_NAME = {
 
 
 __all__ = [
-    'eval_cfg_value',
     'should_inherit_from_checkpoint',
-    'load_torch_checkpoint',
     'parse_gpu_ids',
     'parse_cuda_choice',
     'select_evaluation_device',
@@ -41,13 +37,10 @@ __all__ = [
 ]
 
 
-def eval_cfg_value(key):
-    return EVAL_CONFIG.get(key, _EVAL_CFG_MISSING)
-
-
 def should_inherit_from_checkpoint(key):
-    value = eval_cfg_value(key)
-    if value is _EVAL_CFG_MISSING or value is None:
+    """Inherit unset settings, plus checkpoint-owned mode selectors at auto."""
+    value = EVAL_CONFIG.get(key)
+    if value is None:
         return True
     # For these two workflow selectors, "auto" explicitly means that the
     # checkpoint is authoritative.  This lets configs/evaluation.py stay fully
@@ -219,7 +212,7 @@ def parse_args():
         default=cfg_defaults["eval_gt_object_ignore_override_path"],
         help=(
             "Evaluation-only object ignore JSON. It never changes checkpoint "
-            "training metadata or the legacy training dataset."
+            "training metadata or the training dataset."
         ),
     )
     parser.add_argument(

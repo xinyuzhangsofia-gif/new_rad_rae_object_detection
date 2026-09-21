@@ -9,6 +9,7 @@ import unittest
 from configs import data
 from configs.domain_shift import DOMAIN_SHIFT_CONFIG, EXPERIMENT_QUEUE_CONFIG
 from configs.evaluation import EVAL_CONFIG
+from eval.evaluation_config import should_inherit_from_checkpoint
 from configs.resume import RESUME_CONFIG_OVERRIDES, build_resume_config
 from configs.runtime import (
     EVALUATION_RUNTIME_CONFIG,
@@ -21,6 +22,13 @@ from training.configuration import LOSS_MODE_CHOICES, resolve_loss_mode
 
 
 class ConfigCompatibilityTests(unittest.TestCase):
+    def test_checkpoint_inheritance_keeps_local_auto_meanings(self):
+        self.assertTrue(should_inherit_from_checkpoint("box_coordinate_mode"))
+        self.assertTrue(should_inherit_from_checkpoint("loss_mode"))
+        self.assertTrue(should_inherit_from_checkpoint("val_sequences"))
+        self.assertTrue(should_inherit_from_checkpoint("not_configured"))
+        self.assertFalse(should_inherit_from_checkpoint("score_thresh"))
+
     def test_training_config_keeps_separated_sections_flat(self):
         for section in (
             DOMAIN_SHIFT_CONFIG,

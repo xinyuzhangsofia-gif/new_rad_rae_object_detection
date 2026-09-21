@@ -2,9 +2,8 @@
 
 import os
 import re
-from data.coordinates import SCOPE_CHOICES, SCOPE_FULL
+from data.coordinates import SCOPE_CHOICES
 from configs.coordinates import (
-    BOX_COORDINATE_CARTESIAN,
     require_cartesian_data,
 )
 from data.dataloader import normalize_sequence_list
@@ -400,6 +399,12 @@ def resolve_model_type(args, checkpoint_paths):
 
 
 def apply_checkpoint_config_defaults(args, checkpoint_paths):
+    """Apply current checkpoint identity and unset evaluation defaults.
+
+    The checkpoint is validated first. Unset/auto mode selectors inherit its
+    identity; explicit evaluation controls retain their existing precedence.
+    Optional scientific metadata retains its per-field presence checks.
+    """
     _, first_checkpoint_path = checkpoint_paths[0]
     checkpoint = load_torch_checkpoint(first_checkpoint_path, map_location="cpu")
     config = validate_current_checkpoint(checkpoint)
@@ -471,16 +476,13 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
     args.cartesian_gt_root = normalize_optional_path(
         args.cartesian_gt_root
     )
-    if (
-        args.box_coordinate_mode == BOX_COORDINATE_CARTESIAN
-        and args.cartesian_gt_root is None
-    ):
+    if args.cartesian_gt_root is None:
         raise ValueError(
             "Cartesian checkpoint evaluation requires cartesian_gt_root "
             "in configs/evaluation.py or checkpoint config."
         )
     if args.eval_scope is None:
-        args.eval_scope = config.get("train_scope", SCOPE_FULL)
+        args.eval_scope = config["train_scope"]
     if args.eval_scope not in SCOPE_CHOICES:
         raise ValueError(
             f"Invalid evaluation scope {args.eval_scope!r}; expected one of {SCOPE_CHOICES}."

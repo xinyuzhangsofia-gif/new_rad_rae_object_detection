@@ -2,13 +2,6 @@
 
 import os
 
-import tqdm
-
-from configs.coordinates import (
-    BOX_COORDINATE_CARTESIAN,
-    BOX_COORDINATE_POLAR,
-    validate_box_coordinate_mode,
-)
 from data.dataloader import (
     build_evaluation_dataloader,
     build_train_val_dataloaders,
@@ -34,12 +27,11 @@ from eval.checkpoints import (
 )
 from eval.evaluation_config import (
     apply_standalone_evaluation_coordinate_mode,
-    load_torch_checkpoint,
-    parse_args,
     resolve_official_eval_class_name_map,
     select_evaluation_device,
 )
 from eval.metrics_runner import evaluate_checkpoint_with_kradar_revised
+from training.torch_load import load_torch_checkpoint
 from eval.report_paths import (
     resolve_output_base_dir,
     resolve_plot_output_path,
@@ -290,23 +282,6 @@ def build_eval_context(args):
             "eval_ignore_suppress_enabled=false. The official evaluator "
             "neutralizes matching detections through occluded=3 GT instead of "
             "removing predictions."
-        )
-    if args.box_coordinate_mode in (None, "auto"):
-        raise ValueError(
-            "Cannot determine checkpoint coordinate mode. "
-            "Cartesian evaluation requires a Cartesian checkpoint."
-        )
-    if args.box_coordinate_mode == BOX_COORDINATE_POLAR:
-        raise ValueError(
-            "Polar checkpoints are not supported by this evaluator. "
-            "Use a Cartesian checkpoint instead."
-        )
-    args.box_coordinate_mode = validate_box_coordinate_mode(
-        args.box_coordinate_mode
-    )
-    if args.box_coordinate_mode != BOX_COORDINATE_CARTESIAN:
-        raise ValueError(
-            "Only Cartesian checkpoints are supported by this evaluator."
         )
     apply_standalone_evaluation_coordinate_mode(args)
     args = apply_task_configuration(args)

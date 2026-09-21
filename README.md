@@ -108,8 +108,9 @@ are unsupported.
 ## Code layout
 
 ```text
-train.py / train_resume.py   Main training entry points
-evaluation.py                Standalone evaluation entry point
+train.py → training.runner.main            Training entrypoint
+train_resume.py → training.resume.main     Resume entrypoint
+evaluation.py → eval.workflow.main         Standalone evaluation entrypoint
 visualize.py                 Visualization entry point
 visualize_cfg.py             Canonical visualization configuration
 visualization/               RA, prediction, sensor projection, and video implementation

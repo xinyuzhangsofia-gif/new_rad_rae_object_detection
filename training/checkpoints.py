@@ -707,18 +707,6 @@ def save_replacing_named_checkpoint_payload(
     )
 
 
-def save_best_checkpoint_copy(
-        checkpoint_dir,
-        source_checkpoint_path,
-        best_epoch,
-    ):
-    return save_named_checkpoint_copy(
-        checkpoint_dir=checkpoint_dir,
-        source_checkpoint_path=source_checkpoint_path,
-        best_epoch=best_epoch,
-        name_prefix="best",
-    )
-
 def default_best_metric_key(
         training_eval_enabled=True,
         official_eval_enabled=False,
@@ -828,17 +816,6 @@ class BestCheckpointState:
     checkpoint_path: object = None
     checkpoint_payload: object = None
     global_best_path: object = None
-
-    def reset(self):
-        self.map_score = -1.0
-        self.metric_key = "mAP"
-        self.epoch = -1
-        self.train_metrics = None
-        self.metrics = None
-        self.f1 = 0.0
-        self.checkpoint_path = None
-        self.checkpoint_payload = None
-        self.global_best_path = None
 
     def update(
             self,
@@ -960,50 +937,6 @@ def save_epoch_and_update_best_checkpoint(
         )
 
     return checkpoint_path
-
-
-def save_window_best_checkpoint_if_ready(
-        window_best_state,
-        checkpoint_dirs,
-        checkpoint_key,
-        checkpoint_path,
-        epoch,
-        total_epochs,
-        train_metrics,
-        val_metrics,
-        f1,
-        window_size
-    ):
-    if checkpoint_path is None:
-        return None, None
-
-    if window_best_state.is_better(val_metrics):
-        window_best_state.update(
-            epoch=epoch,
-            train_metrics=train_metrics,
-            val_metrics=val_metrics,
-            f1=f1,
-            checkpoint_path=checkpoint_path
-        )
-
-    should_save_window_best = (
-        window_best_state.checkpoint_path is not None
-        and (epoch % window_size == 0 or epoch == total_epochs)
-    )
-    if not should_save_window_best:
-        return None, None
-
-    best_checkpoint_paths = {}
-    for sequence, sequence_checkpoint_dir in checkpoint_dirs.items():
-        best_checkpoint_paths[sequence] = save_best_checkpoint_copy(
-            checkpoint_dir=sequence_checkpoint_dir,
-            source_checkpoint_path=window_best_state.checkpoint_path,
-            best_epoch=window_best_state.epoch,
-        )
-    best_checkpoint_path = best_checkpoint_paths[checkpoint_key]
-    window_best_state.reset()
-
-    return best_checkpoint_path, best_checkpoint_paths
 
 
 def save_global_best_checkpoint(best_state, checkpoint_dirs, checkpoint_key):
