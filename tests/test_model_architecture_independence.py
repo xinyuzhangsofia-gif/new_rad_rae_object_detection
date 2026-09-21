@@ -60,14 +60,14 @@ EXPECTED_PUBLIC_MODELS = {
     "model7": (
         "RADRAESwinFPNCenterPointModel",
         "(d_in=64, e_in=37, num_classes=2, decoder_hidden_channels=128, "
-        "fpn_channels=128, box_coordinate_mode='polar', loss_mode='auto')",
+        "fpn_channels=128, box_coordinate_mode='cartesian', loss_mode='auto')",
         339,
         "e488658e5402a3b6ee4f0d750b165be68b7268dbdd79a77415ba297b393c2bb4",
     ),
     "model8": (
         "RADRAEFPNCFECenterPointModel",
         "(d_in=64, e_in=37, num_classes=2, decoder_hidden_channels=128, "
-        "fpn_channels=128, return_features=False, box_coordinate_mode='polar', "
+        "fpn_channels=128, return_features=False, box_coordinate_mode='cartesian', "
         "loss_mode='auto')",
         767,
         "119df94f29d3e1d06efb7af6490c17c5bb26890d60f3c1cec6c166a057ae4241",
@@ -96,7 +96,7 @@ EXPECTED_PUBLIC_MODELS = {
     "model12": (
         "RADRAEYOLOXFPNCenterPointModel",
         "(d_in=64, e_in=37, num_classes=2, decoder_hidden_channels=64, "
-        "fpn_channels=64, box_coordinate_mode='polar', loss_mode='auto')",
+        "fpn_channels=64, box_coordinate_mode='cartesian', loss_mode='auto')",
         251,
         "d1b6d49bd65bdbd711c419538134f6ca3eaee285c6041012ec7c29de8f17bbcb",
     ),

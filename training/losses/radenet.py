@@ -5,13 +5,11 @@ import torch.nn.functional as F
 
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
-    BOX_COORDINATE_POLAR,
-    validate_box_coordinate_mode,
+    require_cartesian_data,
 )
 from data.coordinates import get_rae_scope_start_and_shape
 from data.geometry import (
     feature_indices_to_cartesian_xy,
-    raw_local_rae_boxes_to_metric_boxes,
 )
 from training.losses import DEFAULT_NUM_CLASSES
 from training.losses.common import build_raw_ignore_mask
@@ -81,7 +79,7 @@ def radenet_detection_loss(
         scope_modes,
         full_rae_shapes,
         gt_metric_boxes_list=None,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
         gt_ignore_boxes_raw_list=None,
         num_classes=DEFAULT_NUM_CLASSES,
         gaussian_sigma=3.0,
@@ -90,11 +88,8 @@ def radenet_detection_loss(
     ):
     if "heatmap" not in outputs or "regression" not in outputs:
         raise KeyError("RADE-Net loss requires model outputs to contain 'heatmap' and 'regression'.")
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
-    if (
-        box_coordinate_mode == BOX_COORDINATE_CARTESIAN
-        and gt_metric_boxes_list is None
-    ):
+    require_cartesian_data(box_coordinate_mode)
+    if gt_metric_boxes_list is None:
         raise ValueError(
             "Cartesian RADE-Net loss requires exact gt_metric_boxes_list."
         )
@@ -155,29 +150,22 @@ def radenet_detection_loss(
             smooth_l1_losses.append(zero)
             continue
 
-        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-            metric_boxes = gt_metric_boxes_list[batch_idx].to(device)
-            if metric_boxes.shape[0] != labels.shape[0]:
-                raise ValueError(
-                    "RADE-Net metric GT box/label count mismatch at batch "
-                    f"{batch_idx}: {metric_boxes.shape[0]} vs {labels.shape[0]}"
-                )
-            metric_boxes = metric_boxes[valid]
-            yaw = metric_boxes[:, 6]
-            gt_metric_boxes = torch.cat(
-                [
-                    metric_boxes[:, :6],
-                    torch.sin(yaw).unsqueeze(-1),
-                    torch.cos(yaw).unsqueeze(-1),
-                ],
-                dim=-1,
+        metric_boxes = gt_metric_boxes_list[batch_idx].to(device)
+        if metric_boxes.shape[0] != labels.shape[0]:
+            raise ValueError(
+                "RADE-Net metric GT box/label count mismatch at batch "
+                f"{batch_idx}: {metric_boxes.shape[0]} vs {labels.shape[0]}"
             )
-        else:
-            gt_metric_boxes = raw_local_rae_boxes_to_metric_boxes(
-                raw_boxes=raw_boxes,
-                scope_mode=scope_modes[batch_idx],
-                full_rae_shape=full_rae_shapes[batch_idx],
-            )
+        metric_boxes = metric_boxes[valid]
+        yaw = metric_boxes[:, 6]
+        gt_metric_boxes = torch.cat(
+            [
+                metric_boxes[:, :6],
+                torch.sin(yaw).unsqueeze(-1),
+                torch.cos(yaw).unsqueeze(-1),
+            ],
+            dim=-1,
+        )
 
         _, scope_shape = get_rae_scope_start_and_shape(scope_modes[batch_idx], full_rae_shapes[batch_idx])
         scope_h = int(scope_shape[0])

@@ -14,7 +14,7 @@ from .model_swin_heatmap_model7 import RADRAESwinFPNCenterPointModel
 from .model_swin_radenet_official_model16 import RADRAESwinRADENetOfficialModel
 from .model_swin_yolox_model14 import RADRAESwinYOLOXCenterPointModel
 from .model_yolox_fpn_heatmap_model12 import RADRAEYOLOXFPNCenterPointModel
-from configs.coordinates import BOX_COORDINATE_CARTESIAN, BOX_COORDINATE_POLAR
+from configs.coordinates import BOX_COORDINATE_CARTESIAN
 
 
 MODEL_TYPES = {
@@ -43,9 +43,15 @@ def build_model(
         num_classes=2,
         decoder_hidden_channels=None,
         feature_channels=None,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
         loss_mode="auto",
     ):
+    if model_type in {"model7", "model8", "model12", "model13", "model14", "model15", "model16"}:
+        if box_coordinate_mode != BOX_COORDINATE_CARTESIAN:
+            raise ValueError(f"{model_type} requires box_coordinate_mode='cartesian'.")
+    if model_type == "model16" and loss_mode not in {"auto", "radenet"}:
+        raise ValueError("model16 supports only loss_mode='radenet'.")
+
     if model_type == "model1":
         model = RADRAEStageCenterPointModel(
             d_in=64,
@@ -95,11 +101,7 @@ def build_model(
     elif model_type == "model7":
         model7_decoder_hidden_channels = decoder_hidden_channels
         if model7_decoder_hidden_channels is None:
-            model7_decoder_hidden_channels = (
-                128
-                if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
-                else 64
-            )
+            model7_decoder_hidden_channels = 128
         model = RADRAESwinFPNCenterPointModel(
             d_in=64,
             e_in=37,

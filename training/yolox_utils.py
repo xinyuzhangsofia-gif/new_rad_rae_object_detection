@@ -36,7 +36,7 @@ def decode_yolox_boxes(outputs, scope_modes, full_rae_shapes):
                 feature_shape=(height, width),
                 scope_mode=scope_modes[batch_idx],
                 full_rae_shape=full_rae_shapes[batch_idx],
-                absolute_dimensions=False,
+                absolute_dimensions=True,
             )
         )
     return torch.stack(boxes, dim=0)

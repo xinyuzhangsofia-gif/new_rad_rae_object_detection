@@ -64,7 +64,7 @@ class Model13CartesianTests(unittest.TestCase):
                 resolve_loss_mode("model13", coordinate_mode, loss_mode)
 
     def test_model13_is_cartesian_only_and_has_native_radenet_outputs(self):
-        with self.assertRaisesRegex(ValueError, "Only Cartesian"):
+        with self.assertRaisesRegex(ValueError, "cartesian"):
             self.build_model(box_coordinate_mode="polar")
 
         centerpoint_model = self.build_model(loss_mode="centerpoint")

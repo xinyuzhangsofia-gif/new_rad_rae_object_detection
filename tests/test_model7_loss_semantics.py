@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import torch
 
 from training.configuration import resolve_centerpoint_gwd_loss_weight
-from training.losses import centerpoint_detection_loss
+from training.losses import cartesian_centerpoint_detection_loss
 
 
 class Model7LossSemanticsTests(unittest.TestCase):
@@ -29,16 +29,14 @@ class Model7LossSemanticsTests(unittest.TestCase):
                 dim=1,
             ),
         }
-        total_loss, loss_dict = centerpoint_detection_loss(
+        total_loss, loss_dict = cartesian_centerpoint_detection_loss(
             outputs=outputs,
-            gt_boxes_list=[
-                torch.tensor([[0.4, 0.5, 0.5, 0.1, 0.1, 0.1, 0.5]])
-            ],
+            gt_boxes_raw_list=[torch.tensor([[100.0, 53.0, 18.0, 3.0, 3.0, 3.0, 0.0]])],
+            gt_metric_boxes_list=[torch.tensor([[40.0, 0.0, 0.0, 4.0, 2.0, 1.5, 0.0]])],
             gt_labels_list=[torch.tensor([0])],
             scope_modes=["full"],
             full_rae_shapes=[(256, 107, 37)],
             gwd_loss_weight=2.0,
-            quality_loss_weight=0.25,
             num_classes=1,
         )
         self.assertIn("gwd_loss", loss_dict)

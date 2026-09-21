@@ -3,13 +3,11 @@ from tqdm import tqdm
 
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
-    BOX_COORDINATE_POLAR,
-    validate_box_coordinate_mode,
+    require_cartesian_data,
 )
 from data.dataloader import prepare_model_inputs
 from training.losses import (
     cartesian_centerpoint_detection_loss,
-    centerpoint_detection_loss,
     radenet_detection_loss,
     yolox_detection_loss,
 )
@@ -32,9 +30,9 @@ def train_one_epoch(
         ignore_mask_expand_ratio=1.0,
         loss_mode="centerpoint",
         num_classes=2,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     model.train()
 
     total_loss_sum = 0.0
@@ -76,7 +74,7 @@ def train_one_epoch(
                 gt_labels_list=batch["gt_labels"],
                 scope_modes=batch["scope_mode"],
                 full_rae_shapes=batch["full_rae_shape"],
-                gt_metric_boxes_list=batch.get("gt_metric_boxes"),
+                gt_metric_boxes_list=batch["gt_metric_boxes"],
                 box_coordinate_mode=box_coordinate_mode,
                 gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
                 num_classes=num_classes,
@@ -84,43 +82,24 @@ def train_one_epoch(
                 ignore_mask_expand_ratio=ignore_mask_expand_ratio,
             )
         else:
-            if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-                loss, loss_dict = cartesian_centerpoint_detection_loss(
-                    outputs=outputs,
-                    gt_boxes_raw_list=batch["gt_boxes_raw"],
-                    gt_metric_boxes_list=batch["gt_metric_boxes"],
-                    gt_labels_list=batch["gt_labels"],
-                    gt_ignore_boxes_raw_list=batch.get(
-                        "gt_ignore_boxes_raw"
-                    ),
-                    box_loss_weight=box_loss_weight,
-                    cls_loss_weight=cls_loss_weight,
-                    gwd_loss_weight=centerpoint_gwd_loss_weight,
-                    heatmap_radius=heatmap_radius,
-                    num_classes=num_classes,
-                    scope_modes=batch["scope_mode"],
-                    full_rae_shapes=batch["full_rae_shape"],
-                    ignore_mask_margin=ignore_mask_margin,
-                    ignore_mask_expand_ratio=ignore_mask_expand_ratio,
-                )
-            else:
-                loss, loss_dict = centerpoint_detection_loss(
-                    outputs=outputs,
-                    gt_boxes_list=batch["gt_boxes"],
-                    gt_labels_list=batch["gt_labels"],
-                    box_loss_weight=box_loss_weight,
-                    cls_loss_weight=cls_loss_weight,
-                    gwd_loss_weight=centerpoint_gwd_loss_weight,
-                    quality_loss_weight=quality_loss_weight,
-                    heatmap_radius=heatmap_radius,
-                    num_classes=num_classes,
-                    gt_ignore_boxes_list=batch.get("gt_ignore_boxes"),
-                    scope_modes=batch["scope_mode"],
-                    full_rae_shapes=batch["full_rae_shape"],
-                    ignore_mask_margin=ignore_mask_margin,
-                    ignore_mask_expand_ratio=ignore_mask_expand_ratio,
-                )
-
+            loss, loss_dict = cartesian_centerpoint_detection_loss(
+                outputs=outputs,
+                gt_boxes_raw_list=batch["gt_boxes_raw"],
+                gt_metric_boxes_list=batch["gt_metric_boxes"],
+                gt_labels_list=batch["gt_labels"],
+                gt_ignore_boxes_raw_list=batch.get(
+                    "gt_ignore_boxes_raw"
+                ),
+                box_loss_weight=box_loss_weight,
+                cls_loss_weight=cls_loss_weight,
+                gwd_loss_weight=centerpoint_gwd_loss_weight,
+                heatmap_radius=heatmap_radius,
+                num_classes=num_classes,
+                scope_modes=batch["scope_mode"],
+                full_rae_shapes=batch["full_rae_shape"],
+                ignore_mask_margin=ignore_mask_margin,
+                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
+            )
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -190,9 +169,9 @@ def validate_loss(
         ignore_mask_expand_ratio=1.0,
         loss_mode="centerpoint",
         num_classes=2,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     model.eval()
 
     total_loss_sum = 0.0
@@ -231,7 +210,7 @@ def validate_loss(
                 gt_labels_list=batch["gt_labels"],
                 scope_modes=batch["scope_mode"],
                 full_rae_shapes=batch["full_rae_shape"],
-                gt_metric_boxes_list=batch.get("gt_metric_boxes"),
+                gt_metric_boxes_list=batch["gt_metric_boxes"],
                 box_coordinate_mode=box_coordinate_mode,
                 gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
                 num_classes=num_classes,
@@ -239,43 +218,24 @@ def validate_loss(
                 ignore_mask_expand_ratio=ignore_mask_expand_ratio,
             )
         else:
-            if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-                _, loss_dict = cartesian_centerpoint_detection_loss(
-                    outputs=outputs,
-                    gt_boxes_raw_list=batch["gt_boxes_raw"],
-                    gt_metric_boxes_list=batch["gt_metric_boxes"],
-                    gt_labels_list=batch["gt_labels"],
-                    gt_ignore_boxes_raw_list=batch.get(
-                        "gt_ignore_boxes_raw"
-                    ),
-                    box_loss_weight=box_loss_weight,
-                    cls_loss_weight=cls_loss_weight,
-                    gwd_loss_weight=centerpoint_gwd_loss_weight,
-                    heatmap_radius=heatmap_radius,
-                    num_classes=num_classes,
-                    scope_modes=batch["scope_mode"],
-                    full_rae_shapes=batch["full_rae_shape"],
-                    ignore_mask_margin=ignore_mask_margin,
-                    ignore_mask_expand_ratio=ignore_mask_expand_ratio,
-                )
-            else:
-                _, loss_dict = centerpoint_detection_loss(
-                    outputs=outputs,
-                    gt_boxes_list=batch["gt_boxes"],
-                    gt_labels_list=batch["gt_labels"],
-                    box_loss_weight=box_loss_weight,
-                    cls_loss_weight=cls_loss_weight,
-                    gwd_loss_weight=centerpoint_gwd_loss_weight,
-                    quality_loss_weight=quality_loss_weight,
-                    heatmap_radius=heatmap_radius,
-                    num_classes=num_classes,
-                    gt_ignore_boxes_list=batch.get("gt_ignore_boxes"),
-                    scope_modes=batch["scope_mode"],
-                    full_rae_shapes=batch["full_rae_shape"],
-                    ignore_mask_margin=ignore_mask_margin,
-                    ignore_mask_expand_ratio=ignore_mask_expand_ratio,
-                )
-
+            _, loss_dict = cartesian_centerpoint_detection_loss(
+                outputs=outputs,
+                gt_boxes_raw_list=batch["gt_boxes_raw"],
+                gt_metric_boxes_list=batch["gt_metric_boxes"],
+                gt_labels_list=batch["gt_labels"],
+                gt_ignore_boxes_raw_list=batch.get(
+                    "gt_ignore_boxes_raw"
+                ),
+                box_loss_weight=box_loss_weight,
+                cls_loss_weight=cls_loss_weight,
+                gwd_loss_weight=centerpoint_gwd_loss_weight,
+                heatmap_radius=heatmap_radius,
+                num_classes=num_classes,
+                scope_modes=batch["scope_mode"],
+                full_rae_shapes=batch["full_rae_shape"],
+                ignore_mask_margin=ignore_mask_margin,
+                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
+            )
         total_loss_sum += loss_dict["total_loss"]
         box_loss_sum += loss_dict["box_loss"]
         cls_loss_sum += loss_dict["cls_loss"]

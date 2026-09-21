@@ -98,6 +98,13 @@ RAD/RAE tensors, internal RAE grid conversions, and polar-view rendering
 remain available. These are representations of radar data or Cartesian boxes,
 not a Polar-GT input branch or a Polar AP evaluator.
 
+Detection GT and decoded boxes are metric Cartesian
+`[x, y, z, length, width, height, yaw]` only. The R-A feature grid locates
+candidate cells and ignore regions; exact Cartesian boxes drive matching and
+regression. Current retained heads are Model7/8/12/13/15 CenterPoint or
+RADE-Net, Model14 YOLOX, and Model16 RADE-Net. Old Polar detector checkpoints
+are unsupported.
+
 ## Code layout
 
 ```text

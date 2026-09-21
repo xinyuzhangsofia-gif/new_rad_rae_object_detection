@@ -5,7 +5,6 @@ from torchvision.models.swin_transformer import SwinTransformer
 
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
-    BOX_COORDINATE_POLAR,
     validate_box_coordinate_mode,
 )
 from .cartesian_detection_heads import build_cartesian_decoder
@@ -39,125 +38,6 @@ class ConvBNAct(nn.Module):
 
     def forward(self, x):
         return self.block(x)
-
-
-class CenterPointBoxDecoder(nn.Module):
-    """
-    CenterPoint-style box decoder.
-
-    Output components:
-        center_offset: [B, 2, H, W]  # local range/azimuth offset
-        center_height: [B, 1, H, W]  # elevation/height center
-        size:          [B, 3, H, W]  # r/a/e box size
-        yaw:           [B, 2, H, W]  # sin(yaw), cos(yaw)
-
-    Concatenated:
-        box_reg:       [B, 8, H, W]
-    """
-
-    def __init__(self, in_channels=128, hidden_channels=128):
-        super().__init__()
-        self.shared = nn.Sequential(
-            ConvBNAct(
-                in_channels=in_channels,
-                out_channels=hidden_channels,
-                kernel_size=3,
-                stride=1
-            ),
-            ConvBNAct(
-                in_channels=hidden_channels,
-                out_channels=hidden_channels,
-                kernel_size=3,
-                stride=1
-            ),
-        )
-        self.center_offset_head = nn.Conv2d(hidden_channels, 2, kernel_size=1)
-        self.center_height_head = nn.Conv2d(hidden_channels, 1, kernel_size=1)
-        self.size_head = nn.Conv2d(hidden_channels, 3, kernel_size=1)
-        self.yaw_head = nn.Conv2d(hidden_channels, 2, kernel_size=1)
-
-    def forward(self, fused_feat):
-        feat = self.shared(fused_feat)
-        center_offset = self.center_offset_head(feat)
-        center_height = self.center_height_head(feat)
-        size = self.size_head(feat)
-        yaw = self.yaw_head(feat)
-        box_reg = torch.cat(
-            [center_offset, center_height, size, yaw],
-            dim=1
-        )
-
-        return {
-            "center_offset": center_offset,
-            "center_height": center_height,
-            "size": size,
-            "yaw": yaw,
-            "box_reg": box_reg,
-        }
-
-
-class CenterPointClsDecoder(nn.Module):
-    """
-    Center heatmap/classification decoder.
-
-    Input:
-        fused_feat: [B, 128, H, W]
-
-    Output:
-        cls_logits: [B, num_classes, H, W]
-    """
-
-    def __init__(self, in_channels=128, hidden_channels=128, num_classes=2):
-        super().__init__()
-        self.decoder = nn.Sequential(
-            ConvBNAct(
-                in_channels=in_channels,
-                out_channels=hidden_channels,
-                kernel_size=3,
-                stride=1
-            ),
-            nn.Conv2d(
-                in_channels=hidden_channels,
-                out_channels=num_classes,
-                kernel_size=1
-            )
-        )
-        nn.init.constant_(self.decoder[-1].bias, -2.19)
-
-    def forward(self, fused_feat):
-        return self.decoder(fused_feat)
-
-
-class CenterPointDecoder(nn.Module):
-    """
-    Decoupled CenterPoint-style decoder:
-        cls decoder + box decoder.
-    """
-
-    def __init__(
-            self,
-            in_channels=128,
-            hidden_channels=128,
-            num_classes=2
-        ):
-        super().__init__()
-        self.cls_decoder = CenterPointClsDecoder(
-            in_channels=in_channels,
-            hidden_channels=hidden_channels,
-            num_classes=num_classes
-        )
-        self.box_decoder = CenterPointBoxDecoder(
-            in_channels=in_channels,
-            hidden_channels=hidden_channels
-        )
-
-    def forward(self, fused_feat):
-        cls_logits = self.cls_decoder(fused_feat)
-        box_outputs = self.box_decoder(fused_feat)
-        return {
-            "cls_logits": cls_logits,
-            **box_outputs,
-        }
 
 
 class ResidualConvRefinement(nn.Module):
@@ -364,15 +244,7 @@ class RADRAESwinFPNFusionModel(nn.Module):
 
 
 class RADRAESwinFPNCenterPointModel(nn.Module):
-    """
-    model7 with one coordinate-aware detection implementation:
-
-    - Polar mode: the existing split CenterPoint decoder.
-    - Cartesian + RADE-Net: original RADE-Net heatmap and 8-channel Cartesian
-      regression heads copied directly into model7.
-    - Cartesian + CenterPoint: CenterPoint dense branches decoded as metric
-      Cartesian boxes by the Cartesian CenterPoint loss.
-    """
+    """Model7 with Cartesian CenterPoint or RADE-Net detection."""
 
     def __init__(
             self,
@@ -381,7 +253,7 @@ class RADRAESwinFPNCenterPointModel(nn.Module):
             num_classes=2,
         decoder_hidden_channels=128,
         fpn_channels=128,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
         loss_mode="auto",
     ):
         super().__init__()
@@ -394,36 +266,19 @@ class RADRAESwinFPNCenterPointModel(nn.Module):
             e_in=e_in,
             fpn_channels=fpn_channels,
         )
-        if self.box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-            self.loss_mode, self.decoder = build_cartesian_decoder(
-                loss_mode=loss_mode,
-                in_channels=fpn_channels,
-                hidden_channels=decoder_hidden_channels,
-                num_classes=num_classes,
-            )
-            if self.loss_mode == "centerpoint":
-                self.register_buffer(
-                    "_model7_cartesian_centerpoint_marker",
-                    torch.ones(1),
-                    persistent=True,
-                )
-            else:
-                self.register_buffer(
-                    "_model7_cartesian_radenet_marker",
-                    torch.ones(1),
-                    persistent=True,
-                )
-        else:
-            if str(loss_mode).strip().lower() == "radenet":
-                raise ValueError(
-                    "Model7 RADE mode requires box_coordinate_mode='cartesian'."
-                )
-            self.loss_mode = "centerpoint"
-            self.decoder = CenterPointDecoder(
-                in_channels=fpn_channels,
-                hidden_channels=decoder_hidden_channels,
-                num_classes=num_classes,
-            )
+        if self.box_coordinate_mode != BOX_COORDINATE_CARTESIAN:
+            raise ValueError("Model7 requires box_coordinate_mode='cartesian'.")
+        self.loss_mode, self.decoder = build_cartesian_decoder(
+            loss_mode=loss_mode,
+            in_channels=fpn_channels,
+            hidden_channels=decoder_hidden_channels,
+            num_classes=num_classes,
+        )
+        self.register_buffer(
+            f"_model7_cartesian_{self.loss_mode}_marker",
+            torch.ones(1),
+            persistent=True,
+        )
 
     def forward(self, rad, rae):
         features = self.backbone(rad, rae)
@@ -432,6 +287,4 @@ class RADRAESwinFPNCenterPointModel(nn.Module):
             **features,
             **decoded,
         }
-        if self.box_coordinate_mode == BOX_COORDINATE_POLAR:
-            outputs["heatmap_logits"] = decoded["cls_logits"]
         return outputs

@@ -94,7 +94,7 @@ class Model14CartesianYOLOXTests(unittest.TestCase):
             with self.subTest(loss_mode=loss_mode):
                 with self.assertRaises(ValueError):
                     resolve_loss_mode("model14", "cartesian", loss_mode)
-        with self.assertRaisesRegex(ValueError, "cartesian"):
+        with self.assertRaisesRegex(ValueError, "Cartesian"):
             resolve_loss_mode("model14", "polar", "auto")
         for coordinate_mode, loss_mode in (
             ("polar", "yolox"),
@@ -122,6 +122,41 @@ class Model14CartesianYOLOXTests(unittest.TestCase):
         torch.testing.assert_close(decoded[0, 4], METRIC_GT[0], atol=1e-5, rtol=0)
         self.assertGreater(float(decoded[0, 4, 0].detach()), 1.0)
         self.assertLess(float(decoded[0, 4, 1].detach()), 0.0)
+
+    def test_negative_raw_dimensions_decode_positive_and_backpropagate(self):
+        outputs = model14_style_outputs()
+        with torch.no_grad():
+            outputs["size"][0, :, 1, 1] = torch.tensor([-4.2, -1.8, -1.6])
+        decoded = decode_yolox_boxes(outputs, [SCOPE], [RAE_SHAPE])
+        torch.testing.assert_close(
+            decoded[0, 4, 3:6],
+            torch.tensor([4.2, 1.8, 1.6]),
+            atol=1e-6,
+            rtol=0,
+        )
+        loss, parts = yolox_detection_loss(
+            outputs=outputs,
+            gt_metric_boxes_list=[METRIC_GT],
+            gt_boxes_raw_list=[RAW_GT],
+            gt_labels_list=[torch.tensor([0])],
+            scope_modes=[SCOPE],
+            full_rae_shapes=[RAE_SHAPE],
+            num_classes=1,
+        )
+        self.assertTrue(torch.isfinite(loss))
+        self.assertLess(parts["l1_loss"], 1e-5)
+        loss.backward()
+        self.assertTrue(torch.isfinite(outputs["size"].grad).all())
+        prediction = decode_predictions(outputs)
+        self.assertTrue((prediction["boxes"][:, 3:6] > 0).all())
+        anno = metric_boxes_to_kitti_anno(
+            prediction["boxes"].detach(),
+            prediction["labels"].detach(),
+            scores=prediction["scores"].detach(),
+            is_prediction=True,
+            class_name_map={0: "Sedan"},
+        )
+        self.assertTrue((anno["dimensions"] > 0).all())
 
     def test_exact_metric_gt_has_zero_l1_and_backward_is_finite(self):
         outputs = model14_style_outputs()

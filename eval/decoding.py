@@ -3,25 +3,15 @@
 import torch
 import torch.nn.functional as F
 
-from data.coordinates import (
-    AZIMUTH_AXIS,
-    ELEVATION_AXIS,
-    RANGE_AXIS,
-    RDR_SP_CUBE,
-    SCOPE_NARROW,
-    denormalize_rae_boxes_for_scope,
-    normalized_rae_box_centers_in_cartesian_roi,
-)
+from data.coordinates import RDR_SP_CUBE, SCOPE_NARROW
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
-    BOX_COORDINATE_POLAR,
-    validate_box_coordinate_mode,
+    require_cartesian_data,
 )
 from data.rotated_bev import rotated_bev_nms_indices
 from data.geometry import (
     centerpoint_outputs_to_metric_regression,
     regression_cell_to_metric_box,
-    regression_cell_to_normalized_rae_box,
 )
 from training.yolox_utils import yolox_outputs_to_detections
 
@@ -33,7 +23,6 @@ RADENET_ROTATED_NMS_IOU_THRESHOLD = 0.3
 
 
 __all__ = [
-    'normalized_rae_boxes_to_cartesian_metric_boxes',
     'centerpoint_heatmap_nms',
     'centerpoint_local_heatmap_mean',
     'build_heatmap_candidate_scores',
@@ -60,45 +49,6 @@ def _heatmap_peaks(heatmap_scores, heatmap_nms_kernel, prediction_mode):
         f"Unknown prediction_mode={prediction_mode!r}. "
         f"Expected one of {PREDICTION_MODES}."
     )
-
-
-def normalized_rae_boxes_to_cartesian_metric_boxes(boxes, scope_mode, rae_shape):
-    if boxes.numel() == 0:
-        return boxes.new_zeros((0, 7))
-
-    raw_boxes = denormalize_rae_boxes_for_scope(
-        boxes=boxes,
-        scope_mode=scope_mode,
-        rae_shape=rae_shape,
-    )
-
-    radius = RANGE_AXIS.minimum + (raw_boxes[:, 0] * RANGE_AXIS.step)
-    azimuth = torch.deg2rad(
-        raw_boxes[:, 1].new_tensor(AZIMUTH_AXIS.minimum)
-        + (raw_boxes[:, 1] * AZIMUTH_AXIS.step)
-    )
-    elevation = torch.deg2rad(
-        raw_boxes[:, 2].new_tensor(ELEVATION_AXIS.minimum)
-        + (raw_boxes[:, 2] * ELEVATION_AXIS.step)
-    )
-
-    r_xy = radius * torch.cos(elevation)
-    x = r_xy * torch.cos(azimuth)
-    y = -r_xy * torch.sin(azimuth)
-    z = radius * torch.sin(elevation)
-
-    length = (raw_boxes[:, 3].abs() * RANGE_AXIS.step).clamp(min=1e-3)
-    width = (
-        r_xy.abs()
-        * torch.deg2rad(raw_boxes[:, 4].abs() * AZIMUTH_AXIS.step)
-    ).clamp(min=1e-3)
-    height = (
-        (radius * torch.cos(elevation)).abs()
-        * torch.deg2rad(raw_boxes[:, 5].abs() * ELEVATION_AXIS.step)
-    ).clamp(min=1e-3)
-    yaw = raw_boxes[:, 6]
-
-    return torch.stack([x, y, z, length, width, height, yaw], dim=-1)
 
 
 def centerpoint_heatmap_nms(heatmap, kernel_size=3):
@@ -216,12 +166,12 @@ def outputs_to_detections(
         heatmap_nms_kernel=3,
         heatmap_score_mode="peak_times_local_mean",
         score_thresh=None,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
         scope_modes=None,
         full_rae_shapes=None,
         prediction_mode="final",
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     dense_keys = {"cls_logits", "center_offset", "center_height", "size", "yaw"}
     missing_keys = sorted(dense_keys - set(outputs.keys()))
     if len(missing_keys) > 0:
@@ -274,57 +224,26 @@ def outputs_to_detections(
 
     y_idx = box_y_idx_long.to(dtype)
     x_idx = box_x_idx_long.to(dtype)
-    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-        if scope_modes is None or full_rae_shapes is None:
-            raise ValueError(
-                "Cartesian CenterPoint decoding requires scope_modes and "
-                "full_rae_shapes."
+    if scope_modes is None or full_rae_shapes is None:
+        raise ValueError(
+            "Cartesian CenterPoint decoding requires scope_modes and "
+            "full_rae_shapes."
+        )
+    regression_map = centerpoint_outputs_to_metric_regression(outputs)
+    pred_reg = gather_dense_feature(regression_map, box_indices)
+    metric_boxes = []
+    for batch_index in range(pred_reg.shape[0]):
+        metric_boxes.append(
+            regression_cell_to_metric_box(
+                pred_reg=pred_reg[batch_index],
+                y_idx=y_idx[batch_index],
+                x_idx=x_idx[batch_index],
+                feature_shape=(box_h, box_w),
+                scope_mode=scope_modes[batch_index],
+                full_rae_shape=full_rae_shapes[batch_index],
             )
-        regression_map = centerpoint_outputs_to_metric_regression(outputs)
-        pred_reg = gather_dense_feature(regression_map, box_indices)
-        metric_boxes = []
-        for batch_index in range(pred_reg.shape[0]):
-            metric_boxes.append(
-                regression_cell_to_metric_box(
-                    pred_reg=pred_reg[batch_index],
-                    y_idx=y_idx[batch_index],
-                    x_idx=x_idx[batch_index],
-                    feature_shape=(box_h, box_w),
-                    scope_mode=scope_modes[batch_index],
-                    full_rae_shape=full_rae_shapes[batch_index],
-                )
-            )
-        boxes = torch.stack(metric_boxes, dim=0)
-    else:
-        center_offset = gather_dense_feature(
-            outputs["center_offset"],
-            box_indices,
-        ).sigmoid()
-        center_height = gather_dense_feature(
-            outputs["center_height"],
-            box_indices,
-        ).sigmoid()
-        size = gather_dense_feature(outputs["size"], box_indices).sigmoid()
-        yaw = gather_dense_feature(outputs["yaw"], box_indices)
-
-        r_center = (y_idx + center_offset[..., 0]) / max(box_h, 1)
-        a_center = (x_idx + center_offset[..., 1]) / max(box_w, 1)
-        e_center = center_height[..., 0]
-        yaw_angle = torch.atan2(yaw[..., 0], yaw[..., 1])
-        yaw_norm = (yaw_angle + torch.pi) / (2.0 * torch.pi)
-
-        boxes = torch.stack(
-            [
-                r_center,
-                a_center,
-                e_center,
-                size[..., 0],
-                size[..., 1],
-                size[..., 2],
-                yaw_norm,
-            ],
-            dim=-1,
-        ).clamp(min=1e-4, max=1.0 - 1e-4)
+        )
+    boxes = torch.stack(metric_boxes, dim=0)
 
     return boxes, scores, labels, keep
 
@@ -338,10 +257,10 @@ def official_radenet_outputs_to_detections(
         heatmap_nms_kernel=3,
         heatmap_score_mode="peak_times_local_mean",
         score_thresh=None,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
         prediction_mode="final",
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     if scope_modes is None or full_rae_shapes is None:
         raise ValueError("Official RADE-Net decoding requires scope_modes and full_rae_shapes.")
 
@@ -351,11 +270,8 @@ def official_radenet_outputs_to_detections(
         heatmap_nms_kernel=heatmap_nms_kernel,
         prediction_mode=prediction_mode,
     )
-    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-        # Original RADE-Net ranks detections by the heatmap peak itself.
-        # The local-mean re-scoring option belongs to this project's
-        # CenterPoint path and must not alter Cartesian RADE confidence.
-        heatmap_score_mode = "peak_only"
+    # RADE-Net confidence is the heatmap peak in Cartesian mode.
+    heatmap_score_mode = "peak_only"
     rescored_heatmap = build_heatmap_candidate_scores(
         heatmap_scores=heatmap_scores,
         heatmap_nms_kernel=heatmap_nms_kernel,
@@ -380,24 +296,15 @@ def official_radenet_outputs_to_detections(
 
     boxes = []
     for batch_index in range(batch_size):
-        decode_function = (
-            regression_cell_to_metric_box
-            if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
-            else regression_cell_to_normalized_rae_box
-        )
         boxes.append(
-            decode_function(
+            regression_cell_to_metric_box(
                 pred_reg=reg[batch_index],
                 y_idx=y_idx[batch_index].to(reg.dtype),
                 x_idx=x_idx[batch_index].to(reg.dtype),
                 feature_shape=(heatmap_h, heatmap_w),
                 scope_mode=scope_modes[batch_index],
                 full_rae_shape=full_rae_shapes[batch_index],
-                **(
-                    {"absolute_dimensions": False}
-                    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
-                    else {}
-                ),
+                absolute_dimensions=True,
             )
         )
     return torch.stack(boxes, dim=0), scores, labels, keep
@@ -413,15 +320,13 @@ def decode_batch_predictions(
         score_thresh=None,
         scope_modes=None,
         full_rae_shapes=None,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
         prediction_mode="final",
         filter_to_scope_before_nms=False,
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     is_yolox = "objectness_logits" in outputs
     if is_yolox:
-        if box_coordinate_mode != BOX_COORDINATE_CARTESIAN:
-            raise ValueError("YOLOX decoding requires Cartesian box mode.")
         if scope_modes is None or full_rae_shapes is None:
             raise ValueError("Cartesian YOLOX decoding requires scope and RAE shape metadata.")
         batch_predictions = yolox_outputs_to_detections(
@@ -510,7 +415,7 @@ def decode_batch_predictions(
             if max_detections is not None:
                 order = order[:max_detections]
             boxes, scores, labels = boxes[order], scores[order], labels[order]
-        elif box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        else:
             if prediction_mode == "final":
                 nms_keep = cartesian_rotated_nms_indices(
                     boxes=boxes,
@@ -532,29 +437,22 @@ def filter_predictions_to_scope(
         frame_predictions,
         scope_mode,
         full_rae_shape,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
     ):
+    box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     if scope_mode != SCOPE_NARROW:
         return frame_predictions
 
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
-    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-        boxes = frame_predictions["boxes"]
-        roi = RDR_SP_CUBE["ROI"]
-        keep = (
-            (boxes[:, 0] >= float(roi["x"][0]))
-            & (boxes[:, 0] <= float(roi["x"][1]))
-            & (boxes[:, 1] >= float(roi["y"][0]))
-            & (boxes[:, 1] <= float(roi["y"][1]))
-            & (boxes[:, 2] >= float(roi["z"][0]))
-            & (boxes[:, 2] <= float(roi["z"][1]))
-        )
-    else:
-        keep = normalized_rae_box_centers_in_cartesian_roi(
-            frame_predictions["boxes"],
-            scope_mode=scope_mode,
-            rae_shape=full_rae_shape,
-        )
+    boxes = frame_predictions["boxes"]
+    roi = RDR_SP_CUBE["ROI"]
+    keep = (
+        (boxes[:, 0] >= float(roi["x"][0]))
+        & (boxes[:, 0] <= float(roi["x"][1]))
+        & (boxes[:, 1] >= float(roi["y"][0]))
+        & (boxes[:, 1] <= float(roi["y"][1]))
+        & (boxes[:, 2] >= float(roi["z"][0]))
+        & (boxes[:, 2] <= float(roi["z"][1]))
+    )
     return {
         "boxes": frame_predictions["boxes"][keep],
         "scores": frame_predictions["scores"][keep],

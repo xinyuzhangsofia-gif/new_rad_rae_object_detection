@@ -2,8 +2,7 @@
 
 import torch
 
-from configs.coordinates import BOX_COORDINATE_CARTESIAN, BOX_COORDINATE_POLAR
-from data.coordinates import denormalize_rae_boxes_to_local_scope
+from configs.coordinates import BOX_COORDINATE_CARTESIAN, require_cartesian_data
 from data.geometry import metric_boxes_to_raw_local_rae
 from eval.decoding import decode_batch_predictions
 
@@ -37,46 +36,30 @@ def resolve_visualization_classes(checkpoint_config):
     return num_classes, class_names, class_to_idx
 
 
-def normalized_boxes_to_raw_rae(boxes, scope_mode, full_rae_shape):
-    if boxes.numel() == 0:
-        return boxes.new_zeros((0, 7))
-    return denormalize_rae_boxes_to_local_scope(
-        boxes=boxes,
-        scope_mode=scope_mode,
-        rae_shape=full_rae_shape,
-    )
-
-
 def format_visualization_predictions(
         frame_predictions,
         scope_mode,
         full_rae_shape,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
     ):
     """Convert canonical detections into polar-bin and metric plot formats."""
     pred_boxes = frame_predictions["boxes"]
     pred_labels = frame_predictions["labels"]
     pred_scores = frame_predictions["scores"]
-    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-        pred_boxes_metric = pred_boxes.clone()
-        pred_boxes_raw = metric_boxes_to_raw_local_rae(
-            metric_boxes=pred_boxes,
-            scope_mode=scope_mode,
-            full_rae_shape=full_rae_shape,
-            use_planar_center_range=True,
-        )
-    else:
-        pred_boxes_metric = None
-        pred_boxes_raw = normalized_boxes_to_raw_rae(
-            pred_boxes,
-            scope_mode=scope_mode,
-            full_rae_shape=full_rae_shape,
-        )
+    require_cartesian_data(box_coordinate_mode)
+    pred_boxes_metric = pred_boxes.clone()
+    pred_boxes_raw = metric_boxes_to_raw_local_rae(
+        metric_boxes=pred_boxes,
+        scope_mode=scope_mode,
+        full_rae_shape=full_rae_shape,
+        use_planar_center_range=True,
+    )
+
     return (
         pred_boxes_raw.cpu(),
         pred_labels.cpu(),
         pred_scores.cpu(),
-        None if pred_boxes_metric is None else pred_boxes_metric.cpu(),
+        pred_boxes_metric.cpu(),
     )
 
 
@@ -91,7 +74,7 @@ def filter_predictions(
         heatmap_nms_kernel,
         heatmap_score_mode,
         yolox_nms_iou,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
     ):
     """Decode model outputs through the canonical evaluation decoder."""
     frame_predictions = decode_batch_predictions(

@@ -5,7 +5,6 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
-    BOX_COORDINATE_POLAR,
     require_cartesian_data,
     validate_box_coordinate_mode,
 )
@@ -359,14 +358,10 @@ def normalize_loss_mode(value):
 
 
 def resolve_model7_decoder_hidden_channels(value, box_coordinate_mode):
-    """Resolve the selectable model7 decoder width.
-
-    ``auto`` preserves the historical defaults: 64 for Polar model7 and 128
-    for Cartesian model7.  Explicit values are restricted to the two widths
-    supported by the current model7 experiments.
-    """
+    """Resolve the selectable Cartesian model7 decoder width."""
+    require_cartesian_data(box_coordinate_mode)
     if value is None or str(value).strip().lower() in {"", "auto"}:
-        return 128 if box_coordinate_mode == BOX_COORDINATE_CARTESIAN else 64
+        return 128
 
     try:
         normalized = int(value)
@@ -582,11 +577,13 @@ def resolve_run_model_type(model_type, include_bus_as_target):
 
 def resolve_loss_mode(
         model_type,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
         loss_mode="auto",
     ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     requested_loss_mode = normalize_loss_mode(loss_mode)
+    if model_type in CARTESIAN_TRAINING_MODELS:
+        require_cartesian_data(box_coordinate_mode)
 
     if model_type == "model14":
         if box_coordinate_mode != BOX_COORDINATE_CARTESIAN:
@@ -598,26 +595,11 @@ def resolve_loss_mode(
     if requested_loss_mode == "yolox":
         raise ValueError("loss_mode='yolox' is supported only for model14.")
 
-    if model_type in {"model13", "model15"}:
-        if box_coordinate_mode != BOX_COORDINATE_CARTESIAN:
-            raise ValueError(
-                f"{model_type} requires box_coordinate_mode='cartesian'; "
-                "both selectable heads regress Cartesian boxes."
-            )
-
     if requested_loss_mode == "radenet":
         if model_type not in CARTESIAN_RADENET_MODELS:
             raise ValueError(
                 f"loss_mode='radenet' is not supported for {model_type}; "
                 "use model7, model8, model12, model13, model15, or model16."
-            )
-        if (
-            model_type in CARTESIAN_DUAL_MODE_MODELS
-            and box_coordinate_mode != BOX_COORDINATE_CARTESIAN
-        ):
-            raise ValueError(
-                f"{model_type} with loss_mode='radenet' requires "
-                "box_coordinate_mode='cartesian'."
             )
         return "radenet"
 
@@ -629,13 +611,8 @@ def resolve_loss_mode(
             )
         return "centerpoint"
 
-    if (
-        model_type in CARTESIAN_DUAL_MODE_MODELS
-        and box_coordinate_mode == BOX_COORDINATE_CARTESIAN
-    ):
+    if model_type in CARTESIAN_DUAL_MODE_MODELS:
         return "radenet"
-    if model_type in {"model12", "model14"}:
-        return "yolox"
     if model_type == "model16":
         return "radenet"
     return "centerpoint"

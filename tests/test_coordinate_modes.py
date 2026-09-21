@@ -26,6 +26,31 @@ from data.geometry import (
 
 
 class CoordinateModeTests(unittest.TestCase):
+    def test_all_retained_models_require_cartesian_boxes(self):
+        for model_type in ("model7", "model8", "model12", "model13", "model14", "model15", "model16"):
+            with self.subTest(model_type=model_type):
+                with self.assertRaises(ValueError):
+                    resolve_loss_mode(model_type, "polar", "auto")
+                with self.assertRaises(ValueError):
+                    build_model(model_type, torch.device("cpu"), box_coordinate_mode="polar")
+                model = build_model(model_type, torch.device("cpu"))
+                self.assertIsInstance(model, torch.nn.Module)
+
+    def test_current_head_modes(self):
+        for model_type in ("model7", "model8", "model12", "model13", "model15"):
+            for loss_mode in ("centerpoint", "radenet"):
+                with self.subTest(model_type=model_type, loss_mode=loss_mode):
+                    self.assertEqual(resolve_loss_mode(model_type, "cartesian", loss_mode), loss_mode)
+                    model = build_model(model_type, torch.device("cpu"), loss_mode=loss_mode)
+                    self.assertEqual(model.loss_mode, loss_mode)
+        with self.assertRaises(ValueError):
+            resolve_loss_mode("model12", "cartesian", "yolox")
+        with self.assertRaises(ValueError):
+            build_model("model12", torch.device("cpu"), loss_mode="yolox")
+        self.assertEqual(resolve_loss_mode("model16", "cartesian", "auto"), "radenet")
+        with self.assertRaises(ValueError):
+            build_model("model16", torch.device("cpu"), loss_mode="centerpoint")
+
     def test_standalone_uses_only_checkpoint_cartesian_geometry(self):
         args = SimpleNamespace(box_coordinate_mode="cartesian")
         apply_standalone_evaluation_coordinate_mode(args)
@@ -99,10 +124,8 @@ class CoordinateModeTests(unittest.TestCase):
             )
 
     def test_model7_decoder_width_button_supports_auto_64_and_128(self):
-        self.assertEqual(
-            resolve_model7_decoder_hidden_channels("auto", "polar"),
-            64,
-        )
+        with self.assertRaises(ValueError):
+            resolve_model7_decoder_hidden_channels("auto", "polar")
         self.assertEqual(
             resolve_model7_decoder_hidden_channels("auto", "cartesian"),
             128,
@@ -111,29 +134,12 @@ class CoordinateModeTests(unittest.TestCase):
             resolve_model7_decoder_hidden_channels(64, "cartesian"),
             64,
         )
-        self.assertEqual(
-            resolve_model7_decoder_hidden_channels(128, "polar"),
-            128,
-        )
         with self.assertRaises(ValueError):
-            resolve_model7_decoder_hidden_channels(96, "polar")
+            resolve_model7_decoder_hidden_channels(128, "polar")
+        with self.assertRaises(ValueError):
+            resolve_model7_decoder_hidden_channels(96, "cartesian")
 
     def test_model7_contains_the_cartesian_radenet_head_directly(self):
-        polar_model = build_model(
-            model_type="model7",
-            device=torch.device("cpu"),
-            num_classes=1,
-            box_coordinate_mode="polar",
-        )
-        self.assertFalse(
-            hasattr(polar_model, "_model7_cartesian_radenet_marker")
-        )
-        polar_outputs = polar_model.decoder(
-            torch.randn(1, 128, 8, 8)
-        )
-        self.assertIn("cls_logits", polar_outputs)
-        self.assertNotIn("heatmap", polar_outputs)
-
         cartesian_model = build_model(
             model_type="model7",
             device=torch.device("cpu"),

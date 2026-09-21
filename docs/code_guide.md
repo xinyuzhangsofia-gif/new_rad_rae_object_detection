@@ -36,7 +36,7 @@ training/losses/__init__.py → training/losses/ 数值实现
     ├─ targets.py → CenterPoint / RADE-Net 热力图与回归目标
     ├─ gwd.py → 框转换与 Gaussian Wasserstein Distance
     ├─ matching.py → YOLOX SimOTA 候选与动态分配
-    ├─ centerpoint.py → Polar/Cartesian CenterPoint、quality 与 QFL
+    ├─ centerpoint.py → Cartesian CenterPoint、精确米制 GT 与 GWD
     ├─ radenet.py → RADE-Net focal、GWD/L1 及 detached-mean 归一化
     └─ yolox.py → YOLOX objectness/classification/GWD/L1 加权
 scripts/experiments/evaluate_quartile_experiments.py → scripts/experiments/analysis/
@@ -69,6 +69,8 @@ scripts/{analysis,figures,maintenance}/ → 独立统计、论文图和维护工
 ### 当前实际读取什么
 
 训练、续训、独立评估及检查点可视化现在只接受 Cartesian 输入。`require_cartesian_data` 会拒绝 Polar 模式/检查点；不能通过修改模式标记把旧权重当成 Cartesian 权重使用。
+
+检测 GT 与解码结果仅使用米制 Cartesian `[x,y,z,l,w,h,yaw]`。RAD/RAE 张量及 R-A 特征网格仍属于雷达坐标表示；R-A 几何只用于候选单元、锚点和 ignore mask 的空间定位，框匹配与回归直接使用精确 Cartesian GT。当前保留模型的检测头为 Model7/8/12/13/15 的 Cartesian CenterPoint 或 RADE-Net、Model14 的 Cartesian YOLOX，以及 Model16 的 Cartesian RADE-Net。
 
 - `box_coordinate_mode="cartesian"`，训练读取 `/home/local/xinyu/K-Radar-GT-cartesian-radar-v2/<sequence>/gt/gt.txt`。已检查 1–58 序列的平铺文件均存在。
 - `data.labels.load_cartesian_gt` 只读取上述平铺文件；文件不存在时报告预期的 `gt.txt` 路径。`read_kradar_revised_label_dir` 仍保留给逐帧标签工具使用。
@@ -265,7 +267,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [models/model_swin_heatmap_model7.py](../models/model_swin_heatmap_model7.py) | 298 | Model7：Swin 窗口注意力 FPN、双视图融合，并支持 CenterPoint 或模型内官方 RADE-Net Cartesian 头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_swin_radenet_official_model16.py](../models/model_swin_radenet_official_model16.py) | 41 | Model16：Model7 Swin-FPN 特征提取器连接官方风格 RADE-Net 解码器。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_swin_yolox_model14.py](../models/model_swin_yolox_model14.py) | 88 | Model14：轻量 Swin-FPN 融合和 YOLOX 检测头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
-| [models/model_yolox_fpn_heatmap_model12.py](../models/model_yolox_fpn_heatmap_model12.py) | 112 | Model12：Model5 风格 FPN，Cartesian 训练连接共享双模式头。 | 旧 Polar YOLOX 头仍在源码中，但当前训练与评估不支持该路径；后续清理。 |
+| [models/model_yolox_fpn_heatmap_model12.py](../models/model_yolox_fpn_heatmap_model12.py) | 112 | Model12：Model5 风格 FPN，Cartesian 训练连接共享 CenterPoint / RADE-Net 头。 | 旧 Polar YOLOX 头已移除。 |
 
 ### training
 
@@ -284,10 +286,10 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [training/yolox_utils.py](../training/yolox_utils.py) | — | YOLOX R-A 网格锚点到 Cartesian 米制框的解码及候选分数。 | SimOTA 位于 `training/losses/matching.py`；旋转 BEV NMS 在最终预测路径执行一次。 |
 | [training/losses/__init__.py](../training/losses/__init__.py) | — | 损失的唯一公开 API，直接导出各 loss family 与共享操作。 | 没有并行 facade 或算法副本。 |
 | [training/losses/common.py](../training/losses/common.py) | — | 共享框/IoU、Gaussian、ignore mask、focal、masked L1、top-k gather 和 inverse sigmoid。 | CenterPoint、RADE-Net 和 YOLOX 的单一共享实现。 |
-| [training/losses/targets.py](../training/losses/targets.py) | — | CenterPoint Polar/Cartesian 及 RADE-Net 目标张量构造。 | 保留 floor/round、Gaussian 半径、类别和向量顺序。 |
+| [training/losses/targets.py](../training/losses/targets.py) | — | Cartesian CenterPoint 及 RADE-Net 目标张量构造。 | 保留 R-A 网格定位、Gaussian 半径、类别和向量顺序。 |
 | [training/losses/gwd.py](../training/losses/gwd.py) | — | GWD 框转换、矩阵平方根和距离公式。 | 保留 tau、clamp 和 epsilon。 |
 | [training/losses/matching.py](../training/losses/matching.py) | — | YOLOX SimOTA 候选、cost、dynamic-k 及冲突解决。 | 不保留算法副本。 |
-| [training/losses/centerpoint.py](../training/losses/centerpoint.py) | — | Polar/Cartesian CenterPoint 回归、quality/QFL、权重及返回字典。 | 保留所有 loss key 和梯度路径。 |
+| [training/losses/centerpoint.py](../training/losses/centerpoint.py) | — | Cartesian CenterPoint 回归、GWD、权重及返回字典。 | 使用精确米制 GT；R-A 只作目标单元定位。 |
 | [training/losses/radenet.py](../training/losses/radenet.py) | — | RADE-Net continuous focal、GWD/L1、原官方 detached-mean 归一化。 | 保留 backprop scalar 与 reported total 的原有区别。 |
 | [training/losses/yolox.py](../training/losses/yolox.py) | — | YOLOX 解码后的 SimOTA、objectness、classification、GWD/L1 及加权。 | 保留前景归一化。 |
 | [training/experiments/queue.py](../training/experiments/queue.py) | — | 高层多天气/分 seed 两阶段队列编排。 | 队列的唯一高层执行路径。 |

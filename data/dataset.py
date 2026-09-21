@@ -232,10 +232,10 @@ class KRadarGTDetectionDataset(Dataset):
             filtered_groups
         )
 
-        gt_boxes, gt_boxes_raw, gt_metric_boxes = build_cartesian_box_tensors(
+        gt_boxes_raw, gt_metric_boxes = build_cartesian_box_tensors(
             objects_in_fov, self.scope_mode, full_rae_shape
         )
-        gt_ignore_boxes, gt_ignore_boxes_raw, gt_ignore_metric_boxes = (
+        gt_ignore_boxes_raw, gt_ignore_metric_boxes = (
             build_cartesian_box_tensors(
                 ignored_in_fov, self.scope_mode, full_rae_shape
             )
@@ -244,7 +244,6 @@ class KRadarGTDetectionDataset(Dataset):
             obj for obj in explicit_in_fov if obj["cls"] in self.class_to_idx
         ]
         (
-            gt_override_ignore_boxes,
             gt_override_ignore_boxes_raw,
             gt_override_ignore_metric_boxes,
         ) = build_cartesian_box_tensors(
@@ -263,16 +262,13 @@ class KRadarGTDetectionDataset(Dataset):
         return {
             "rad": torch.from_numpy(radar_data["rad"]).float(),
             "rae": torch.from_numpy(radar_data["rae"]).float(),
-            "gt_boxes": gt_boxes,
             "gt_boxes_raw": gt_boxes_raw,
             "gt_metric_boxes": gt_metric_boxes,
-            "gt_ignore_boxes": gt_ignore_boxes,
             "gt_ignore_boxes_raw": gt_ignore_boxes_raw,
             "gt_ignore_metric_boxes": gt_ignore_metric_boxes,
             "gt_ignore_class_names": tuple(
                 str(obj["cls"]) for obj in ignored_in_fov
             ),
-            "gt_override_ignore_boxes": gt_override_ignore_boxes,
             "gt_override_ignore_boxes_raw": gt_override_ignore_boxes_raw,
             "gt_override_ignore_metric_boxes": gt_override_ignore_metric_boxes,
             "gt_override_ignore_labels": gt_override_ignore_labels,

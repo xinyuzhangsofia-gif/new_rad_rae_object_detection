@@ -30,7 +30,7 @@ Each backbone remains independently implemented under `models/`. Models 7, 8,
 | Model9 | Separate RAD/RAE CFE-enhanced deformable pyramid encoders | Multi-scale RAD/RAE fusion + BiFPN + decoder fusion | CenterPoint classification + box regression |
 | Model10 | Separate RAD/RAE deformable FPN pyramid encoders | Multi-scale RAD/RAE fusion + separate classification/regression feature mixing | Split CenterPoint head |
 | Model11 | Separate RAD/RAE deformable FPN encoders | FPN aggregation + RAD/RAE fusion | QFL-style CenterPoint classification + box regression |
-| Model12 | Separate RAD/RAE deformable FPN encoders | FPN aggregation + RAD/RAE fusion | Selectable Cartesian CenterPoint / RADE-Net head; legacy Polar YOLOX head |
+| Model12 | Separate RAD/RAE deformable FPN encoders | FPN aggregation + RAD/RAE fusion | Selectable Cartesian CenterPoint / RADE-Net head |
 | Model13 | RADE-Net-style U-Net backbone with CBAM | Dilated residual neck | Selectable Cartesian CenterPoint / RADE-Net head |
 | Model14 | Separate lightweight RAD/RAE Swin Transformer + FPN encoders | RAD/RAE fusion | YOLOX-style decoupled head |
 | Model15 | RADE-Net-style U-Net backbone with CBAM | Dilated residual neck | Selectable Cartesian CenterPoint / RADE-Net head |
@@ -143,22 +143,15 @@ RAE -> FPNDeformEncoder --/                  |-- classification
 
 ```text
 RAD -> SwinFPNEncoder --\
-                        -> RADRAEFusion -> coordinate-aware decoder
+                        -> RADRAEFusion -> Cartesian decoder
 RAE -> SwinFPNEncoder --/
 
-Polar:
-    CenterPointDecoder
-
-Cartesian + CenterPoint:
-    CenterPointDecoder
-
-Cartesian + RADE-Net:
-    Model7RADECartesianDecoder
+Cartesian CenterPoint or RADE-Net head
 ```
 
-**Main components:** `SwinFPNEncoder`, `RADRAESwinFPNEncoder`, `RADRAEFusion`, the legacy Polar `CenterPointDecoder`, and the shared Cartesian decoders.
+**Main components:** `SwinFPNEncoder`, `RADRAESwinFPNEncoder`, `RADRAEFusion`, and the shared Cartesian decoders.
 
-**Main outputs:** CenterPoint branches in polar or Cartesian CenterPoint mode; `heatmap` and 8-channel `regression` in Cartesian RADE-Net mode.
+**Main outputs:** Cartesian CenterPoint branches or `heatmap` and 8-channel `regression` in RADE-Net mode.
 
 ## Model8 — CFE Deformable FPN Cartesian Dual-Mode Detector
 
@@ -239,7 +232,7 @@ RAD -> FPNDeformEncoder --\
 RAE -> FPNDeformEncoder --/
 ```
 
-**Main components:** `FPNDeformEncoder`, `RADRAEFPNDeformEncoder`, `RADRAEFusion`, `RADRAEFPNDeformFusionModel`, and the shared Cartesian decoders. The old YOLOX decoder remains only for legacy Polar construction.
+**Main components:** `FPNDeformEncoder`, `RADRAEFPNDeformEncoder`, `RADRAEFusion`, `RADRAEFPNDeformFusionModel`, and the shared Cartesian decoders.
 
 **Main outputs:** CenterPoint split branches or RADE-Net `heatmap` and unified regression.
 
@@ -336,7 +329,7 @@ RAE -> SwinFPNEncoder --/                  |-- RADEOfficialHeatmapHead
 - **Model9:** CFE-enhanced deformable pyramids with BiFPN fusion and CenterPoint decoding.
 - **Model10:** deformable FPN pyramids with separate feature mixing for classification and regression.
 - **Model11:** deformable FPN encoding with QFL-style classification and box regression.
-- **Model12:** deformable FPN encoding with a Cartesian dual-mode head (and legacy Polar YOLOX construction).
+- **Model12:** deformable FPN encoding with a Cartesian CenterPoint or RADE-Net head.
 
 ### Transformer Family
 

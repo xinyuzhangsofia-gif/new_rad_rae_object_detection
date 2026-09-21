@@ -240,48 +240,6 @@ def local_rae_boxes_to_global_scope(boxes, scope_mode, rae_shape):
     return global_boxes
 
 
-def normalize_rae_boxes_for_scope(boxes, scope_mode, rae_shape):
-    if boxes.numel() == 0:
-        return boxes.clone()
-
-    _, shape = get_rae_scope_start_and_shape(scope_mode, rae_shape)
-    local = global_rae_boxes_to_local_scope(boxes, scope_mode, rae_shape)
-    normalized = local.clone()
-    normalized[:, 0] = normalized[:, 0] / max(shape[0], 1)
-    normalized[:, 1] = normalized[:, 1] / max(shape[1], 1)
-    normalized[:, 2] = normalized[:, 2] / max(shape[2], 1)
-    normalized[:, 3] = normalized[:, 3] / max(shape[0], 1)
-    normalized[:, 4] = normalized[:, 4] / max(shape[1], 1)
-    normalized[:, 5] = normalized[:, 5] / max(shape[2], 1)
-    normalized[:, 6] = ((normalized[:, 6] + torch.pi) % (2.0 * torch.pi)) / (2.0 * torch.pi)
-    return normalized.clamp(0.0, 1.0)
-
-
-def denormalize_rae_boxes_to_local_scope(boxes, scope_mode, rae_shape):
-    if boxes.numel() == 0:
-        return boxes.clone()
-
-    _, shape = get_rae_scope_start_and_shape(scope_mode, rae_shape)
-    local = boxes.clone()
-    local[:, 0] = local[:, 0] * max(shape[0], 1)
-    local[:, 1] = local[:, 1] * max(shape[1], 1)
-    local[:, 2] = local[:, 2] * max(shape[2], 1)
-    local[:, 3] = local[:, 3] * max(shape[0], 1)
-    local[:, 4] = local[:, 4] * max(shape[1], 1)
-    local[:, 5] = local[:, 5] * max(shape[2], 1)
-    local[:, 6] = (local[:, 6] * 2.0 * torch.pi) - torch.pi
-    return local
-
-
-def denormalize_rae_boxes_for_scope(boxes, scope_mode, rae_shape):
-    local = denormalize_rae_boxes_to_local_scope(
-        boxes=boxes,
-        scope_mode=scope_mode,
-        rae_shape=rae_shape,
-    )
-    return local_rae_boxes_to_global_scope(local, scope_mode, rae_shape)
-
-
 def rae_indices_to_physical(r_idx, a_idx, e_idx):
     return (
         _axis_index_to_value(r_idx, RANGE_AXIS),
@@ -328,50 +286,3 @@ def is_rae_center_in_gt_scope(
         <= azimuth_degree
         <= azimuth_degree_scope[1]
     )
-
-
-def normalized_rae_box_centers_in_cartesian_roi(
-        boxes,
-        scope_mode=SCOPE_FULL,
-        rae_shape=None,
-        roi=None,
-    ):
-    if roi is None:
-        roi = RDR_SP_CUBE["ROI"]
-    if boxes.numel() == 0:
-        return torch.zeros(boxes.shape[:-1], dtype=torch.bool, device=boxes.device)
-    if rae_shape is None:
-        rae_shape = (RANGE_AXIS.size, AZIMUTH_AXIS.size, ELEVATION_AXIS.size)
-
-    original_shape = boxes.shape[:-1]
-    flat_boxes = boxes.reshape(-1, boxes.shape[-1])
-    raw_boxes = denormalize_rae_boxes_for_scope(
-        flat_boxes,
-        scope_mode=scope_mode,
-        rae_shape=rae_shape,
-    )
-
-    radius = RANGE_AXIS.minimum + (raw_boxes[:, 0] * RANGE_AXIS.step)
-    azimuth = torch.deg2rad(
-        raw_boxes[:, 1].new_tensor(AZIMUTH_AXIS.minimum)
-        + (raw_boxes[:, 1] * AZIMUTH_AXIS.step)
-    )
-    elevation = torch.deg2rad(
-        raw_boxes[:, 2].new_tensor(ELEVATION_AXIS.minimum)
-        + (raw_boxes[:, 2] * ELEVATION_AXIS.step)
-    )
-
-    r_xy = radius * torch.cos(elevation)
-    x = r_xy * torch.cos(azimuth)
-    y = -r_xy * torch.sin(azimuth)
-    z = radius * torch.sin(elevation)
-
-    keep = (
-        (x >= roi["x"][0])
-        & (x <= roi["x"][1])
-        & (y >= roi["y"][0])
-        & (y <= roi["y"][1])
-        & (z >= roi["z"][0])
-        & (z <= roi["z"][1])
-    )
-    return keep.reshape(original_shape)

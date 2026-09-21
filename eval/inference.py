@@ -2,7 +2,7 @@
 
 import torch
 
-from configs.coordinates import BOX_COORDINATE_POLAR
+from configs.coordinates import BOX_COORDINATE_CARTESIAN
 from data.dataloader import prepare_model_inputs as prepare_detection_inputs
 from eval.decoding import decode_batch_predictions
 
@@ -27,7 +27,7 @@ def infer_and_decode(
         score_thresh=None,
         scope_modes=None,
         full_rae_shapes=None,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
         prediction_mode="final",
         filter_to_scope_before_nms=False,
     ):
@@ -62,7 +62,7 @@ def predict_batch(
         heatmap_score_mode,
         yolox_nms_iou,
         score_thresh=None,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
         prediction_mode="final",
         filter_to_scope_before_nms=False,
         prepare_model_inputs=prepare_detection_inputs,

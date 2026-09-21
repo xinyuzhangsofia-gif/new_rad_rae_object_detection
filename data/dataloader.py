@@ -33,14 +33,11 @@ from .split import (
 
 
 _BATCH_LIST_FIELDS = (
-    "gt_boxes",
     "gt_boxes_raw",
     "gt_metric_boxes",
-    "gt_ignore_boxes",
     "gt_ignore_boxes_raw",
     "gt_ignore_metric_boxes",
     "gt_ignore_class_names",
-    "gt_override_ignore_boxes",
     "gt_override_ignore_boxes_raw",
     "gt_override_ignore_metric_boxes",
     "gt_override_ignore_labels",

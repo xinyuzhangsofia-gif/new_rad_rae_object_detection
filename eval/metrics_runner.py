@@ -6,12 +6,10 @@ import tqdm
 
 from data.coordinates import (
     SCOPE_FULL,
-    denormalize_rae_boxes_to_local_scope,
 )
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
-    BOX_COORDINATE_POLAR,
-    validate_box_coordinate_mode,
+    require_cartesian_data,
 )
 from data.dataloader import prepare_model_inputs
 from eval.adapter import (
@@ -30,7 +28,6 @@ from eval.nuscenes_style import compute_nuscenes_style_metrics
 
 from eval.decoding import (
     filter_predictions_to_scope,
-    normalized_rae_boxes_to_cartesian_metric_boxes,
 )
 from eval.inference import predict_batch as predict_detection_batch
 
@@ -85,14 +82,10 @@ def suppress_predictions_near_ignore_boxes(
         full_rae_shape,
         expand_ratio=1.5,
         margin=1.0,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
-    ignore_source = (
-        gt_ignore_metric_boxes
-        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN
-        else gt_ignore_boxes_raw
-    )
+    box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
+    ignore_source = gt_ignore_metric_boxes
     if ignore_source is None or pred_boxes.numel() == 0:
         return pred_boxes, pred_scores, pred_labels, 0
 
@@ -100,17 +93,8 @@ def suppress_predictions_near_ignore_boxes(
     if ignore_boxes.numel() == 0:
         return pred_boxes, pred_scores, pred_labels, 0
 
-    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-        pred_center_y = pred_boxes[:, 0]
-        pred_center_x = pred_boxes[:, 1]
-    else:
-        pred_boxes_raw = denormalize_rae_boxes_to_local_scope(
-            boxes=pred_boxes,
-            scope_mode=scope_mode,
-            rae_shape=full_rae_shape,
-        )
-        pred_center_y = pred_boxes_raw[:, 0]
-        pred_center_x = pred_boxes_raw[:, 1]
+    pred_center_y = pred_boxes[:, 0]
+    pred_center_x = pred_boxes[:, 1]
     keep = torch.ones((pred_boxes.shape[0],), dtype=torch.bool, device=pred_boxes.device)
 
     for ignore_box in ignore_boxes:
@@ -155,9 +139,9 @@ def append_frame_annos_for_kradar_eval(
         eval_ignore_suppress_enabled=False,
         eval_ignore_expand_ratio=1.5,
         eval_ignore_suppress_margin=1.0,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     full_rae_shape = batch["full_rae_shape"][batch_index]
     frame_predictions = filter_predictions_to_scope(
         frame_predictions=frame_predictions,
@@ -198,7 +182,6 @@ def append_frame_annos_for_kradar_eval(
     gt_labels = gt_labels_all[valid_gt]
     neutral_labels_list = batch.get("gt_override_ignore_labels")
     neutral_metric_boxes_list = batch.get("gt_override_ignore_metric_boxes")
-    neutral_boxes_list = batch.get("gt_override_ignore_boxes")
     neutral_labels = (
         torch.zeros((0,), dtype=torch.long, device=device)
         if neutral_labels_list is None
@@ -207,38 +190,14 @@ def append_frame_annos_for_kradar_eval(
     valid_neutral = neutral_labels < num_classes
     neutral_labels = neutral_labels[valid_neutral]
 
-    if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-        gt_metric_boxes_all = batch["gt_metric_boxes"][batch_index].to(device)
-        gt_metric_boxes = gt_metric_boxes_all[valid_gt]
-        pred_metric_boxes = frame_predictions["boxes"]
-        neutral_metric_boxes = (
-            torch.zeros((0, 7), dtype=torch.float32, device=device)
-            if neutral_metric_boxes_list is None
-            else neutral_metric_boxes_list[batch_index].to(device)[valid_neutral]
-        )
-    else:
-        gt_boxes_all = batch["gt_boxes"][batch_index].to(device)
-        gt_boxes = gt_boxes_all[valid_gt]
-        gt_metric_boxes = normalized_rae_boxes_to_cartesian_metric_boxes(
-            gt_boxes,
-            scope_mode=scope_mode,
-            rae_shape=full_rae_shape,
-        )
-        pred_metric_boxes = normalized_rae_boxes_to_cartesian_metric_boxes(
-            frame_predictions["boxes"],
-            scope_mode=scope_mode,
-            rae_shape=full_rae_shape,
-        )
-        neutral_boxes = (
-            torch.zeros((0, 7), dtype=torch.float32, device=device)
-            if neutral_boxes_list is None
-            else neutral_boxes_list[batch_index].to(device)[valid_neutral]
-        )
-        neutral_metric_boxes = normalized_rae_boxes_to_cartesian_metric_boxes(
-            neutral_boxes,
-            scope_mode=scope_mode,
-            rae_shape=full_rae_shape,
-        )
+    gt_metric_boxes_all = batch["gt_metric_boxes"][batch_index].to(device)
+    gt_metric_boxes = gt_metric_boxes_all[valid_gt]
+    pred_metric_boxes = frame_predictions["boxes"]
+    neutral_metric_boxes = (
+        torch.zeros((0, 7), dtype=torch.float32, device=device)
+        if neutral_metric_boxes_list is None
+        else neutral_metric_boxes_list[batch_index].to(device)[valid_neutral]
+    )
 
     valid_official_gt_anno = metric_boxes_to_kitti_anno(
         boxes=gt_metric_boxes.detach().cpu(),
@@ -294,9 +253,9 @@ def collect_kradar_annos(
         eval_ignore_suppress_enabled=False,
         eval_ignore_expand_ratio=1.5,
         eval_ignore_suppress_margin=1.0,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     model.eval()
     state = init_kradar_eval_state()
     state["eval_ignore_suppressed_predictions"] = 0
@@ -304,7 +263,7 @@ def collect_kradar_annos(
 
     for batch in tqdm.tqdm(dataloader, desc="Evaluation", ncols=120, leave=False):
         batch_modes = {
-            validate_box_coordinate_mode(value)
+            require_cartesian_data(value)
             for value in batch.get(
                 "box_coordinate_mode",
                 [box_coordinate_mode],
@@ -556,11 +515,11 @@ def evaluate_checkpoint_with_kradar_revised(
         eval_ignore_suppress_enabled=False,
         eval_ignore_expand_ratio=1.5,
         eval_ignore_suppress_margin=1.0,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
         distance_quartile_eval_enabled=False,
         distance_quartile_bins=None,
     ):
-    box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
+    box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     if distance_quartile_eval_enabled and not official_eval_enabled:
         raise ValueError(
             "Distance quartile evaluation requires official Cartesian "
@@ -640,7 +599,7 @@ def evaluate_train_val_iou(
         nuscenes_style_eval_enabled=False,
         ap_score_thresh=0.01,
         score_thresh=0.3,
-        box_coordinate_mode=BOX_COORDINATE_POLAR,
+        box_coordinate_mode=BOX_COORDINATE_CARTESIAN,
     ):
     evaluation_kwargs = {
         "model": model,

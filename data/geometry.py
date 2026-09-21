@@ -13,7 +13,6 @@ from .coordinates import (
     get_rae_scope_start_and_shape,
     global_rae_boxes_to_local_scope,
     is_rae_center_in_gt_scope,
-    normalize_rae_boxes_for_scope,
 )
 
 
@@ -52,10 +51,10 @@ def prepare_cartesian_objects(objects, full_rae_shape):
 
 
 def build_cartesian_box_tensors(objects, scope_mode, full_rae_shape):
-    """Return normalized RAE, local raw RAE, and metric box tensors."""
+    """Return local R-A grid boxes and exact metric Cartesian boxes."""
     if not objects:
         empty = torch.zeros((0, 7), dtype=torch.float32)
-        return empty, empty, empty
+        return empty, empty
 
     global_boxes = torch.stack([obj["box_rae"] for obj in objects], dim=0)
     local_boxes = global_rae_boxes_to_local_scope(
@@ -63,15 +62,10 @@ def build_cartesian_box_tensors(objects, scope_mode, full_rae_shape):
         scope_mode=scope_mode,
         rae_shape=full_rae_shape,
     )
-    normalized_boxes = normalize_rae_boxes_for_scope(
-        boxes=global_boxes,
-        scope_mode=scope_mode,
-        rae_shape=full_rae_shape,
-    )
     metric_boxes = torch.stack(
         [obj["box_metric"] for obj in objects], dim=0
     ).to(torch.float32)
-    return normalized_boxes, local_boxes, metric_boxes
+    return local_boxes, metric_boxes
 
 
 def cartesian_box_overlaps_rae_fov(obj):
@@ -333,41 +327,6 @@ def metric_boxes_to_raw_local_rae(
     )
 
 
-def metric_boxes_to_normalized_rae(metric_boxes, scope_mode, full_rae_shape):
-    if metric_boxes.numel() == 0:
-        return metric_boxes.new_zeros((0, 7))
-
-    _, scope_shape = _scope_starts_and_shape(scope_mode, full_rae_shape)
-    raw_boxes = metric_boxes_to_raw_local_rae(
-        metric_boxes=metric_boxes,
-        scope_mode=scope_mode,
-        full_rae_shape=full_rae_shape,
-    )
-    norm_r = raw_boxes[:, 0] / max(int(scope_shape[0]), 1)
-    norm_a = raw_boxes[:, 1] / max(int(scope_shape[1]), 1)
-    norm_e = raw_boxes[:, 2] / max(int(scope_shape[2]), 1)
-    norm_r_width = raw_boxes[:, 3] / max(int(scope_shape[0]), 1)
-    norm_a_width = raw_boxes[:, 4] / max(int(scope_shape[1]), 1)
-    norm_e_width = raw_boxes[:, 5] / max(int(scope_shape[2]), 1)
-    yaw_norm = ((raw_boxes[:, 6] + math.pi) % (2.0 * math.pi)) / (
-        2.0 * math.pi
-    )
-
-    boxes = torch.stack(
-        [
-            norm_r,
-            norm_a,
-            norm_e,
-            norm_r_width,
-            norm_a_width,
-            norm_e_width,
-            yaw_norm,
-        ],
-        dim=-1,
-    )
-    return boxes.clamp(min=1e-4, max=1.0 - 1e-4)
-
-
 def centerpoint_outputs_to_metric_regression(outputs):
     """Pack the five dense CenterPoint branches into metric-regression order."""
     return torch.cat(
@@ -426,20 +385,4 @@ def regression_cell_to_metric_box(
             yaw,
         ],
         dim=-1,
-    )
-
-
-def regression_cell_to_normalized_rae_box(pred_reg, y_idx, x_idx, feature_shape, scope_mode, full_rae_shape):
-    metric_boxes = regression_cell_to_metric_box(
-        pred_reg=pred_reg,
-        y_idx=y_idx,
-        x_idx=x_idx,
-        feature_shape=feature_shape,
-        scope_mode=scope_mode,
-        full_rae_shape=full_rae_shape,
-    )
-    return metric_boxes_to_normalized_rae(
-        metric_boxes=metric_boxes,
-        scope_mode=scope_mode,
-        full_rae_shape=full_rae_shape,
     )

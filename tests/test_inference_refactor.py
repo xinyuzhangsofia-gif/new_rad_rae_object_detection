@@ -142,7 +142,7 @@ class SharedInferenceTests(unittest.TestCase):
             self,
             outputs,
             *,
-            box_coordinate_mode="polar",
+            box_coordinate_mode="cartesian",
         ):
         decode_kwargs = {
             "outputs": outputs,
@@ -159,6 +159,7 @@ class SharedInferenceTests(unittest.TestCase):
             "filter_to_scope_before_nms": True,
         }
         canonical = decode_batch_predictions(**decode_kwargs)[0]
+        self.assertTrue((canonical["boxes"][:, 3:6] > 0).all())
         expected = format_visualization_predictions(
             frame_predictions=canonical,
             scope_mode="full",
@@ -252,14 +253,13 @@ class SharedInferenceTests(unittest.TestCase):
 
         for expected, actual in zip(expected_visual[:3], actual_visual[:3]):
             torch.testing.assert_close(expected, actual)
-        self.assertIsNone(expected_visual[3])
-        self.assertIsNone(actual_visual[3])
+        torch.testing.assert_close(expected_visual[3], actual_visual[3])
 
     def test_official_radenet_outputs_match_visualization_adapter(self):
         regression = torch.zeros((1, 8, 1, 3), dtype=torch.float32)
-        regression[:, 3] = 4.0
-        regression[:, 4] = 2.0
-        regression[:, 5] = 1.5
+        regression[:, 3] = -4.0
+        regression[:, 4] = -2.0
+        regression[:, 5] = -1.5
         regression[:, 7] = 1.0
         self.assert_visualization_matches_canonical(
             {

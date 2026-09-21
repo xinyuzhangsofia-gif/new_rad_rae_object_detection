@@ -2,42 +2,6 @@
 
 import torch
 
-from data.coordinates import denormalize_rae_boxes_to_local_scope
-from data.geometry import raw_local_rae_boxes_to_metric_boxes
-
-
-def normalized_rae_boxes_to_gwd_boxes(boxes, scope_mode=None, full_rae_shape=None):
-    if boxes.numel() == 0:
-        return boxes.new_zeros((0, 8))
-
-    if scope_mode is not None and full_rae_shape is not None:
-        raw_boxes = denormalize_rae_boxes_to_local_scope(
-            boxes=boxes,
-            scope_mode=scope_mode,
-            rae_shape=full_rae_shape,
-        )
-        return raw_local_rae_boxes_to_metric_boxes(
-            raw_boxes=raw_boxes,
-            scope_mode=scope_mode,
-            full_rae_shape=full_rae_shape,
-        )
-
-    yaw = (boxes[:, 6] * 2.0 * torch.pi) - torch.pi
-    return torch.stack(
-        [
-            boxes[:, 0],
-            boxes[:, 1],
-            boxes[:, 2],
-            boxes[:, 3].abs().clamp(min=1e-4),
-            boxes[:, 4].abs().clamp(min=1e-4),
-            boxes[:, 5].abs().clamp(min=1e-4),
-            torch.sin(yaw),
-            torch.cos(yaw),
-        ],
-        dim=-1,
-    )
-
-
 def _box_to_gaussian_batch(boxes):
     x, y, _, length, width, _, yaw_sin, yaw_cos = torch.unbind(boxes, dim=-1)
     width_half = width / 2.0
