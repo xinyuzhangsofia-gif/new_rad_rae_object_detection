@@ -3,45 +3,20 @@
 import torch
 import torch.nn.functional as F
 
-from training.losses.common import (
-    boxes_3d_to_ra_xyxy,
-    pairwise_box_iou_2d,
-)
+from data.rotated_bev import pairwise_rotated_bev_iou
 
 
 def pairwise_center_candidate_mask(
         grid_centers,
-        gt_boxes,
-        height,
-        width,
+        gt_grid_centers,
         center_radius=2.5,
     ):
-    if gt_boxes.numel() == 0:
+    """Locate candidate cells using R-A feature indices, not box geometry."""
+    if gt_grid_centers.numel() == 0:
         return torch.zeros((grid_centers.shape[0], 0), dtype=torch.bool, device=grid_centers.device)
 
-    r = grid_centers[:, 0:1]
-    a = grid_centers[:, 1:2]
-    gt_r = gt_boxes[:, 0].unsqueeze(0)
-    gt_a = gt_boxes[:, 1].unsqueeze(0)
-    gt_rw = gt_boxes[:, 3].unsqueeze(0)
-    gt_aw = gt_boxes[:, 4].unsqueeze(0)
-
-    in_boxes = (
-        (r >= gt_r - gt_rw / 2.0)
-        & (r <= gt_r + gt_rw / 2.0)
-        & (a >= gt_a - gt_aw / 2.0)
-        & (a <= gt_a + gt_aw / 2.0)
-    )
-
-    center_r = center_radius / max(height, 1)
-    center_a = center_radius / max(width, 1)
-    in_centers = (
-        (r >= gt_r - center_r)
-        & (r <= gt_r + center_r)
-        & (a >= gt_a - center_a)
-        & (a <= gt_a + center_a)
-    )
-    return in_boxes | in_centers
+    delta = (grid_centers[:, None, :] - gt_grid_centers[None, :, :]).abs()
+    return (delta <= center_radius).all(dim=-1)
 
 
 def simota_assign(
@@ -49,16 +24,16 @@ def simota_assign(
         cls_logits,
         objectness_logits,
         grid_centers,
+        gt_grid_centers,
         gt_boxes,
         gt_labels,
         num_classes,
-        height,
-        width,
         center_radius=2.5,
         candidate_topk=10,
     ):
     valid_gt = (gt_labels >= 0) & (gt_labels < num_classes)
     gt_boxes = gt_boxes[valid_gt]
+    gt_grid_centers = gt_grid_centers[valid_gt]
     gt_labels = gt_labels[valid_gt]
     num_gt = gt_boxes.shape[0]
     if num_gt == 0:
@@ -67,9 +42,7 @@ def simota_assign(
 
     candidate_pair_mask = pairwise_center_candidate_mask(
         grid_centers=grid_centers,
-        gt_boxes=gt_boxes,
-        height=height,
-        width=width,
+        gt_grid_centers=gt_grid_centers,
         center_radius=center_radius,
     )
     candidate_mask = candidate_pair_mask.any(dim=1)
@@ -87,10 +60,7 @@ def simota_assign(
     candidate_obj_logits = objectness_logits[candidate_indices]
     pair_candidate_mask = candidate_pair_mask[candidate_indices]
 
-    pair_ious = pairwise_box_iou_2d(
-        boxes_3d_to_ra_xyxy(candidate_boxes),
-        boxes_3d_to_ra_xyxy(gt_boxes),
-    )
+    pair_ious = pairwise_rotated_bev_iou(candidate_boxes, gt_boxes)
     iou_cost = -torch.log(pair_ious.clamp(min=1e-8))
 
     gt_onehot = F.one_hot(gt_labels, num_classes=num_classes).float()

@@ -36,8 +36,8 @@ CARTESIAN_DUAL_MODE_MODELS = {
     "model15",
 }
 CARTESIAN_RADENET_MODELS = CARTESIAN_DUAL_MODE_MODELS | {"model16"}
-CARTESIAN_TRAINING_MODELS = CARTESIAN_RADENET_MODELS
-LOSS_MODE_CHOICES = {"auto", "radenet", "centerpoint"}
+CARTESIAN_TRAINING_MODELS = CARTESIAN_RADENET_MODELS | {"model14"}
+LOSS_MODE_CHOICES = {"auto", "radenet", "centerpoint", "yolox"}
 MODEL7_DECODER_HIDDEN_CHANNEL_CHOICES = {64, 128}
 DOMAIN_SHIFT_TRAIN_BRANCH_CHOICES = {"source", "target"}
 WEATHER_GROUP_NAMES = {
@@ -339,7 +339,7 @@ def format_train_sequence_half_label(selection, ratio=None):
 
 
 def normalize_loss_mode(value):
-    """Normalize and validate the two user-selectable loss workflows.
+    """Normalize and validate the user-selectable detector loss workflows.
 
     ``radenet`` preserves the official RADE-Net loss behavior, including its
     detached-mean term normalization.  ``centerpoint`` uses the
@@ -352,7 +352,7 @@ def normalize_loss_mode(value):
         return "auto"
     if normalized not in LOSS_MODE_CHOICES:
         raise ValueError(
-            "loss_mode must be one of 'auto', 'radenet', or 'centerpoint', "
+            "loss_mode must be one of 'auto', 'radenet', 'centerpoint', or 'yolox', "
             f"got {value!r}"
         )
     return normalized
@@ -410,7 +410,7 @@ def apply_training_coordinate_mode(args):
     if configured_model_type not in CARTESIAN_TRAINING_MODELS:
         raise ValueError(
             "Cartesian training supports dual-mode models 7, 8, 12, 13, "
-            "and 15, plus RADE-only model16. Other model implementations "
+            "and 15, plus YOLOX model14 and RADE-only model16. Other model implementations "
             "are retained for reference, not as Cartesian data workflows."
         )
     args.model_type = configured_model_type
@@ -423,6 +423,8 @@ def apply_training_coordinate_mode(args):
         args.cartesian_training_workflow = (
             f"{effective_loss_mode}_cartesian_in_{configured_model_type}"
         )
+    elif configured_model_type == "model14":
+        args.cartesian_training_workflow = "yolox_cartesian_in_model14"
     else:
         args.cartesian_training_workflow = "radenet_official"
     args.training_eval_official_enabled = True
@@ -585,6 +587,16 @@ def resolve_loss_mode(
     ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
     requested_loss_mode = normalize_loss_mode(loss_mode)
+
+    if model_type == "model14":
+        if box_coordinate_mode != BOX_COORDINATE_CARTESIAN:
+            raise ValueError("model14 requires box_coordinate_mode='cartesian'.")
+        if requested_loss_mode not in {"auto", "yolox"}:
+            raise ValueError("model14 supports only loss_mode='yolox'.")
+        return "yolox"
+
+    if requested_loss_mode == "yolox":
+        raise ValueError("loss_mode='yolox' is supported only for model14.")
 
     if model_type in {"model13", "model15"}:
         if box_coordinate_mode != BOX_COORDINATE_CARTESIAN:

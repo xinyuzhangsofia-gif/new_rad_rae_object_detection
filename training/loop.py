@@ -59,9 +59,10 @@ def train_one_epoch(
         if loss_mode == "yolox":
             loss, loss_dict = yolox_detection_loss(
                 outputs=outputs,
-                gt_boxes_list=batch["gt_boxes"],
+                gt_metric_boxes_list=batch["gt_metric_boxes"],
+                gt_boxes_raw_list=batch["gt_boxes_raw"],
                 gt_labels_list=batch["gt_labels"],
-                gt_ignore_boxes_list=batch.get("gt_ignore_boxes"),
+                gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
                 scope_modes=batch["scope_mode"],
                 full_rae_shapes=batch["full_rae_shape"],
                 num_classes=num_classes,
@@ -213,9 +214,10 @@ def validate_loss(
         if loss_mode == "yolox":
             _, loss_dict = yolox_detection_loss(
                 outputs=outputs,
-                gt_boxes_list=batch["gt_boxes"],
+                gt_metric_boxes_list=batch["gt_metric_boxes"],
+                gt_boxes_raw_list=batch["gt_boxes_raw"],
                 gt_labels_list=batch["gt_labels"],
-                gt_ignore_boxes_list=batch.get("gt_ignore_boxes"),
+                gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
                 scope_modes=batch["scope_mode"],
                 full_rae_shapes=batch["full_rae_shape"],
                 num_classes=num_classes,

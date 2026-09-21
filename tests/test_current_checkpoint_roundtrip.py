@@ -23,6 +23,7 @@ class CurrentCheckpointRoundTripTests(unittest.TestCase):
         specs = (
             ("model7", "centerpoint", 64),
             ("model13", "radenet", None),
+            ("model14", "yolox", None),
             ("model16", "radenet", None),
         )
         for model_type, loss_mode, decoder_width in specs:

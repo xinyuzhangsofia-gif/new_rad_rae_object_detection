@@ -60,8 +60,9 @@ as model tensors.
 
 Training, resume, evaluation, and checkpoint visualization accept Cartesian GT
 and Cartesian checkpoints only. Models 7, 8, 12, 13, and 15 support selectable
-CenterPoint or RADE-Net Cartesian heads; Model16 remains RADE-Net-only. Other
-model definitions remain available as historical implementations.
+CenterPoint or RADE-Net Cartesian heads; Model14 uses Cartesian YOLOX and
+Model16 remains RADE-Net-only. Other model definitions remain available as
+historical implementations.
 
 Set shared roots before starting a command:
 

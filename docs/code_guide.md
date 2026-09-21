@@ -147,7 +147,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 - 将域偏移实验队列按职责拆为 `schema`、`tables`、`state`、`scheduling` 和 `execution`；`training/experiments/queue.py` 只保留按 seed 的两阶段编排：当前 seed 全部训练完成后才并行评估，评估全部完成后才进入下一 seed。已删除串行和训练/评估交错执行模式及 `experiment_queue_execution_mode`；任务身份、表顺序、恢复、GPU、worker 命令和结果写回规则未改变。
 - 距离四分位实验入口共享完成检查点发现、命令公共段、CUDA/subprocess 队列、锁/原子状态及报告 metadata 校验；GT 四分位和相对 TD 仍由该脚本定义。固定距离与 Source Drop 执行入口均已删除。
 - 将 `eval/reporting.py` 改为兼容 facade；路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现。序列/天气元数据位于 `data/sequence_metadata.py`；域注册、模型配置身份、三张比较表和记录更新位于 `eval/domain_shift_tables.py`。
-- 在移动数值实现前固化 loss golden 值与梯度；损失公开 API 和数值实现统一在 `training/losses/`，CenterPoint、RADE-Net、YOLOX、GWD、目标生成和 SimOTA 各有唯一职责模块。损失键、权重、归一化、空目标和梯度保持不变。
+- 损失公开 API 和数值实现统一在 `training/losses/`，CenterPoint、RADE-Net、YOLOX、GWD、目标生成和 SimOTA 各有唯一职责模块。Model14 YOLOX 现用 Cartesian 米制框和精确 info GT；其他模型的数值回归测试继续保护既有行为。
 - 所有划分逻辑统一在 `data/split/`：`ordinary.py` 只分派两种普通模式，`manifests.py` 和 `sequences.py` 各自管理具体成员语义；Controlled Split 的 `matching.py`、`generation.py`、`reporting.py` 和 `runtime.py` 保持科学匹配、生成、输出与训练时加载职责。不保留并行的旧入口。
 
 “功能保持”指保留正式实现与计算行为，**不包括继续支持已明确删除的旧导入、旧工具命令及 Polar GT/检查点输入**。仓库外的 notebook 和脚本若使用下面的旧名，需要同步更新；未声称验证所有外部调用或历史完整对象 pickle。
@@ -265,7 +265,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [models/model_swin_heatmap_model7.py](../models/model_swin_heatmap_model7.py) | 298 | Model7：Swin 窗口注意力 FPN、双视图融合，并支持 CenterPoint 或模型内官方 RADE-Net Cartesian 头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_swin_radenet_official_model16.py](../models/model_swin_radenet_official_model16.py) | 41 | Model16：Model7 Swin-FPN 特征提取器连接官方风格 RADE-Net 解码器。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
 | [models/model_swin_yolox_model14.py](../models/model_swin_yolox_model14.py) | 88 | Model14：轻量 Swin-FPN 融合和 YOLOX 检测头。 | 保留模型接口和权重布局，不把不同模型当作重复项。 |
-| [models/model_yolox_fpn_heatmap_model12.py](../models/model_yolox_fpn_heatmap_model12.py) | 112 | Model12：Model5 风格 FPN，Cartesian 训练连接共享双模式头。 | 旧 YOLOX 头仅保留给历史 Polar 构造。 |
+| [models/model_yolox_fpn_heatmap_model12.py](../models/model_yolox_fpn_heatmap_model12.py) | 112 | Model12：Model5 风格 FPN，Cartesian 训练连接共享双模式头。 | 旧 Polar YOLOX 头仍在源码中，但当前训练与评估不支持该路径；后续清理。 |
 
 ### training
 
@@ -281,7 +281,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [training/post_training_evaluation.py](../training/post_training_evaluation.py) | — | 释放训练显存、选择评估 GPU，并在训练成功后启动独立评估。 | 不与训练期或手动独立评估合并。 |
 | [training/runtime.py](../training/runtime.py) | — | 设置随机种子，解析 GPU ID，并选择 CPU、单 GPU 或 DataParallel。 | 保留 seed 与 device 行为。 |
 | [training/torch_load.py](../training/torch_load.py) | — | 安全加载 PyTorch 检查点的兼容封装。 | 保留多调用方共享的加载兼容逻辑。 |
-| [training/yolox_utils.py](../training/yolox_utils.py) | — | YOLOX 网格解码、GIoU、NMS 和检测转换；兼容导出 SimOTA。 | SimOTA 数值实现仅在 `training/losses/matching.py`。 |
+| [training/yolox_utils.py](../training/yolox_utils.py) | — | YOLOX R-A 网格锚点到 Cartesian 米制框的解码及候选分数。 | SimOTA 位于 `training/losses/matching.py`；旋转 BEV NMS 在最终预测路径执行一次。 |
 | [training/losses/__init__.py](../training/losses/__init__.py) | — | 损失的唯一公开 API，直接导出各 loss family 与共享操作。 | 没有并行 facade 或算法副本。 |
 | [training/losses/common.py](../training/losses/common.py) | — | 共享框/IoU、Gaussian、ignore mask、focal、masked L1、top-k gather 和 inverse sigmoid。 | CenterPoint、RADE-Net 和 YOLOX 的单一共享实现。 |
 | [training/losses/targets.py](../training/losses/targets.py) | — | CenterPoint Polar/Cartesian 及 RADE-Net 目标张量构造。 | 保留 floor/round、Gaussian 半径、类别和向量顺序。 |
@@ -412,7 +412,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [tests/test_experiment_queue.py](../tests/test_experiment_queue.py) | 1072 | 实验表解析、校验、调度、恢复、worker 协调和结果更新。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_experiment_queue_modules.py](../tests/test_experiment_queue_modules.py) | — | 队列模块边界、固定 task key、状态原子性、GPU tie-break、resume worker 命令和失败状态。 | 保留 Step 4 的编排兼容性回归覆盖。 |
 | [tests/test_experiment_xlsx_sync.py](../tests/test_experiment_xlsx_sync.py) | 335 | XLSX 解析、布局、公式/样式、TXT 渲染和同步。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
-| [tests/test_inference_refactor.py](../tests/test_inference_refactor.py) | — | 检查点元数据/历史回退、共享前向、CenterPoint/RADE-Net/YOLOX 跨工作流等价、阈值和旋转 NMS。 | 保留 Step 3 的数值与兼容性回归覆盖。 |
+| [tests/test_inference_refactor.py](../tests/test_inference_refactor.py) | — | 当前检查点元数据、共享前向、CenterPoint/RADE-Net/YOLOX 跨工作流等价、阈值和旋转 NMS。 | 保留当前推理路径回归覆盖。 |
 | [tests/test_model7_loss_semantics.py](../tests/test_model7_loss_semantics.py) | 59 | Model7 在 Cartesian CenterPoint 与 RADE-Net 模式下的损失/头语义。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_post_training_evaluation.py](../tests/test_post_training_evaluation.py) | 134 | GPU 选择和训练后评估启动。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_tool_paths.py](../tests/test_tool_paths.py) | 69 | 验证工具迁移后的项目根目录、输入文件和原输出目录。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |

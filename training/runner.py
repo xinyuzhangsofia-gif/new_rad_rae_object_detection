@@ -140,7 +140,7 @@ def print_training_configuration(args, loss_mode):
             f"{args.model7_decoder_hidden_channels}"
         )
     if args.cartesian_training_workflow.startswith(
-        ("centerpoint_cartesian_in_", "radenet_cartesian_in_")
+        ("centerpoint_cartesian_in_", "radenet_cartesian_in_", "yolox_cartesian_in_")
     ):
         print(
             f"{args.model_type.capitalize()} Cartesian detector: "

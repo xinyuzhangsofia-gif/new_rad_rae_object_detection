@@ -276,9 +276,9 @@ class SharedInferenceTests(unittest.TestCase):
             "objectness_logits": torch.tensor([[[[4.0, 3.0, 2.0]]]]),
             "center_offset": torch.zeros((1, 2, 1, 3)),
             "center_height": zeros.clone(),
-            "size": torch.zeros((1, 3, 1, 3)),
+            "size": torch.cat([zeros + 4.0, zeros + 2.0, zeros + 1.5], dim=1),
             "yaw": torch.cat([zeros.clone(), torch.ones_like(zeros)], dim=1),
-        })
+        }, box_coordinate_mode="cartesian")
 
     def test_raw_mode_preserves_non_peak_candidates(self):
         outputs = _centerpoint_outputs()

@@ -17,9 +17,7 @@ from configs.coordinates import (
     BOX_COORDINATE_POLAR,
     validate_box_coordinate_mode,
 )
-from eval.kitti_eval.rotate_iou_cpu import (
-    rotate_iou_gpu_eval as rotate_iou_cpu_eval,
-)
+from data.rotated_bev import rotated_bev_nms_indices
 from data.geometry import (
     centerpoint_outputs_to_metric_regression,
     regression_cell_to_metric_box,
@@ -182,44 +180,7 @@ def cartesian_rotated_nms_indices(
         iou_threshold=RADENET_ROTATED_NMS_IOU_THRESHOLD,
     ):
     """Class-agnostic rotated BEV NMS matching the original RADE-Net."""
-    if boxes.shape[0] == 0:
-        return torch.empty((0,), dtype=torch.long, device=boxes.device)
-
-    order = torch.argsort(scores, descending=True)
-    bev_boxes = torch.stack(
-        [
-            boxes[:, 0],
-            boxes[:, 1],
-            boxes[:, 3].abs(),
-            boxes[:, 4].abs(),
-            boxes[:, 6],
-        ],
-        dim=-1,
-    ).detach().cpu().numpy()
-    keep = []
-
-    while order.numel() > 0:
-        current = order[0]
-        keep.append(int(current.item()))
-        if order.numel() == 1:
-            break
-
-        remaining = order[1:]
-        current_index = int(current.item())
-        remaining_indices = remaining.detach().cpu().numpy()
-        ious = rotate_iou_cpu_eval(
-            bev_boxes[current_index:current_index + 1],
-            bev_boxes[remaining_indices],
-            criterion=-1,
-        )[0]
-        keep_mask = torch.as_tensor(
-            ious < float(iou_threshold),
-            dtype=torch.bool,
-            device=remaining.device,
-        )
-        order = remaining[keep_mask]
-
-    return torch.tensor(keep, dtype=torch.long, device=boxes.device)
+    return rotated_bev_nms_indices(boxes, scores, iou_threshold)
 
 
 def apply_quality_score(heatmap_scores, outputs):
@@ -457,17 +418,18 @@ def decode_batch_predictions(
         filter_to_scope_before_nms=False,
     ):
     box_coordinate_mode = validate_box_coordinate_mode(box_coordinate_mode)
-    if "objectness_logits" in outputs:
-        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
-            raise ValueError(
-                "Cartesian box mode is not implemented for YOLOX outputs."
-            )
+    is_yolox = "objectness_logits" in outputs
+    if is_yolox:
+        if box_coordinate_mode != BOX_COORDINATE_CARTESIAN:
+            raise ValueError("YOLOX decoding requires Cartesian box mode.")
+        if scope_modes is None or full_rae_shapes is None:
+            raise ValueError("Cartesian YOLOX decoding requires scope and RAE shape metadata.")
         batch_predictions = yolox_outputs_to_detections(
             outputs=outputs,
             num_classes=num_classes,
+            scope_modes=scope_modes,
+            full_rae_shapes=full_rae_shapes,
             score_thresh=score_thresh,
-            max_detections=max_detections,
-            nms_iou_thresh=yolox_nms_iou,
         )
     elif "heatmap" in outputs and "regression" in outputs:
         pred_boxes, pred_scores, pred_labels, pred_keep = official_radenet_outputs_to_detections(
@@ -530,7 +492,25 @@ def decode_batch_predictions(
         boxes = frame_predictions["boxes"]
         scores = frame_predictions["scores"]
         labels = frame_predictions["labels"]
-        if box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
+        if is_yolox:
+            if prediction_mode == "final" and boxes.shape[0] > 0:
+                kept_by_class = []
+                for class_id in labels.unique():
+                    class_indices = (labels == class_id).nonzero(as_tuple=False).squeeze(1)
+                    class_keep = rotated_bev_nms_indices(
+                        boxes[class_indices], scores[class_indices], yolox_nms_iou,
+                        max_keep=max_detections,
+                    )
+                    kept_by_class.append(class_indices[class_keep])
+                keep_indices = torch.cat(kept_by_class)
+                boxes = boxes[keep_indices]
+                scores = scores[keep_indices]
+                labels = labels[keep_indices]
+            order = scores.argsort(descending=True)
+            if max_detections is not None:
+                order = order[:max_detections]
+            boxes, scores, labels = boxes[order], scores[order], labels[order]
+        elif box_coordinate_mode == BOX_COORDINATE_CARTESIAN:
             if prediction_mode == "final":
                 nms_keep = cartesian_rotated_nms_indices(
                     boxes=boxes,

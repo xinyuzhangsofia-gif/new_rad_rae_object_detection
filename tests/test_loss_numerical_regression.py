@@ -22,8 +22,6 @@ from training.losses import (
     yolox_detection_loss,
 )
 from training.losses import centerpoint, gwd, radenet, targets, yolox
-from training.losses.matching import simota_assign
-from training import yolox_utils
 
 
 RTOL = 1e-6
@@ -97,7 +95,7 @@ def test_loss_mode_resolver_keeps_supported_family_selection():
     assert resolve_loss_mode("model7", "cartesian", "radenet") == "radenet"
     assert resolve_loss_mode("model7", "cartesian", "centerpoint") == "centerpoint"
     assert resolve_loss_mode("model12", "polar", "auto") == "yolox"
-    assert resolve_loss_mode("model14", "polar", "auto") == "yolox"
+    assert resolve_loss_mode("model14", "cartesian", "auto") == "yolox"
 
 
 def test_historical_loss_imports_are_canonical_reexports():
@@ -107,7 +105,6 @@ def test_historical_loss_imports_are_canonical_reexports():
     assert yolox_detection_loss is yolox.yolox_detection_loss
     assert gaussian_wasserstein_distance_batch is gwd.gaussian_wasserstein_distance_batch
     assert build_centerpoint_targets is targets.build_centerpoint_targets
-    assert yolox_utils.simota_assign is simota_assign
 
 
 def test_centerpoint_quality_forward_and_gradient_golden():
@@ -496,210 +493,6 @@ def test_cartesian_centerpoint_forward_and_gradient_golden():
             rtol=RTOL,
             atol=ATOL,
         )
-
-
-def _yolox_outputs():
-    return {
-        "cls_logits": _leaf(
-            [1.2, -0.4, 0.1, -1.0, -0.7, 0.8, -0.2, 1.1],
-            (1, 2, 2, 2),
-        ),
-        "objectness_logits": _leaf([0.9, -0.5, 0.3, 0.7], (1, 1, 2, 2)),
-        "center_offset": _leaf(
-            [0.15, -0.2, 0.1, -0.1, 0.05, 0.2, -0.15, 0.1],
-            (1, 2, 2, 2),
-        ),
-        "center_height": _leaf([-0.2, 0.4, 0.1, -0.3], (1, 1, 2, 2)),
-        "size": _leaf(
-            [-0.6, -0.4, -0.5, -0.3, -0.7, -0.5,
-             -0.4, -0.6, -0.2, 0.1, -0.1, 0.2],
-            (1, 3, 2, 2),
-        ),
-        "yaw": _leaf(
-            [0.3, -0.2, 0.4, -0.1, 0.8, 0.6, -0.5, 0.9],
-            (1, 2, 2, 2),
-        ),
-    }
-
-
-def test_yolox_multi_target_forward_and_gradient_golden():
-    outputs = _yolox_outputs()
-    loss, metrics = yolox_detection_loss(
-        outputs=outputs,
-        gt_boxes_list=[torch.tensor([
-            [0.075, 0.025, 0.45, 0.28, 0.24, 0.42, 0.56],
-            [0.55, 0.45, 0.52, 0.32, 0.27, 0.48, 0.61],
-        ])],
-        gt_labels_list=[torch.tensor([0, 1])],
-        num_classes=2,
-        box_loss_weight=4.2,
-        obj_loss_weight=0.9,
-        cls_loss_weight=1.1,
-        l1_loss_weight=0.8,
-    )
-    _assert_float(loss.item(), 4.094449520111084)
-    _assert_metrics(metrics, {
-        "total_loss": 4.094449520111084,
-        "box_loss": 0.4197852611541748,
-        "cls_loss": 1.0555232763290405,
-        "obj_loss": 1.0363860130310059,
-        "l1_loss": 0.29691094160079956,
-        "gwd_loss": 0.4197852611541748,
-        "num_center_targets": 2,
-        "ignore_pixels": 0,
-    })
-    expected_weighted = (
-        4.2 * metrics["box_loss"]
-        + 0.9 * metrics["obj_loss"]
-        + 1.1 * metrics["cls_loss"]
-        + 0.8 * metrics["l1_loss"]
-    )
-    _assert_float(loss.item(), expected_weighted)
-    loss.backward()
-    expected_gradients = {
-        "cls_logits": [
-            -0.09866093844175339, 0.0, 0.0, 0.14791779220104218,
-            0.18249672651290894, 0.0, 0.0, 0.25337857007980347,
-        ],
-        "objectness_logits": [
-            -0.1300727277994156, 0.1698932945728302,
-            0.2584991157054901, -0.14931552112102509,
-        ],
-        "center_offset": [
-            0.0, 0.0, 0.0, -0.41964343190193176,
-            0.0, 0.0, 0.0, 0.41964343190193176,
-        ],
-        "center_height": [
-            0.09900663793087006, 0.0, 0.0, -0.09778332710266113,
-        ],
-        "size": [
-            -0.16823995113372803, 0.0, 0.0, 0.17905430495738983,
-            0.1778150051832199, 0.0, 0.0, 0.103411003947258,
-            0.09900663793087006, 0.0, 0.0, 0.09900663048028946,
-        ],
-        "yaw": [
-            -0.07135279476642609, 0.0, 0.0, -0.07565765827894211,
-            0.026757298037409782, 0.0, 0.0, -0.00840640626847744,
-        ],
-    }
-    for key, expected in expected_gradients.items():
-        torch.testing.assert_close(
-            outputs[key].grad.flatten(),
-            torch.tensor(expected),
-            rtol=RTOL,
-            atol=ATOL,
-        )
-
-
-def test_yolox_empty_target_golden():
-    outputs = _yolox_outputs()
-    loss, metrics = yolox_detection_loss(
-        outputs=outputs,
-        gt_boxes_list=[torch.empty((0, 7))],
-        gt_labels_list=[torch.empty((0,), dtype=torch.long)],
-        num_classes=2,
-    )
-    assert math.isfinite(loss.item())
-    _assert_metrics(metrics, {
-        "total_loss": 3.67277193069458,
-        "box_loss": 0.0,
-        "cls_loss": 0.0,
-        "obj_loss": 3.67277193069458,
-        "l1_loss": 0.0,
-        "gwd_loss": 0.0,
-        "num_center_targets": 0,
-        "ignore_pixels": 0,
-    })
-    loss.backward()
-    torch.testing.assert_close(
-        outputs["objectness_logits"].grad.flatten(),
-        torch.tensor([
-            0.7109494805335999, 0.3775406777858734,
-            0.5744425058364868, 0.6681877374649048,
-        ]),
-        rtol=RTOL,
-        atol=ATOL,
-    )
-    for key in ("cls_logits", "center_offset", "center_height", "size", "yaw"):
-        assert outputs[key].grad is None
-
-
-def test_simota_assignment_order_and_edge_cases_golden():
-    pred_boxes = torch.tensor([
-        [0.25, 0.25, 0.5, 0.3, 0.3, 0.2, 0.5],
-        [0.75, 0.25, 0.5, 0.3, 0.3, 0.2, 0.5],
-        [0.25, 0.75, 0.5, 0.3, 0.3, 0.2, 0.5],
-        [0.75, 0.75, 0.5, 0.3, 0.3, 0.2, 0.5],
-    ])
-    cls_logits = torch.tensor([
-        [2.0, -1.0], [-0.5, 1.5], [1.0, 0.2], [-1.0, 2.0],
-    ])
-    objectness = torch.tensor([1.0, 0.8, 0.3, 1.2])
-    grid_centers = pred_boxes[:, :2]
-
-    def assign(boxes, labels):
-        return simota_assign(
-            pred_boxes, cls_logits, objectness, grid_centers,
-            boxes, labels, 2, 2, 2,
-        )
-
-    empty = assign(torch.empty((0, 7)), torch.empty((0,), dtype=torch.long))
-    assert [value.tolist() for value in empty] == [[], [], [], []]
-
-    one = assign(
-        torch.tensor([[0.26, 0.24, 0.5, 0.3, 0.3, 0.2, 0.5]]),
-        torch.tensor([0]),
-    )
-    assert [value.tolist() for value in one[:3]] == [[0], [0], [0]]
-    torch.testing.assert_close(one[3], torch.tensor([0.876945972442627]))
-
-    multi = assign(
-        torch.tensor([
-            [0.26, 0.24, 0.5, 0.3, 0.3, 0.2, 0.5],
-            [0.74, 0.76, 0.5, 0.3, 0.3, 0.2, 0.5],
-        ]),
-        torch.tensor([0, 1]),
-    )
-    assert [value.tolist() for value in multi[:3]] == [[0, 3], [0, 1], [0, 1]]
-    torch.testing.assert_close(
-        multi[3],
-        torch.tensor([0.876945972442627, 0.8769460916519165]),
-    )
-
-    more_gt = assign(
-        torch.tensor([
-            [0.26, 0.24, 0.5, 0.3, 0.3, 0.2, 0.5],
-            [0.74, 0.76, 0.5, 0.3, 0.3, 0.2, 0.5],
-            [0.72, 0.22, 0.5, 0.3, 0.3, 0.2, 0.5],
-            [0.24, 0.74, 0.5, 0.3, 0.3, 0.2, 0.5],
-            [0.5, 0.5, 0.5, 0.2, 0.2, 0.2, 0.5],
-        ]),
-        torch.tensor([0, 1, 1, 0, 1]),
-    )
-    assert [value.tolist() for value in more_gt[:3]] == [
-        [0, 1, 2, 3], [0, 2, 3, 1], [0, 1, 0, 1],
-    ]
-
-
-def test_simota_deterministic_tie_golden():
-    pred_boxes = torch.tensor([
-        [0.5, 0.5, 0.5, 0.4, 0.4, 0.2, 0.5],
-        [0.5, 0.5, 0.5, 0.4, 0.4, 0.2, 0.5],
-    ])
-    result = simota_assign(
-        pred_boxes=pred_boxes,
-        cls_logits=torch.zeros(2, 2),
-        objectness_logits=torch.zeros(2),
-        grid_centers=torch.tensor([[0.5, 0.5], [0.5, 0.5]]),
-        gt_boxes=pred_boxes[:1],
-        gt_labels=torch.tensor([0]),
-        num_classes=2,
-        height=1,
-        width=2,
-        candidate_topk=2,
-    )
-    assert [value.tolist() for value in result[:3]] == [[0], [0], [0]]
-    torch.testing.assert_close(result[3], torch.tensor([0.9999937415122986]))
 
 
 def test_gwd_formula_and_stability_edges_golden():

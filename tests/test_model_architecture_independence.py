@@ -223,10 +223,10 @@ class ModelArchitectureIndependenceTests(unittest.TestCase):
                 model_kwargs = (
                     {
                         "box_coordinate_mode": "cartesian",
-                        "loss_mode": "radenet",
+                        "loss_mode": "yolox" if model_type == "model14" else "radenet",
                     }
                     if model_type in {
-                        "model7", "model8", "model12", "model13", "model15"
+                        "model7", "model8", "model12", "model13", "model14", "model15"
                     }
                     else {}
                 )
@@ -250,10 +250,10 @@ class ModelArchitectureIndependenceTests(unittest.TestCase):
                 model_kwargs = (
                     {
                         "box_coordinate_mode": "cartesian",
-                        "loss_mode": "radenet",
+                        "loss_mode": "yolox" if model_type == "model14" else "radenet",
                     }
                     if model_type in {
-                        "model7", "model8", "model12", "model13", "model15"
+                        "model7", "model8", "model12", "model13", "model14", "model15"
                     }
                     else {}
                 )

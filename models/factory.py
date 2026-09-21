@@ -163,6 +163,10 @@ def build_model(
             loss_mode=loss_mode,
         )
     elif model_type == "model14":
+        if box_coordinate_mode != BOX_COORDINATE_CARTESIAN:
+            raise ValueError("model14 requires box_coordinate_mode='cartesian'.")
+        if loss_mode not in {"auto", "yolox"}:
+            raise ValueError("model14 supports only loss_mode='yolox'.")
         model = RADRAESwinYOLOXCenterPointModel(
             d_in=64,
             e_in=37,

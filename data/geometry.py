@@ -229,6 +229,18 @@ def feature_indices_to_cartesian_xy(y_idx, x_idx, feature_shape, scope_mode, ful
     return x, y
 
 
+def raw_local_centers_to_feature_indices(raw_boxes, feature_shape, scope_mode, full_rae_shape):
+    """Map local R-A annotation centers to feature cells for spatial matching."""
+    _, scope_shape = _scope_starts_and_shape(scope_mode, full_rae_shape)
+    feature_h, feature_w = int(feature_shape[0]), int(feature_shape[1])
+    scope_h, scope_w = int(scope_shape[0]), int(scope_shape[1])
+    scale_y = 0.0 if feature_h <= 1 or scope_h <= 1 else (feature_h - 1) / (scope_h - 1)
+    scale_x = 0.0 if feature_w <= 1 or scope_w <= 1 else (feature_w - 1) / (scope_w - 1)
+    return torch.stack(
+        (raw_boxes[:, 0] * scale_y, raw_boxes[:, 1] * scale_x), dim=-1
+    )
+
+
 def raw_local_rae_boxes_to_metric_boxes(raw_boxes, scope_mode, full_rae_shape):
     if raw_boxes.numel() == 0:
         return raw_boxes.new_zeros((0, 8))
