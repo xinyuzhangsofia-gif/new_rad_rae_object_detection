@@ -19,7 +19,7 @@ from eval.domain_shift_tables import (
     build_model_configuration,
     update_domain_shift_tables,
 )
-from training.configuration import apply_task_configuration, resolve_loss_mode
+from training.configuration import apply_task_configuration
 from configs.data import DataConfig
 
 from eval.checkpoints import (
@@ -27,11 +27,10 @@ from eval.checkpoints import (
     build_model_for_checkpoint,
     extract_checkpoint_source_metadata,
     find_epoch_checkpoints,
-    infer_checkpoint_decoder_overrides,
+    current_checkpoint_model_overrides,
     infer_model_variant_name,
     load_model_checkpoint,
     resolve_model_type,
-    resolve_domain_shift_checkpoint_metadata,
 )
 from eval.evaluation_config import (
     apply_standalone_evaluation_coordinate_mode,
@@ -324,11 +323,6 @@ def build_eval_context(args):
         for class_id in sorted(args.official_class_name_map.keys())
     ]
     model_type = resolve_model_type(args, checkpoint_paths)
-    resolved_loss_mode = resolve_loss_mode(
-        model_type,
-        box_coordinate_mode=args.box_coordinate_mode,
-        loss_mode=getattr(args, "loss_mode", "auto"),
-    )
     reference_checkpoint = load_torch_checkpoint(
         checkpoint_paths[0][1],
         map_location="cpu",
@@ -340,13 +334,8 @@ def build_eval_context(args):
             map_location="cpu",
         )
     source_metadata = extract_checkpoint_source_metadata(metadata_checkpoint)
-    source_metadata = resolve_domain_shift_checkpoint_metadata(
-        args.checkpoint_root,
-        source_metadata,
-    )
-    reference_overrides = infer_checkpoint_decoder_overrides(reference_checkpoint)
+    reference_overrides = current_checkpoint_model_overrides(reference_checkpoint)
     model_variant_name = infer_model_variant_name(
-        model_type=model_type,
         checkpoint_or_state_dict=reference_checkpoint,
         include_bus_as_target=source_metadata["include_bus_as_target"],
         train_sequences=source_metadata["train_sequences"],
@@ -445,12 +434,8 @@ def build_eval_context(args):
     )
 
     model, _ = build_model_for_checkpoint(
-        model_type=model_type,
         device=device,
-        num_classes=args.num_classes,
         checkpoint_path=checkpoint_paths[0][1],
-        box_coordinate_mode=args.box_coordinate_mode,
-        loss_mode=resolved_loss_mode,
     )
 
     return {

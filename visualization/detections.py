@@ -4,7 +4,6 @@ import torch
 
 from configs.coordinates import BOX_COORDINATE_CARTESIAN, BOX_COORDINATE_POLAR
 from data.coordinates import denormalize_rae_boxes_to_local_scope
-from data.dataset import CLASS_NAMES
 from data.geometry import metric_boxes_to_raw_local_rae
 from eval.decoding import decode_batch_predictions
 
@@ -18,46 +17,23 @@ def _normalize_class_names(class_names):
     }
 
 
-def resolve_visualization_classes(checkpoint_config, inferred_num_classes=None):
-    """Resolve class metadata, preferring state-dict-derived class counts."""
-    class_names = _normalize_class_names(checkpoint_config.get("class_names"))
-    config_num_classes = checkpoint_config.get("num_classes")
-    if inferred_num_classes is not None:
-        num_classes = int(inferred_num_classes)
-    elif config_num_classes is not None:
-        num_classes = int(config_num_classes)
-    elif class_names:
-        num_classes = len(class_names)
-    else:
-        num_classes = len(CLASS_NAMES)
-
-    defaults = {
-        class_id: CLASS_NAMES.get(class_id, f"Class {class_id}")
-        for class_id in range(num_classes)
+def resolve_visualization_classes(checkpoint_config):
+    """Read current class metadata without reconstructing missing fields."""
+    num_classes = int(checkpoint_config["num_classes"])
+    class_names = _normalize_class_names(checkpoint_config["class_names"])
+    class_to_idx = {
+        str(class_name): int(class_id)
+        for class_name, class_id in dict(checkpoint_config["class_to_idx"]).items()
     }
-    if not class_names:
-        class_names = defaults
-    else:
-        class_names = {
-            class_id: class_name
-            for class_id, class_name in class_names.items()
-            if 0 <= class_id < num_classes
-        }
-        for class_id, class_name in defaults.items():
-            class_names.setdefault(class_id, class_name)
-
-    configured = checkpoint_config.get("class_to_idx")
-    if configured:
-        class_to_idx = {
-            str(class_name): int(class_id)
-            for class_name, class_id in dict(configured).items()
-            if int(class_id) in class_names
-        }
-    else:
-        class_to_idx = {
-            class_name: class_id
-            for class_id, class_name in class_names.items()
-        }
+    expected_ids = set(range(num_classes))
+    if set(class_names) != expected_ids:
+        raise ValueError(
+            "Checkpoint config.class_names does not match config.num_classes"
+        )
+    if set(class_to_idx.values()) != expected_ids:
+        raise ValueError(
+            "Checkpoint config.class_to_idx does not match config.num_classes"
+        )
     return num_classes, class_names, class_to_idx
 
 

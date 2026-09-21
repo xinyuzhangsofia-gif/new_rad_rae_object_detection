@@ -17,6 +17,7 @@ from training.checkpoints import build_checkpoint_payload
 from training.configuration import SUPPORTED_TRAINING_SPLIT_MODES
 from training.logging_utils import write_tensorboard_run_config
 from training.checkpoints import BestCheckpointState
+from tests.checkpoint_fixtures import current_checkpoint
 
 
 class SharedTrainingConfigurationTests(unittest.TestCase):
@@ -76,6 +77,8 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
             model7_decoder_hidden_channels="64",
             box_coordinate_mode="cartesian",
             include_bus_as_target=True,
+            class_names={0: "Sedan", 1: "Bus or Truck"},
+            class_to_idx={"Sedan": 0, "Bus or Truck": 1},
             lr=5e-5,
         )
         dataset = [object(), object()]
@@ -161,21 +164,13 @@ class ResumeRestorationTests(unittest.TestCase):
         optimizer.step()
         scheduler.step()
         path = Path(directory) / "epoch_007.pth"
-        torch.save(
-            {
-                "epoch": 7,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "scheduler_state_dict": scheduler.state_dict(),
-                "config": {
-                    "model_type": "model7",
-                    "num_classes": 2,
-                    "include_bus_as_target": True,
-                    "box_coordinate_mode": "cartesian",
-                },
-            },
-            path,
+        checkpoint = current_checkpoint(
+            model_state_dict=model.state_dict(),
+            epoch=7,
         )
+        checkpoint["optimizer_state_dict"] = optimizer.state_dict()
+        checkpoint["scheduler_state_dict"] = scheduler.state_dict()
+        torch.save(checkpoint, path)
         return path, model, optimizer, scheduler
 
     def test_model_optimizer_scheduler_and_epoch_are_restored(self):
@@ -271,13 +266,13 @@ class ResumeRestorationTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as directory:
                     model = torch.nn.Linear(2, 1)
                     path = Path(directory) / "checkpoint.pth"
-                    torch.save(
-                        {
-                            "model_state_dict": model.state_dict(),
-                            "config": checkpoint_config,
-                        },
-                        path,
+                    checkpoint = current_checkpoint(
+                        model_state_dict=model.state_dict(),
+                        **checkpoint_config,
                     )
+                    checkpoint["optimizer_state_dict"] = {}
+                    checkpoint["scheduler_state_dict"] = None
+                    torch.save(checkpoint, path)
                     optimizer = torch.optim.Adam(model.parameters())
                     with self.assertRaises(ValueError):
                         resume.load_resume_checkpoint(
@@ -313,14 +308,12 @@ class ResumeRestorationTests(unittest.TestCase):
     def test_initial_best_metadata_is_restored(self):
         with tempfile.TemporaryDirectory() as directory:
             checkpoint_path = Path(directory) / "best.pth"
-            torch.save(
-                {
-                    "epoch": 5,
-                    "selection_metric_key": "official_bev_mAP_0.3",
-                    "selection_metric_value": 0.42,
-                },
-                checkpoint_path,
-            )
+            checkpoint = current_checkpoint(epoch=5)
+            checkpoint.update({
+                "selection_metric_key": "official_bev_mAP_0.3",
+                "selection_metric_value": 0.42,
+            })
+            torch.save(checkpoint, checkpoint_path)
             state = BestCheckpointState()
             with mock.patch.object(
                 resume,
@@ -526,6 +519,15 @@ class SharedEpochWorkflowTests(unittest.TestCase):
             max_detections=64,
             num_classes=2,
             model_type="model7",
+            box_coordinate_mode="cartesian",
+            loss_mode="centerpoint",
+            include_bus_as_target=True,
+            class_names={0: "Sedan", 1: "Bus or Truck"},
+            class_to_idx={"Sedan": 0, "Bus or Truck": 1},
+            split_mode="kradar_file",
+            train_sequences=(1,),
+            val_sequences=(2,),
+            domain_shift_experiment_enabled=False,
             seed=42,
             limit_samples=None,
             training_eval_enabled=True,
@@ -580,6 +582,9 @@ class SharedEpochWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("init_from_checkpoint", payload["config"])
         self.assertNotIn("checkpoint_layout", payload["config"])
+        self.assertNotIn("checkpoint_filename_style", payload["config"])
+        self.assertNotIn("reference_sequences", payload["config"])
+        self.assertNotIn("control_ridx_bins", payload["config"])
         self.assertFalse(
             payload["config"]["training_eval_train_set_enabled"]
         )

@@ -162,7 +162,7 @@ def prepare_controlled_train_data(args):
     missing = sorted(set(controlled_sequences) - set(train_sequences))
     if missing:
         raise ValueError(
-            "controled_sequences must be included in train_sequences; "
+            "controlled_sequences must be included in train_sequences; "
             f"missing={missing}"
         )
     if request["window_position"] not in {"first", "last"}:
@@ -335,7 +335,7 @@ def prepare_controlled_train_data(args):
 
         override_payload = {
             "schema_version": CONTROL_SCHEMA_VERSION,
-            "experiment_name": "automatic_controled_sequences",
+            "experiment_name": "automatic_controlled_sequences",
             "notes": (
                 "Automatically generated training-only object ignore control. "
                 "Original gt.txt files are not modified."

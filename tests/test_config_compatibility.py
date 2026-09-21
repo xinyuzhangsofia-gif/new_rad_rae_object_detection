@@ -50,7 +50,6 @@ class ConfigCompatibilityTests(unittest.TestCase):
             "split_mode": "kradar_file",
             "include_bus_as_target": True,
             "checkpoint_base_dir": "checkpoints",
-            "checkpoint_filename_style": "compact",
         }
         self.assertEqual({key: TRAIN_CONFIG[key] for key in expected}, expected)
         self.assertIn(TRAIN_CONFIG["model_type"], MODEL_TYPES)
@@ -62,6 +61,7 @@ class ConfigCompatibilityTests(unittest.TestCase):
         )
         self.assertIn(resolved_loss_mode, {"centerpoint", "radenet", "yolox"})
         self.assertNotIn("checkpoint_layout", TRAIN_CONFIG)
+        self.assertNotIn("checkpoint_filename_style", TRAIN_CONFIG)
         self.assertNotIn("train_ratio", TRAIN_CONFIG)
         self.assertNotIn("train_ratio", EVAL_CONFIG)
         self.assertNotIn("training_eval_official_enabled", TRAIN_CONFIG)

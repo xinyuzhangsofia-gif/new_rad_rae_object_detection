@@ -29,7 +29,7 @@ class DomainShiftTrainingConfigurationTests(unittest.TestCase):
         self.assertTrue(args.domain_shift_experiment_enabled)
         self.assertEqual(args.train_sequences, (9, 1))
         self.assertEqual(args.val_sequences, (13,))
-        self.assertEqual(args.controled_sequences, (1,))
+        self.assertEqual(args.controlled_sequences, (1,))
         self.assertEqual(args.reference_sequences, (22,))
 
     def test_target_branch_uses_shared_plus_target(self):
@@ -39,7 +39,7 @@ class DomainShiftTrainingConfigurationTests(unittest.TestCase):
 
         self.assertEqual(args.train_sequences, (9, 22))
         self.assertEqual(args.val_sequences, (13,))
-        self.assertEqual(args.controled_sequences, (1,))
+        self.assertEqual(args.controlled_sequences, (1,))
         self.assertEqual(args.reference_sequences, (22,))
 
     def test_controlled_split_is_source_branch_only(self):

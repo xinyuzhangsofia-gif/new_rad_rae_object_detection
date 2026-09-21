@@ -231,8 +231,8 @@ def _pair_sequence_parts(args):
         controlled_parts = tuple(
             (sequence, "full")
             for sequence in _normalize_sequences(
-                getattr(args, "controled_sequences", None),
-                "controled_sequences",
+                getattr(args, "controlled_sequences", None),
+                "controlled_sequences",
             )
         )
     if not reference_parts:
@@ -290,20 +290,3 @@ def _select_sequence_part(frame_infos, position, ratio, complementary=False):
 
     keep_size = max(1, int(math.ceil(len(frame_infos) * float(ratio))))
     return frame_infos[:keep_size] if position == "first" else frame_infos[-keep_size:]
-
-
-def _pair_sequences(controlled_sequences, reference_sequences):
-    controlled = _normalize_sequences(controlled_sequences, "controled_sequences")
-    reference = _normalize_sequences(reference_sequences, "reference_sequences")
-    if not controlled:
-        raise ValueError("controled_sequences must contain at least one sequence")
-    if not reference:
-        raise ValueError("reference_sequences must contain at least one sequence")
-    if len(reference) == 1:
-        return tuple((source, reference[0]) for source in controlled)
-    if len(controlled) != len(reference):
-        raise ValueError(
-            "reference_sequences must contain one sequence or the same number of "
-            "sequences as controled_sequences"
-        )
-    return tuple(zip(controlled, reference))

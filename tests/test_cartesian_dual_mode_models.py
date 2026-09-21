@@ -7,11 +7,13 @@ from types import SimpleNamespace
 import torch
 
 from eval.checkpoints import (
+    build_model_for_checkpoint,
     infer_checkpoint_box_coordinate_mode,
     infer_checkpoint_loss_mode,
     infer_model_type_from_checkpoint,
 )
 from models import build_model
+from tests.checkpoint_fixtures import current_checkpoint
 from training.configuration import (
     apply_training_coordinate_mode,
     resolve_loss_mode,
@@ -61,13 +63,15 @@ class CartesianDualModeModelTests(unittest.TestCase):
         for model_type in DUAL_MODE_MODELS:
             for loss_mode in ("centerpoint", "radenet"):
                 with self.subTest(model_type=model_type, loss_mode=loss_mode):
-                    model = build_model(
+                    checkpoint = current_checkpoint(
                         model_type=model_type,
-                        device=torch.device("cpu"),
-                        num_classes=2,
-                        box_coordinate_mode="cartesian",
                         loss_mode=loss_mode,
-                    ).eval()
+                    )
+                    model, _ = build_model_for_checkpoint(
+                        device=torch.device("cpu"),
+                        checkpoint=checkpoint,
+                    )
+                    model.eval()
                     self.assertEqual(model.loss_mode, loss_mode)
                     self.assertTrue(
                         hasattr(
@@ -97,17 +101,19 @@ class CartesianDualModeModelTests(unittest.TestCase):
                     del model
                     gc.collect()
 
-    def test_dual_markers_reconstruct_model_coordinate_and_loss_modes(self):
+    def test_dual_mode_metadata_reconstructs_coordinate_and_loss_modes(self):
         for model_type in DUAL_MODE_MODELS:
             for loss_mode in ("centerpoint", "radenet"):
                 with self.subTest(model_type=model_type, loss_mode=loss_mode):
-                    checkpoint = {
-                        "model_state_dict": {
+                    checkpoint = current_checkpoint(
+                        model_state_dict={
                             f"_{model_type}_cartesian_{loss_mode}_marker": (
                                 torch.ones(1)
                             )
-                        }
-                    }
+                        },
+                        model_type=model_type,
+                        loss_mode=loss_mode,
+                    )
                     self.assertEqual(
                         infer_model_type_from_checkpoint(checkpoint),
                         model_type,
@@ -117,11 +123,7 @@ class CartesianDualModeModelTests(unittest.TestCase):
                     )
                     self.assertEqual(coordinate_mode, "cartesian")
                     self.assertEqual(
-                        infer_checkpoint_loss_mode(
-                            checkpoint,
-                            model_type,
-                            coordinate_mode,
-                        ),
+                        infer_checkpoint_loss_mode(checkpoint),
                         loss_mode,
                     )
 

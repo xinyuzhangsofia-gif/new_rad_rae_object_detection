@@ -7,11 +7,11 @@ import torch
 
 from eval.checkpoints import (
     infer_checkpoint_box_coordinate_mode,
-    infer_checkpoint_decoder_overrides,
     infer_checkpoint_loss_mode,
     infer_model_type_from_checkpoint,
 )
 from models import build_model
+from tests.checkpoint_fixtures import current_checkpoint
 from training.configuration import (
     apply_training_coordinate_mode,
     resolve_loss_mode,
@@ -130,45 +130,24 @@ class Model13CartesianTests(unittest.TestCase):
         self.assertIsNotNone(features.grad)
         self.assertGreater(float(features.grad.abs().sum()), 0.0)
 
-    def test_checkpoint_contract_identifies_only_native_cartesian_model13(self):
-        model = self.build_model(decoder_hidden_channels=64)
-        checkpoint = {
-            "model_state_dict": model.state_dict(),
-            "config": {
-                "model_type": "model13",
-                "loss_mode": "radenet",
-            },
-        }
+    def test_checkpoint_contract_identifies_current_cartesian_model13(self):
+        model = self.build_model()
+        checkpoint = current_checkpoint(
+            model_state_dict=model.state_dict(),
+            model_type="model13",
+            loss_mode="radenet",
+            num_classes=1,
+        )
         self.assertEqual(
             infer_checkpoint_box_coordinate_mode(checkpoint),
             "cartesian",
         )
         self.assertEqual(infer_model_type_from_checkpoint(checkpoint), "model13")
         self.assertEqual(
-            infer_checkpoint_loss_mode(checkpoint, "model13", "cartesian"),
+            infer_checkpoint_loss_mode(checkpoint),
             "radenet",
         )
-        overrides = infer_checkpoint_decoder_overrides(checkpoint)
-        self.assertEqual(overrides["decoder_hidden_channels"], 64)
-        self.assertEqual(overrides["num_classes"], 1)
         model.load_state_dict(model.state_dict(), strict=True)
-
-        old_checkpoint = {
-            "model_state_dict": {
-                "_model13_radenet_marker": torch.ones(1),
-            },
-            "config": {
-                "model_type": "model13",
-                "box_coordinate_mode": "cartesian",
-            },
-        }
-        with self.assertRaisesRegex(ValueError, "legacy Polar model13"):
-            infer_checkpoint_box_coordinate_mode(old_checkpoint)
-        with self.assertRaisesRegex(RuntimeError, "native Cartesian checkpoint"):
-            model.load_state_dict(
-                old_checkpoint["model_state_dict"],
-                strict=False,
-            )
 
 
 if __name__ == "__main__":
