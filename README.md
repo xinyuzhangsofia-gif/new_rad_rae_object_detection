@@ -40,7 +40,7 @@ the source. Existing defaults still include the original machine's paths:
 | --- | --- |
 | Paired RAD/RAE NumPy data | `configs/data.py::RADAR_NPY_ROOT` or `MVRSS_RADAR_ROOT` |
 | Radar-aligned Cartesian GT | `configs/data.py::CARTESIAN_GT_ROOT` or `MVRSS_CARTESIAN_GT_ROOT`; optional training/evaluation overrides |
-| Raw sensors, radar SMB mount, official labels, camera SMB URI, and calibration | `configs/data.py` (consumed by visualization configurations and `data/paths.py`) |
+| Raw sensors, radar SMB mount, official labels, camera SMB URI, and calibration | `configs/data.py` (resolved for visualization by `visualization/paths.py`) |
 | Checkpoints and enabled experiments | Training, evaluation, and visualization configurations above |
 | Standalone analyses | Each tool's CLI options/defaults |
 

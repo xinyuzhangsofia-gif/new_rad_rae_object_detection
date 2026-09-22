@@ -106,8 +106,8 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 | `data/labels.py` | `load_cartesian_gt` 读取规范的平铺 GT；各 `read_*` 函数只解析对应 Cartesian 标签。 |
 | `data/paths.py` | `get_rad_rae_npy_root_dir` 与 `get_cartesian_gt_path`：训练、评估和分析共用的雷达及 Cartesian GT 路径。 |
 | `visualization/paths.py` | 原始传感器输入、标签目录、相机目录和可视化输出路径。 |
-| `data/coordinates.py` | `crop_rad_rae_to_scope`、`global_rae_boxes_to_local_scope`、`normalize_rae_boxes_for_scope` 及雷达轴/FOV。 |
-| `data/geometry.py` | Cartesian/RAE 框转换、FOV/scope 判断及框张量构造；供 Dataset、模型损失和评估共享。 |
+| `data/coordinates.py` | `crop_rad_rae_to_scope`、`global_rae_boxes_to_local_scope`、雷达轴、scope 与 FOV 辅助函数；RAE 用于网格定位，不提供 Polar 框归一化。 |
+| `data/geometry.py` | Cartesian GT 框张量、R-A 特征网格与米制坐标映射、FOV/scope 判断；供 Dataset、模型损失和评估共享。 |
 | `data/split/ordinary.py` | 普通 `kradar_file` / `sequence` 划分的唯一分派器。 |
 | `data/split/manifests.py` | 解析 K-Radar 预定义 train/test manifest 并保留精确帧顺序。 |
 | `data/split/sequences.py` | 显式序列划分、序列规范化与 first/last 选择。 |
@@ -187,7 +187,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 
 | 优先级 | 涉及文件 | 建议与不变条件 |
 | --- | --- | --- |
-| 1 | `configs/data.py`、`data/paths.py`、训练/评估/可视化配置 | RAD/RAE 与 Cartesian GT 默认根路径已集中；接下来统一原始传感器、旧配方的标定/输出设置。当前保留本机默认值，换机器前需设置环境变量或参数。 |
+| 已完成（路径） | `configs/data.py`、`data/paths.py`、`visualization/paths.py` | 数据根路径由 `configs/data.py` 配置；`data/paths.py` 解析共享雷达 NPY 与 Cartesian GT，`visualization/paths.py` 解析可视化传感器、标签、标定和输出路径。换机器前需设置环境变量或参数。 |
 | 已完成 | `visualize.py`、`visualization/`、`eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py` | 检查点解释/模型重建、前向与解码/NMS 继续复用 `eval/`；`visualization/` 只负责渲染适配、传感器投影、布局和输出，不保留旧转发。 |
 | 已完成（队列） | `training/experiments/queue.py` 与 `training/experiments/` | 队列内部职责已分离，唯一执行路径是 seed 两阶段屏障；`queue.py` 是唯一高层编排入口，四分位独立重评脚本不与队列合并。 |
 | 已完成（分析脚本） | `scripts/experiments/evaluate_quartile_experiments.py` 与 `scripts/experiments/analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；保留四分位 CLI 的科学定义、输出 state schema 与表聚合。Source Drop 执行逻辑已删除。 |
@@ -233,7 +233,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 文件 | 行数 | 功能 | 处理建议 |
 | --- | ---: | --- | --- |
 | [data/__init__.py](../data/__init__.py) | 1 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
-| [data/coordinates.py](../data/coordinates.py) | 377 | 雷达轴、RAE 范围、坐标转换、裁剪和归一化。 | 保留坐标定义职责。 |
+| [data/coordinates.py](../data/coordinates.py) | 377 | 雷达轴、RAE scope、坐标转换、RAD/RAE 裁剪和网格定位。 | 保留坐标定义职责。 |
 | [data/dataloader.py](../data/dataloader.py) | — | 拼接样本、创建数据集/DataLoader 并准备模型输入。 | 保留单一 DataLoader 入口；普通划分委托给 `data/split/`。 |
 | [data/dataset.py](../data/dataset.py) | 354 | 三个数据集类；只负责雷达/GT 配对、类别及 ignore 策略和样本字段。 | 已按职责精简；35 个样本字段保持不变。 |
 | [data/geometry.py](../data/geometry.py) | 433 | 供数据、训练和评估共享的 RAE 网格、米制 Cartesian 转换、FOV 与框张量构造。 | 保留共享数学实现，避免 Dataset 内重复。 |
@@ -279,15 +279,15 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [training/runner.py](../training/runner.py) | — | 普通训练与断点续训共享的数据、模型、epoch 循环、检查点、TensorBoard 和收尾工作流。 | `train.py` 与 `train_resume.py` 的统一训练实现。 |
 | [training/loop.py](../training/loop.py) | — | 执行单个训练 epoch 和验证损失，并路由到不同模型损失。 | 保留 batch、optimizer step 和损失调度语义。 |
 | [training/configuration.py](../training/configuration.py) | — | 处理任务类别、域偏移、坐标/损失模式、受控划分和 Model15 学习率配置。 | 用户可编辑值仍在 `configs/`；此处只解析运行配置。 |
-| [training/checkpoints.py](../training/checkpoints.py) | — | 选择训练目录，构建/保存 checkpoint payload，解析最佳指标并管理候选、窗口和全局最佳检查点。 | 保留普通 `object_detection` 与天气 train/test 目录语义。 |
+| [training/checkpoints.py](../training/checkpoints.py) | — | 选择训练目录，构建/保存 checkpoint payload，解析最佳指标并管理按轮次保存及全局最佳检查点。 | 保留普通 `object_detection` 与天气 train/test 目录语义。 |
 | [training/resume.py](../training/resume.py) | — | 恢复模型、优化器/调度器、轮次、最佳指标及已有运行目录。 | 仅保留断点续训特有策略，不恢复 warm-start。 |
 | [training/logging_utils.py](../training/logging_utils.py) | — | 打印逐 epoch 摘要，并向 TensorBoard 写入配置和指标。 | 保留 scalar tag、`run/config` 和 resume 目录语义。 |
 | [training/post_training_evaluation.py](../training/post_training_evaluation.py) | — | 释放训练显存、选择评估 GPU，并在训练成功后启动独立评估。 | 不与训练期或手动独立评估合并。 |
 | [training/runtime.py](../training/runtime.py) | — | 设置随机种子，解析 GPU ID，并选择 CPU、单 GPU 或 DataParallel。 | 保留 seed 与 device 行为。 |
-| [training/torch_load.py](../training/torch_load.py) | — | 安全加载 PyTorch 检查点的兼容封装。 | 保留多调用方共享的加载兼容逻辑。 |
+| [training/torch_load.py](../training/torch_load.py) | — | 加载可信任的项目检查点，处理 PyTorch 版本间的 `weights_only` 参数差异。 | 保留多调用方共享的加载入口。 |
 | [training/yolox_utils.py](../training/yolox_utils.py) | — | YOLOX R-A 网格锚点到 Cartesian 米制框的解码及候选分数。 | SimOTA 位于 `training/losses/matching.py`；旋转 BEV NMS 在最终预测路径执行一次。 |
 | [training/losses/__init__.py](../training/losses/__init__.py) | — | 损失的唯一公开 API，直接导出各 loss family 与共享操作。 | 没有并行 facade 或算法副本。 |
-| [training/losses/common.py](../training/losses/common.py) | — | 共享框/IoU、Gaussian、ignore mask、focal、masked L1、top-k gather 和 inverse sigmoid。 | CenterPoint、RADE-Net 和 YOLOX 的单一共享实现。 |
+| [training/losses/common.py](../training/losses/common.py) | — | 共享 Gaussian、R-A ignore mask、focal 与 masked L1。 | CenterPoint、RADE-Net 和 YOLOX 的单一共享实现。 |
 | [training/losses/targets.py](../training/losses/targets.py) | — | Cartesian CenterPoint 及 RADE-Net 目标张量构造。 | 保留 R-A 网格定位、Gaussian 半径、类别和向量顺序。 |
 | [training/losses/gwd.py](../training/losses/gwd.py) | — | GWD 框转换、矩阵平方根和距离公式。 | 保留 tau、clamp 和 epsilon。 |
 | [training/losses/matching.py](../training/losses/matching.py) | — | YOLOX SimOTA 候选、cost、dynamic-k 及冲突解决。 | 不保留算法副本。 |
@@ -401,7 +401,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [tests/test_axis_aligned_iou.py](../tests/test_axis_aligned_iou.py) | 28 | 轴对齐 IoU 几何与评估接口兼容性。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_checkpoint_selection.py](../tests/test_checkpoint_selection.py) | 284 | 候选/全局最佳指标选择和检查点替换。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_controlled_sequences.py](../tests/test_controlled_sequences.py) | 306 | 受控窗口匹配、目标屏蔽、统计、签名和复用。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
-| [tests/test_coordinate_modes.py](../tests/test_coordinate_modes.py) | 424 | Polar/Cartesian 配置、范围转换、目标、解码和数据集语义。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
+| [tests/test_coordinate_modes.py](../tests/test_coordinate_modes.py) | 424 | 当前 Cartesian 检测契约、R-A 网格几何、坐标模式拒绝校验与保留模型的行为。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_distance_quartile_evaluation.py](../tests/test_distance_quartile_evaluation.py) | 217 | 四分位指标接线、报告键、绘图和输出元数据。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_distance_quartile_helpers.py](../tests/test_distance_quartile_helpers.py) | 75 | 四分位推导、并列值处理和帧过滤。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_domain_shift_tables.py](../tests/test_domain_shift_tables.py) | 352 | 域表构建、配置隔离、记录更新和旧格式转换。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
