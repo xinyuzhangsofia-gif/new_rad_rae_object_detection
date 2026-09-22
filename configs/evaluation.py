@@ -8,8 +8,6 @@ from configs.runtime import EVALUATION_RUNTIME_CONFIG
 
 
 EVAL_CONFIG = {
-    # "auto" verifies the checkpoint is Cartesian; Polar checkpoints are rejected.
-    "box_coordinate_mode": "auto",
     # "auto" inherits the training loss/head workflow from the checkpoint.
     "loss_mode": "auto",
     # Shared default; --cartesian-gt-root can select another radar-aligned root.

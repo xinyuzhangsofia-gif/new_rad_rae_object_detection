@@ -367,8 +367,7 @@ class ResumeRestorationTests(unittest.TestCase):
 
         self.assertEqual(copied, "copied.pth")
         self.assertEqual(state.epoch, 5)
-        self.assertEqual(state.metric_key, "official_bev_mAP_0.3")
-        self.assertEqual(state.map_score, 0.42)
+        self.assertEqual(state.metric_value, 0.42)
         self.assertEqual(state.global_best_path, "copied.pth")
 
     def test_initial_best_requires_saved_selection_metric(self):

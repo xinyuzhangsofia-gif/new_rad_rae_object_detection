@@ -69,6 +69,7 @@ scripts/{analysis,figures,maintenance}/ → 独立统计、论文图和维护工
 ### 当前实际读取什么
 
 训练、续训、独立评估及检查点可视化现在只接受 Cartesian 输入。`require_cartesian_data` 会拒绝 Polar 模式/检查点；不能通过修改模式标记把旧权重当成 Cartesian 权重使用。
+独立评估的框坐标模式由已验证的检查点决定；评估配置和命令行不提供坐标模式覆盖。阈值、IoU 模式、输出路径和评估专用序列仍由评估端控制。
 
 检测 GT 与解码结果仅使用米制 Cartesian `[x,y,z,l,w,h,yaw]`。RAD/RAE 张量及 R-A 特征网格仍属于雷达坐标表示；R-A 几何只用于候选单元、锚点和 ignore mask 的空间定位，框匹配与回归直接使用精确 Cartesian GT。当前保留模型的检测头为 Model7/8/12/13/15 的 Cartesian CenterPoint 或 RADE-Net、Model14 的 Cartesian YOLOX，以及 Model16 的 Cartesian RADE-Net。
 
@@ -404,7 +405,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [tests/test_distance_quartile_helpers.py](../tests/test_distance_quartile_helpers.py) | 75 | 四分位推导、并列值处理和帧过滤。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_domain_shift_tables.py](../tests/test_domain_shift_tables.py) | 352 | 域表构建、配置隔离、记录更新和旧格式转换。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_domain_shift_training_config.py](../tests/test_domain_shift_training_config.py) | 90 | 共享/源/目标训练配置和验证序列推导。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
-| [tests/test_entrypoint_compatibility.py](../tests/test_entrypoint_compatibility.py) | 57 | 保护保留的 train.py / evaluation.py 入口及其导出接口。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
+| [tests/test_entrypoints.py](../tests/test_entrypoints.py) | 24 | 保护当前 train.py / evaluation.py 命令入口。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_eval_test_control.py](../tests/test_eval_test_control.py) | 464 | 精确测试清单、中性忽略 GT 和固定四分位控制。 | 保留回归测试；直接测试公共 ignore 校验函数。 |
 | [tests/test_evaluate_quartile_experiments.py](../tests/test_evaluate_quartile_experiments.py) | 199 | 四分位启动器元数据、相对下降、状态和表格。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_experiment_analysis_infrastructure.py](../tests/test_experiment_analysis_infrastructure.py) | — | 完成检查点/配对、四分位命令公共段、CUDA 环境、报告 metadata、结果复用及失败状态。 | 保留四分位仍需的基础设施等价性覆盖。 |

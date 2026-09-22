@@ -231,6 +231,8 @@ experiment directories or symlinks are maintained.
 Only checkpoints produced by the current repository version are supported.
 They must contain the canonical `config` metadata required for model
 reconstruction.
+Standalone evaluation reads its Cartesian box mode from that validated
+checkpoint; evaluation settings control thresholds, IoU mode, and outputs.
 
 Distance-quartile re-evaluation consumes upstream queue-state manifests containing
 completed checkpoint locations. Deleting these manifests

@@ -250,16 +250,14 @@ def initialize_best_state(best_state, initial_best_checkpoint, checkpoint_dir):
             raise ValueError(
                 f"Initial best checkpoint is missing required current training state: {field}"
             )
-    best_metric_key = checkpoint["selection_metric_key"]
-    best_map = float(checkpoint["selection_metric_value"])
+    best_metric_value = float(checkpoint["selection_metric_value"])
     copied_path = save_replacing_named_checkpoint_copy(
         checkpoint_dir=checkpoint_dir,
         source_checkpoint_path=initial_best_checkpoint,
         best_epoch=best_epoch,
         name_prefix="global_best",
     )
-    best_state.map_score = best_map
-    best_state.metric_key = best_metric_key
+    best_state.metric_value = best_metric_value
     best_state.epoch = best_epoch
     best_state.global_best_path = copied_path
     return copied_path

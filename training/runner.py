@@ -518,7 +518,6 @@ def run_training_epochs(
             )
 
         val_metrics, f1 = build_epoch_eval_metrics(
-            train_metrics=train_metrics,
             eval_metrics=eval_metrics,
             val_loss_metrics=val_loss_metrics,
             training_eval_enabled=getattr(args, "training_eval_enabled", True),

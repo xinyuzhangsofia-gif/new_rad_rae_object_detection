@@ -772,7 +772,6 @@ def metric_prefers_lower(metric_key):
 
 
 def build_epoch_eval_metrics(
-        train_metrics,
         eval_metrics,
         val_loss_metrics,
         training_eval_enabled=True,
@@ -780,8 +779,6 @@ def build_epoch_eval_metrics(
         official_eval_enabled=False,
         official_eval_iou_mode="easy",
     ):
-    del train_metrics
-
     val_metrics = val_loss_metrics.copy()
     if training_eval_enabled:
         val_metrics.setdefault("mAP", 0.0)
@@ -807,12 +804,8 @@ def build_epoch_eval_metrics(
 
 @dataclass
 class BestCheckpointState:
-    map_score: float = -1.0
-    metric_key: str = "mAP"
+    metric_value: float = -1.0
     epoch: int = -1
-    train_metrics: object = None
-    metrics: object = None
-    f1: float = 0.0
     checkpoint_path: object = None
     checkpoint_payload: object = None
     global_best_path: object = None
@@ -820,20 +813,14 @@ class BestCheckpointState:
     def update(
             self,
             epoch,
-            train_metrics,
             val_metrics,
-            f1,
             checkpoint_path=None,
             checkpoint_payload=None,
             global_best_path=None
         ):
-        metric_key, metric_value = selection_metric_value(val_metrics)
-        self.map_score = metric_value
-        self.metric_key = metric_key
+        _, metric_value = selection_metric_value(val_metrics)
+        self.metric_value = metric_value
         self.epoch = epoch
-        self.train_metrics = train_metrics.copy()
-        self.metrics = val_metrics.copy()
-        self.f1 = f1
         self.checkpoint_path = checkpoint_path
         self.checkpoint_payload = checkpoint_payload
         self.global_best_path = global_best_path
@@ -843,8 +830,8 @@ class BestCheckpointState:
         if self.epoch < 0:
             return True
         if metric_prefers_lower(metric_key):
-            return metric_value < self.map_score
-        return metric_value > self.map_score
+            return metric_value < self.metric_value
+        return metric_value > self.metric_value
 
 
 def save_epoch_and_update_best_checkpoint(
@@ -928,9 +915,7 @@ def save_epoch_and_update_best_checkpoint(
 
         best_state.update(
             epoch=epoch,
-            train_metrics=train_metrics,
             val_metrics=val_metrics,
-            f1=f1,
             checkpoint_path=checkpoint_path,
             checkpoint_payload=checkpoint_payload,
             global_best_path=global_best_path

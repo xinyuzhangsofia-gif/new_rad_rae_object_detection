@@ -37,7 +37,6 @@ for epoch in $(seq 5 100); do
         --gpu-ids 0 \
         --cuda cuda:0 \
         --model-type auto \
-        --box-coordinate-mode auto \
         --official-eval-version revised \
         --official-eval-iou-mode easy \
         --official-eval-iou-backend axis_aligned \

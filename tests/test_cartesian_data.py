@@ -233,6 +233,7 @@ class CartesianDataTests(unittest.TestCase):
     def test_input_clis_reject_polar_modes_and_removed_root_option(self):
         cases = (
             (parse_evaluation_args, ["--box-coordinate-mode", "polar"]),
+            (parse_evaluation_args, ["--box-coordinate-mode", "cartesian"]),
             (parse_evaluation_args, ["--polar-gt-root", "/labels"]),
             (parse_visualization_args, ["--box-coordinate-mode", "polar"]),
         )
@@ -242,13 +243,29 @@ class CartesianDataTests(unittest.TestCase):
                     parser()
                 self.assertEqual(error.exception.code, 2)
 
-    def test_cartesian_override_cannot_disguise_a_polar_checkpoint(self):
+    def test_evaluation_rejects_a_polar_checkpoint_without_an_override(self):
         checkpoint = current_checkpoint(box_coordinate_mode="polar")
         with mock.patch("eval.checkpoints.load_torch_checkpoint", return_value=checkpoint):
             with self.assertRaisesRegex(ValueError, "Only Cartesian"):
                 apply_checkpoint_config_defaults(
-                    SimpleNamespace(box_coordinate_mode="cartesian"), [(1, "unused.pth")]
+                    SimpleNamespace(), [(1, "unused.pth")]
                 )
+
+    def test_evaluation_gets_box_mode_from_checkpoint_and_keeps_score_control(self):
+        with mock.patch.object(
+            sys, "argv", ["evaluation.py", "--score-thresh", "0.21"]
+        ):
+            args = parse_evaluation_args()
+        self.assertFalse(hasattr(args, "box_coordinate_mode"))
+        with mock.patch(
+            "eval.checkpoints.load_torch_checkpoint",
+            return_value=current_checkpoint(),
+        ):
+            apply_checkpoint_config_defaults(args, [(1, "unused.pth")])
+        self.assertEqual(args.box_coordinate_mode, "cartesian")
+        self.assertEqual(args.loss_mode, "centerpoint")
+        self.assertEqual(args.val_sequences, (2,))
+        self.assertEqual(args.score_thresh, 0.21)
 
     def test_training_defaults_to_cartesian_and_keeps_the_selected_loss(self):
         args = SimpleNamespace(model_type="model7", loss_mode="centerpoint", cartesian_gt_root=self.gt_root)

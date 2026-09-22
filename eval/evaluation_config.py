@@ -18,6 +18,29 @@ from models import MODEL_TYPES
 from configs.evaluation import EVAL_CONFIG
 
 HEATMAP_SCORE_MODES = ("peak_times_local_mean", "peak_only")
+CHECKPOINT_INHERITABLE_FIELDS = frozenset({
+    # Current checkpoint identity. Model type and class mapping are resolved
+    # directly by the checkpoint loader, outside this optional-default helper.
+    "loss_mode",
+    "include_bus_as_target",
+    # Evaluation defaults and training provenance inherited only when unset.
+    "max_detections",
+    "ignore_class_names",
+    "gt_object_ignore_override_path",
+    "train_control_split_enabled",
+    "train_control_split_dir",
+    "ignore_mask_margin",
+    "ignore_mask_expand_ratio",
+    "custom_iou_range_eval_enabled",
+    "custom_iou_thresholds",
+    "nuscenes_style_eval_enabled",
+    "split_mode",
+    "split_dir",
+    "train_sequences",
+    "val_sequences",
+    "seed",
+    "cartesian_gt_root",
+})
 OFFICIAL_CLASS_TOKEN_BY_DATASET_NAME = {
     "Sedan": "sed",
     "Bus or Truck": "bus",
@@ -38,14 +61,13 @@ __all__ = [
 
 
 def should_inherit_from_checkpoint(key):
-    """Inherit unset settings, plus checkpoint-owned mode selectors at auto."""
+    """Inherit only a declared checkpoint default when evaluation leaves it unset."""
+    if key not in CHECKPOINT_INHERITABLE_FIELDS:
+        raise ValueError(f"Unknown checkpoint-inheritable evaluation field: {key}")
     value = EVAL_CONFIG.get(key)
     if value is None:
         return True
-    # For these two workflow selectors, "auto" explicitly means that the
-    # checkpoint is authoritative.  This lets configs/evaluation.py stay fully
-    # automatic without requiring the user to edit it per checkpoint.
-    if key in {"box_coordinate_mode", "loss_mode"}:
+    if key == "loss_mode":
         return str(value).strip().lower() == "auto"
     return False
 
@@ -129,7 +151,6 @@ def parse_args():
         "num_workers": 0,
         "limit_samples": None,
         "eval_scope": None,
-        "box_coordinate_mode": None,
         "cartesian_gt_root": CARTESIAN_GT_ROOT,
         "include_bus_as_target": True,
         "gt_object_ignore_override_path": None,
@@ -224,11 +245,6 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=cfg_defaults["num_workers"])
     parser.add_argument("--limit-samples", type=int, default=cfg_defaults["limit_samples"])
     parser.add_argument("--eval-scope", default=cfg_defaults["eval_scope"], choices=SCOPE_CHOICES)
-    parser.add_argument(
-        "--box-coordinate-mode",
-        default=cfg_defaults["box_coordinate_mode"],
-        choices=["auto", BOX_COORDINATE_CARTESIAN],
-    )
     parser.add_argument(
         "--cartesian-gt-root",
         default=cfg_defaults["cartesian_gt_root"],

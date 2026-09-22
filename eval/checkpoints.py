@@ -408,10 +408,10 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
     _, first_checkpoint_path = checkpoint_paths[0]
     checkpoint = load_torch_checkpoint(first_checkpoint_path, map_location="cpu")
     config = validate_current_checkpoint(checkpoint)
-    inferred_box_coordinate_mode = infer_checkpoint_box_coordinate_mode(
-        checkpoint
-    )
-    if should_inherit_from_checkpoint("max_detections") and config.get("max_detections") is not None:
+    # Detector geometry is checkpoint-owned; standalone evaluation has no
+    # coordinate-mode override.
+    args.box_coordinate_mode = infer_checkpoint_box_coordinate_mode(checkpoint)
+    if should_inherit_from_checkpoint("max_detections") and config["max_detections"] is not None:
         args.max_detections = int(config["max_detections"])
     if should_inherit_from_checkpoint("include_bus_as_target"):
         args.include_bus_as_target = bool(config["include_bus_as_target"])
@@ -424,12 +424,12 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         args.gt_object_ignore_override_path = config["gt_object_ignore_override_path"]
     if (
         should_inherit_from_checkpoint("train_control_split_enabled")
-        and config.get("train_control_split_enabled") is not None
+        and config["train_control_split_enabled"] is not None
     ):
         args.train_control_split_enabled = bool(config["train_control_split_enabled"])
     if (
         should_inherit_from_checkpoint("train_control_split_dir")
-        and config.get("train_control_split_dir") is not None
+        and config["train_control_split_dir"] is not None
     ):
         args.train_control_split_dir = config["train_control_split_dir"]
     if should_inherit_from_checkpoint("ignore_mask_margin") and config.get("ignore_mask_margin") is not None:
@@ -453,24 +453,19 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
         )
     if should_inherit_from_checkpoint("nuscenes_style_eval_enabled") and config.get("nuscenes_style_eval_enabled") is not None:
         args.nuscenes_style_eval_enabled = bool(config["nuscenes_style_eval_enabled"])
-    if should_inherit_from_checkpoint("split_mode") and config.get("split_mode") is not None:
+    if should_inherit_from_checkpoint("split_mode") and config["split_mode"] is not None:
         args.split_mode = config["split_mode"]
-    if should_inherit_from_checkpoint("split_dir") and config.get("split_dir") is not None:
+    if should_inherit_from_checkpoint("split_dir") and config["split_dir"] is not None:
         args.split_dir = config["split_dir"]
-    if should_inherit_from_checkpoint("train_sequences") and config.get("train_sequences") is not None:
+    if should_inherit_from_checkpoint("train_sequences") and config["train_sequences"] is not None:
         args.train_sequences = config["train_sequences"]
-    if should_inherit_from_checkpoint("val_sequences") and config.get("val_sequences") is not None:
+    if should_inherit_from_checkpoint("val_sequences") and config["val_sequences"] is not None:
         args.val_sequences = config["val_sequences"]
-    if should_inherit_from_checkpoint("seed") and config.get("seed") is not None:
+    if should_inherit_from_checkpoint("seed") and config["seed"] is not None:
         args.seed = int(config["seed"])
-    if args.box_coordinate_mode in (None, "auto"):
-        args.box_coordinate_mode = inferred_box_coordinate_mode
-    args.box_coordinate_mode = require_cartesian_data(
-        args.box_coordinate_mode
-    )
     if (
         should_inherit_from_checkpoint("cartesian_gt_root")
-        and config.get("cartesian_gt_root") is not None
+        and config["cartesian_gt_root"] is not None
     ):
         args.cartesian_gt_root = config["cartesian_gt_root"]
     args.cartesian_gt_root = normalize_optional_path(

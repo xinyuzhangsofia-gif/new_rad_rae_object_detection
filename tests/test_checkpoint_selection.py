@@ -2,6 +2,7 @@ import unittest
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import torch
 
@@ -24,6 +25,72 @@ from tests.checkpoint_fixtures import current_checkpoint
 
 
 class CheckpointSelectionTests(unittest.TestCase):
+    def test_best_state_keeps_only_selection_value_and_artifact_references(self):
+        state = BestCheckpointState()
+        self.assertEqual(set(vars(state)), {
+            "metric_value",
+            "epoch",
+            "checkpoint_path",
+            "checkpoint_payload",
+            "global_best_path",
+        })
+        state.update(
+            epoch=2,
+            val_metrics={
+                "selection_metric_key": "val_loss",
+                "selection_metric_value": 1.5,
+            },
+            checkpoint_payload={"epoch": 2},
+        )
+        self.assertEqual(state.metric_value, 1.5)
+        self.assertTrue(state.is_better({
+            "selection_metric_key": "val_loss",
+            "selection_metric_value": 1.0,
+        }))
+        self.assertFalse(state.is_better({
+            "selection_metric_key": "val_loss",
+            "selection_metric_value": 2.0,
+        }))
+
+    def test_best_between_intervals_uses_cloned_payload(self):
+        payload = {"epoch": 1, "model_state_dict": {"weight": torch.tensor([1.0])}}
+        state = BestCheckpointState()
+        with (
+            mock.patch(
+                "training.checkpoints.build_checkpoint_payload",
+                return_value=payload,
+            ) as build,
+            mock.patch(
+                "training.checkpoints.save_replacing_named_checkpoint_payload",
+                return_value="global_best.pth",
+            ) as save,
+        ):
+            checkpoint_path = save_epoch_and_update_best_checkpoint(
+                best_state=state,
+                checkpoint_dir="unused",
+                model=None,
+                optimizer=None,
+                scheduler=None,
+                args=None,
+                cfg=None,
+                epoch=1,
+                train_metrics={"train_loss": 3.0},
+                val_metrics={
+                    "val_loss": 2.0,
+                    "selection_metric_key": "mAP",
+                    "selection_metric_value": 0.25,
+                },
+                f1=0.0,
+                learning_rate=5e-5,
+                total_epochs=10,
+                checkpoint_epoch_step=5,
+            )
+        self.assertIsNone(checkpoint_path)
+        self.assertTrue(build.call_args.kwargs["clone_for_memory"])
+        self.assertIs(state.checkpoint_payload, payload)
+        self.assertEqual(state.global_best_path, "global_best.pth")
+        self.assertIs(save.call_args.kwargs["payload"], payload)
+
     def test_find_epoch_checkpoints_respects_inclusive_epoch_range(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
             checkpoint_dir = Path(temporary_dir)
@@ -180,7 +247,6 @@ class CheckpointSelectionTests(unittest.TestCase):
 
     def test_disabled_training_evaluation_has_no_selection_metric(self):
         val_metrics, f1 = build_epoch_eval_metrics(
-            train_metrics={},
             eval_metrics=None,
             val_loss_metrics={
                 "val_loss": 2.0,

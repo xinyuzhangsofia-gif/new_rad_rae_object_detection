@@ -1,4 +1,4 @@
-"""Verify configuration composition and workflow boundaries."""
+"""Verify current configuration composition and workflow boundaries."""
 
 import os
 from pathlib import Path
@@ -21,13 +21,16 @@ from models import MODEL_TYPES
 from training.configuration import LOSS_MODE_CHOICES, resolve_loss_mode
 
 
-class ConfigCompatibilityTests(unittest.TestCase):
+class ConfigContractTests(unittest.TestCase):
     def test_checkpoint_inheritance_keeps_local_auto_meanings(self):
-        self.assertTrue(should_inherit_from_checkpoint("box_coordinate_mode"))
         self.assertTrue(should_inherit_from_checkpoint("loss_mode"))
         self.assertTrue(should_inherit_from_checkpoint("val_sequences"))
-        self.assertTrue(should_inherit_from_checkpoint("not_configured"))
-        self.assertFalse(should_inherit_from_checkpoint("score_thresh"))
+        with self.assertRaisesRegex(ValueError, "not_configured"):
+            should_inherit_from_checkpoint("not_configured")
+        with self.assertRaisesRegex(ValueError, "box_coordinate_mode"):
+            should_inherit_from_checkpoint("box_coordinate_mode")
+        with self.assertRaisesRegex(ValueError, "score_thresh"):
+            should_inherit_from_checkpoint("score_thresh")
 
     def test_training_config_keeps_separated_sections_flat(self):
         for section in (
@@ -99,6 +102,7 @@ class ConfigCompatibilityTests(unittest.TestCase):
         self.assertIn("ap_score_thresh", EVAL_CONFIG)
         self.assertNotIn("training_eval_enabled", EVAL_CONFIG)
         self.assertNotIn("eval_coordinate_mode", EVAL_CONFIG)
+        self.assertNotIn("box_coordinate_mode", EVAL_CONFIG)
         for removed_key in (
             "polar_eval_enabled",
             "polar_iou_thresholds",
