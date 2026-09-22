@@ -168,14 +168,6 @@ def available_plot_iou_suffixes(results):
     return suffixes
 
 
-def main_plot_iou_suffix(results):
-    for result in results:
-        main_key = result.get("official_main_metric_key")
-        if isinstance(main_key, str) and main_key.startswith("official_bev_mAP_"):
-            return main_key.rsplit("_", 1)[-1]
-    return "0.3"
-
-
 def detection_table_columns():
     return [
         ("Precision", "official_detection_precision", "metric"),
@@ -691,4 +683,3 @@ def save_evaluation_plot(results, plot_output_path, plot_metadata=None):
 
     fig.savefig(plot_output_path, dpi=200, bbox_inches="tight", pad_inches=0.12)
     plt.close(fig)
-

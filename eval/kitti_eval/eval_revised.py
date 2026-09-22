@@ -1,9 +1,7 @@
 import io as sysio
-import time
 
 import numba
 import numpy as np
-from scipy.interpolate import interp1d
 
 try:
     from nms_gpu import rotate_iou_gpu_eval

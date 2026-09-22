@@ -30,7 +30,6 @@ from .architecture import (
     CYAN,
     DEFAULT_OUT_DIR,
     DEFAULT_RADAR_ROOT,
-    GOLD,
     GREEN,
     INK,
     LIGHT,

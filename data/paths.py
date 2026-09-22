@@ -12,10 +12,6 @@ def _sorted_directory_files(directory):
     return tuple(sorted(os.listdir(directory)))
 
 
-def get_label_dir(cfg):
-    label_dir = f"{cfg.root_dir}/{cfg.sequence}/{cfg.choose_info_label}"
-    return label_dir
-
 def get_label_files(label_dir):
     label_files = sorted([f for f in os.listdir(label_dir)if f.endswith(".txt")])
     return label_files
@@ -44,11 +40,6 @@ def get_lidar_path(lidar_dir,lidar_type,lidar_idx):
     raise FileNotFoundError(f"{lidar_type}-lidar file not found for idx{lidar_idx} in {lidar_dir}")
 
 
-def get_camera_dir(cfg):
-    camera_dir = f"{cfg.root_dir}/{cfg.sequence}/{cfg.choose_camera}_front"
-    return camera_dir
-
-
 def get_camera_path(camera_dir,cam_front_idx):
     for fname in _sorted_directory_files(camera_dir):
         if fname.startswith(f"cam-front_{cam_front_idx}"):
@@ -66,51 +57,8 @@ def get_camera_calib_path(cfg):
     return path_calib
 
 
-def get_lidar2radar_calib_path(cfg):
-    lidar2radar_calib_path = cfg.lidar2radar_calib_path
-    return lidar2radar_calib_path
-
 def get_rad_rae_npy_root_dir():
     return RADAR_NPY_ROOT
-
-
-
-def get_rad_npy_dir(cfg):
-    return os.path.join(get_rad_rae_npy_root_dir(), str(cfg.sequence), "rad")
-
-
-def get_rae_npy_dir(cfg):
-    return os.path.join(get_rad_rae_npy_root_dir(), str(cfg.sequence), "rae")
-
-
-def get_rad_npy_files(cfg):
-    return sorted([
-        os.path.join(get_rad_npy_dir(cfg), f)
-        for f in os.listdir(get_rad_npy_dir(cfg))
-        if f.endswith(".npy")
-    ])
-
-
-def get_rae_npy_files(cfg):
-    return sorted([
-        os.path.join(get_rae_npy_dir(cfg), f)
-        for f in os.listdir(get_rae_npy_dir(cfg))
-        if f.endswith(".npy")
-    ])
-
-
-def get_rad_npy_path(cfg, file_idx):
-    rad_files = get_rad_npy_files(cfg)
-    if file_idx < 0 or file_idx >= len(rad_files):
-        raise IndexError(f"file_idx {file_idx} out of range for {len(rad_files)} rad npy files")
-    return rad_files[file_idx]
-
-
-def get_rae_npy_path(cfg, file_idx):
-    rae_files = get_rae_npy_files(cfg)
-    if file_idx < 0 or file_idx >= len(rae_files):
-        raise IndexError(f"file_idx {file_idx} out of range for {len(rae_files)} rae npy files")
-    return rae_files[file_idx]
 
 
 def get_cartesian_gt_path(sequence, cartesian_gt_root=None):

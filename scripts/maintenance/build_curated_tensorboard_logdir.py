@@ -4,8 +4,6 @@ import argparse
 import ast
 import math
 import os
-import re
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 

@@ -8,17 +8,6 @@ import torch.nn.functional as F
 from data.coordinates import get_rae_scope_start_and_shape
 
 
-def gather_topk_features(features, indices):
-    channels = features.shape[-1]
-    gather_indices = indices.unsqueeze(-1).expand(-1, -1, channels)
-    return features.gather(dim=1, index=gather_indices)
-
-
-def inverse_sigmoid(x):
-    x = x.clamp(min=1e-4, max=1.0 - 1e-4)
-    return torch.log(x / (1.0 - x))
-
-
 def gaussian2d(radius, sigma=None, device="cpu"):
     diameter = 2 * radius + 1
     if sigma is None:

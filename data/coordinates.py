@@ -225,18 +225,6 @@ def global_rae_boxes_to_local_scope(boxes, scope_mode, rae_shape):
     return local
 
 
-def local_rae_boxes_to_global_scope(boxes, scope_mode, rae_shape):
-    if boxes.numel() == 0:
-        return boxes.clone()
-
-    starts, _ = get_rae_scope_start_and_shape(scope_mode, rae_shape)
-    global_boxes = boxes.clone()
-    global_boxes[:, 0] = global_boxes[:, 0] + starts[0]
-    global_boxes[:, 1] = global_boxes[:, 1] + starts[1]
-    global_boxes[:, 2] = global_boxes[:, 2] + starts[2]
-    return global_boxes
-
-
 def rae_indices_to_physical(r_idx, a_idx, e_idx):
     return (
         _axis_index_to_value(r_idx, RANGE_AXIS),

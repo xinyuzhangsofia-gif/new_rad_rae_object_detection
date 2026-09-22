@@ -74,18 +74,6 @@ def detection_collate(batch):
     return collated
 
 
-def get_config_sequences(cfg):
-    sequences = getattr(cfg, "sequences", None)
-    if sequences is None:
-        sequences = (cfg.sequence,)
-
-    sequences = normalize_sequence_list(sequences, name="cfg.sequences")
-    if len(sequences) == 0:
-        raise ValueError("cfg.sequences must not be empty")
-
-    return sequences
-
-
 def build_detection_dataset_for_sequence(
         cfg,
         sequence,

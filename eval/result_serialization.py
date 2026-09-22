@@ -276,27 +276,6 @@ def print_checkpoint_metrics(epoch, metrics):
         )
 
 
-def _plain_text_table(headers, rows):
-    string_rows = [[str(cell) for cell in row] for row in rows]
-    widths = [len(str(header)) for header in headers]
-    for row in string_rows:
-        for index, value in enumerate(row):
-            widths[index] = max(widths[index], len(value))
-
-    def format_row(row_values):
-        return "| " + " | ".join(
-            str(value).ljust(widths[index])
-            for index, value in enumerate(row_values)
-        ) + " |"
-
-    separator = "+-" + "-+-".join("-" * width for width in widths) + "-+"
-    lines = [separator, format_row(headers), separator]
-    for row in string_rows:
-        lines.append(format_row(row))
-    lines.append(separator)
-    return "\n".join(lines)
-
-
 def _aligned_text_table(
         headers,
         rows,

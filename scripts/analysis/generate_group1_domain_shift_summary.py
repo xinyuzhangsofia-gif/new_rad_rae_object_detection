@@ -22,9 +22,6 @@ from data.labels import read_cartesian_gt_txt
 
 RAD_ROOT = get_rad_rae_npy_root_dir()
 OUTPUT_DIR = Path("analysis_plots/domain_shift_stats")
-DEFAULT_SOURCE_TRAIN = (1, 5, 6, 14, 15, 18, 20)
-DEFAULT_TARGET_TRAIN = (3, 9, 11, 12)
-DEFAULT_TARGET_TEST = (4, 10)
 
 
 def parse_sequence_list(text: str) -> tuple[int, ...]:
