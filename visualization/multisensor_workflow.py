@@ -1,13 +1,18 @@
 """Orchestrate Camera/Radar and Camera/LiDAR/Radar outputs."""
 
-from data.paths import get_camera_calib_path, get_label_files, get_lidar_dir
 from visualization.config import (
     SENSOR_LAYOUT_CAMERA_LIDAR_RADAR,
     build_render_config,
 )
 from visualization.geometry import load_lidar2radar_calib
 from visualization.multisensor import visualize_all_sensors
-from visualization.paths import get_label_dir, get_visualization_camera_dir
+from visualization.paths import (
+    get_camera_calib_path,
+    get_label_dir,
+    get_label_files,
+    get_lidar_dir,
+    get_visualization_camera_dir,
+)
 from visualization.prediction import build_checkpoint_predictor
 from visualization.radar_data import (
     build_current_radar_dataset,

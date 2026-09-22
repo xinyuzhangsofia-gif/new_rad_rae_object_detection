@@ -56,7 +56,7 @@ def test_loss_mode_resolver_keeps_supported_family_selection():
     assert resolve_loss_mode("model14", "cartesian", "auto") == "yolox"
 
 
-def test_historical_loss_imports_are_canonical_reexports():
+def test_current_loss_imports_are_canonical_reexports():
     assert cartesian_centerpoint_detection_loss is centerpoint.cartesian_centerpoint_detection_loss
     assert radenet_detection_loss is radenet.radenet_detection_loss
     assert yolox_detection_loss is yolox.yolox_detection_loss

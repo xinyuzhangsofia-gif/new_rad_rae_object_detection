@@ -392,27 +392,27 @@ def build_checkpoint_payload(
             ),
             "quality_loss_weight": getattr(args, "quality_loss_weight", None),
             "num_classes": args.num_classes,
-            "model_type": getattr(args, "model_type", None),
+            "model_type": args.model_type,
             "configured_model_type": getattr(
                 args,
                 "configured_model_type",
-                getattr(args, "model_type", None),
+                args.model_type,
             ),
             "cartesian_training_workflow": getattr(
                 args,
                 "cartesian_training_workflow",
                 None,
             ),
-            "loss_mode": getattr(args, "loss_mode", None),
+            "loss_mode": args.loss_mode,
             "model7_decoder_hidden_channels": getattr(
                 args,
                 "model7_decoder_hidden_channels",
                 None,
             ),
-            "run_model_type": getattr(args, "run_model_type", getattr(args, "model_type", None)),
-            "class_names": getattr(args, "class_names", None),
-            "class_to_idx": getattr(args, "class_to_idx", None),
-            "include_bus_as_target": getattr(args, "include_bus_as_target", None),
+            "run_model_type": getattr(args, "run_model_type", args.model_type),
+            "class_names": args.class_names,
+            "class_to_idx": args.class_to_idx,
+            "include_bus_as_target": args.include_bus_as_target,
             "ignore_class_names": getattr(args, "ignore_class_names", None),
             "ignore_mask_margin": getattr(args, "ignore_mask_margin", None),
             "ignore_mask_expand_ratio": getattr(args, "ignore_mask_expand_ratio", None),
@@ -420,11 +420,7 @@ def build_checkpoint_payload(
             "train_control_split_enabled": getattr(args, "train_control_split_enabled", False),
             "train_control_split_dir": getattr(args, "train_control_split_dir", None),
             "train_scope": getattr(args, "train_scope", "full"),
-            "box_coordinate_mode": getattr(
-                args,
-                "box_coordinate_mode",
-                None,
-            ),
+            "box_coordinate_mode": args.box_coordinate_mode,
             "weather_group": getattr(args, "weather_group", None),
             "weather_group_source": getattr(
                 args,
@@ -502,7 +498,7 @@ def build_checkpoint_payload(
                 "training_eval_nuscenes_style_enabled",
                 False,
             ),
-            "split_mode": getattr(args, "split_mode", None),
+            "split_mode": args.split_mode,
             "split_dir": getattr(args, "split_dir", None),
             "domain_shift_experiment_enabled": getattr(
                 args,
@@ -534,8 +530,8 @@ def build_checkpoint_payload(
                 "target_test_sequences",
                 None,
             ),
-            "train_sequences": getattr(args, "train_sequences", None),
-            "val_sequences": getattr(args, "val_sequences", None),
+            "train_sequences": args.train_sequences,
+            "val_sequences": args.val_sequences,
             "train_sequence_half_selection": getattr(
                 args,
                 "train_sequence_half_selection",
@@ -804,6 +800,7 @@ def build_epoch_eval_metrics(
 
 @dataclass
 class BestCheckpointState:
+    metric_key: str | None = None
     metric_value: float = -1.0
     epoch: int = -1
     checkpoint_path: object = None
@@ -818,7 +815,8 @@ class BestCheckpointState:
             checkpoint_payload=None,
             global_best_path=None
         ):
-        _, metric_value = selection_metric_value(val_metrics)
+        metric_key, metric_value = selection_metric_value(val_metrics)
+        self.metric_key = metric_key
         self.metric_value = metric_value
         self.epoch = epoch
         self.checkpoint_path = checkpoint_path
@@ -829,6 +827,11 @@ class BestCheckpointState:
         metric_key, metric_value = selection_metric_value(val_metrics)
         if self.epoch < 0:
             return True
+        if metric_key != self.metric_key:
+            raise ValueError(
+                "Best-checkpoint selection metric changed from "
+                f"{self.metric_key!r} to {metric_key!r}."
+            )
         if metric_prefers_lower(metric_key):
             return metric_value < self.metric_value
         return metric_value > self.metric_value

@@ -4,14 +4,13 @@ from pathlib import Path
 
 import cv2
 
-from data.paths import get_label_files
 from visualization.config import MODE_RA_MAP, build_render_config
 from visualization.geometry import (
     load_lidar2radar_calib,
     transform_radar_boxes_to_lidar,
 )
 from visualization.labels import read_info_label
-from visualization.paths import get_label_dir
+from visualization.paths import get_label_dir, get_label_files
 from visualization.prediction import build_checkpoint_predictor
 from visualization.radar import get_radar_frame
 from visualization.radar_data import (

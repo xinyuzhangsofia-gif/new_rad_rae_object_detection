@@ -1,6 +1,7 @@
 import inspect
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -29,6 +30,14 @@ from visualization.radar import (
     visualize_bbx_on_ra_cartesian_with_yaw,
     visualize_bbx_on_ra_polar,
 )
+from visualization.paths import (
+    get_camera_calib_path,
+    get_camera_path,
+    get_label_files,
+    get_lidar_dir,
+    get_lidar_idx,
+    get_lidar_path,
+)
 from visualization.video import VideoWriter
 from visualize_cfg import VISUALIZE_CONFIG
 
@@ -37,6 +46,43 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class VisualizationArchitectureTests(unittest.TestCase):
+    def test_visualization_sensor_paths_keep_existing_lookup_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            labels = root / "labels"
+            labels.mkdir()
+            for name in ("b.txt", "a.txt", "skip.csv"):
+                (labels / name).touch()
+            lidar_dir = root / "11" / "os2-64"
+            lidar_dir.mkdir(parents=True)
+            (lidar_dir / "os2-64_007.bin").touch()
+            camera_dir = root / "camera"
+            camera_dir.mkdir()
+            (camera_dir / "cam-front_003.png").touch()
+            cfg = SimpleNamespace(
+                root_dir=directory,
+                sequence=11,
+                lidar_type="os2-64",
+                calib_seq="calibration",
+                choose_camera="cam-front",
+            )
+
+            self.assertEqual(get_label_files(labels), ["a.txt", "b.txt"])
+            self.assertEqual(get_lidar_dir(cfg), str(lidar_dir))
+            lidar_idx = get_lidar_idx({"os2_64_idx": "007"}, cfg.lidar_type)
+            self.assertEqual(
+                get_lidar_path(str(lidar_dir), cfg.lidar_type, lidar_idx),
+                str(lidar_dir / "os2-64_007.bin"),
+            )
+            self.assertEqual(
+                get_camera_path(str(camera_dir), "003"),
+                str(camera_dir / "cam-front_003.png"),
+            )
+            self.assertEqual(
+                get_camera_calib_path(cfg),
+                f"{directory}/calibration/seq_11/cam-front.yml",
+            )
+
     def test_root_entrypoint_is_thin_and_importable(self):
         self.assertTrue(callable(visualize.main))
         self.assertFalse(hasattr(visualize, "filter_predictions"))

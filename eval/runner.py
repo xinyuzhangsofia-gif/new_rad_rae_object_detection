@@ -239,7 +239,7 @@ def build_eval_context(args):
     # These evaluation-control inputs are deliberately applied *after*
     # checkpoint inheritance. They are authoritative for this standalone test
     # and cannot silently fall back to the checkpoint's target test split.
-    if getattr(args, "eval_val_sequences", None) is not None:
+    if args.eval_val_sequences is not None:
         args.eval_val_sequences = normalize_sequence_list(
             args.eval_val_sequences,
             name="eval_val_sequences",
@@ -251,7 +251,7 @@ def build_eval_context(args):
         "eval_frame_manifest_path",
         "eval_gt_object_ignore_override_path",
     ):
-        path_value = getattr(args, path_name, None)
+        path_value = getattr(args, path_name)
         if path_value is not None:
             setattr(
                 args,
@@ -259,22 +259,22 @@ def build_eval_context(args):
                 os.path.abspath(os.path.expanduser(str(path_value))),
             )
     if (
-        getattr(args, "eval_frame_manifest_path", None) is not None
-        and getattr(args, "eval_val_sequences", None) is None
+        args.eval_frame_manifest_path is not None
+        and args.eval_val_sequences is None
     ):
         raise ValueError(
             "eval_frame_manifest_path requires explicit eval_val_sequences."
         )
     if (
-        getattr(args, "eval_gt_object_ignore_override_path", None) is not None
-        and getattr(args, "eval_val_sequences", None) is None
+        args.eval_gt_object_ignore_override_path is not None
+        and args.eval_val_sequences is None
     ):
         raise ValueError(
             "eval_gt_object_ignore_override_path requires explicit "
             "eval_val_sequences."
         )
     if (
-        getattr(args, "eval_gt_object_ignore_override_path", None) is not None
+        args.eval_gt_object_ignore_override_path is not None
         and bool(args.eval_ignore_suppress_enabled)
     ):
         raise ValueError(
@@ -322,11 +322,7 @@ def build_eval_context(args):
         ],
         train_control_split_enabled=source_metadata["train_control_split_enabled"],
     )
-    checkpoint_config = (
-        reference_checkpoint.get("config", {})
-        if isinstance(reference_checkpoint, dict)
-        else {}
-    )
+    checkpoint_config = reference_checkpoint["config"]
     model_configuration_name, model_configuration = build_model_configuration(
         model_type=model_type,
         model_variant_name=model_variant_name,

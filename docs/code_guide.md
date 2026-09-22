@@ -104,7 +104,8 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 | `data/dataset.py` | `KRadarRADRAEDataset`、`KRadarGTDetectionDataset`、`KRadarMultiSequenceGTDetectionDataset`：配对帧、应用类别/ignore 规则并返回样本。 |
 | `data/dataloader.py` | `detection_collate`、数据集工厂、训练/评估 DataLoader 与 `prepare_model_inputs`。 |
 | `data/labels.py` | `load_cartesian_gt` 读取规范的平铺 GT；各 `read_*` 函数只解析对应 Cartesian 标签。 |
-| `data/paths.py` | `get_rad_rae_npy_root_dir`、`get_cartesian_gt_path` 及原始传感器路径；统一解释“文件在哪里”。 |
+| `data/paths.py` | `get_rad_rae_npy_root_dir` 与 `get_cartesian_gt_path`：训练、评估和分析共用的雷达及 Cartesian GT 路径。 |
+| `visualization/paths.py` | 原始传感器输入、标签目录、相机目录和可视化输出路径。 |
 | `data/coordinates.py` | `crop_rad_rae_to_scope`、`global_rae_boxes_to_local_scope`、`normalize_rae_boxes_for_scope` 及雷达轴/FOV。 |
 | `data/geometry.py` | Cartesian/RAE 框转换、FOV/scope 判断及框张量构造；供 Dataset、模型损失和评估共享。 |
 | `data/split/ordinary.py` | 普通 `kradar_file` / `sequence` 划分的唯一分派器。 |
@@ -238,7 +239,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [data/geometry.py](../data/geometry.py) | 433 | 供数据、训练和评估共享的 RAE 网格、米制 Cartesian 转换、FOV 与框张量构造。 | 保留共享数学实现，避免 Dataset 内重复。 |
 | [data/ignore_overrides.py](../data/ignore_overrides.py) | 153 | 加载并严格校验逐目标忽略规则。 | 保留独立策略边界。 |
 | [data/labels.py](../data/labels.py) | 237 | 选择并解析平铺/逐帧 Cartesian 标签。 | 保留唯一标签读取入口。 |
-| [data/paths.py](../data/paths.py) | 141 | 解析雷达、Cartesian 标签和原始传感器路径。 | 保留唯一共享路径入口。 |
+| [data/paths.py](../data/paths.py) | — | 提供雷达与 Cartesian GT 的共享路径。 | 可视化专用的相机、LiDAR 和 info label 路径由 `visualization/paths.py` 负责。 |
 | [data/sequence_metadata.py](../data/sequence_metadata.py) | — | 解析 K-Radar 序列 ID 及 `sequence_information.csv` 中的天气/环境描述。 | 训练直接依赖数据元数据，不通过评估模块。 |
 | [data/split/__init__.py](../data/split/__init__.py) | — | 划分的小型稳定公开 API。 | 只导出主要公开操作，不导出私有科学辅助函数。 |
 | [data/split/ordinary.py](../data/split/ordinary.py) | — | 分派 `kradar_file` 与 `sequence` 两种普通划分。 | 不实现或修改成员算法。 |

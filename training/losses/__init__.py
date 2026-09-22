@@ -1,38 +1,18 @@
 """Canonical detector training loss API and implementations."""
 
-from importlib import import_module
-
-
-DEFAULT_NUM_CLASSES = 2
-
-_EXPORT_MODULES = {
-    "build_raw_ignore_mask": "common",
-    "draw_gaussian": "common",
-    "gaussian2d": "common",
-    "heatmap_focal_loss": "common",
-    "masked_l1_loss": "common",
-    "_box_to_gaussian_batch": "gwd",
-    "_matrix_sqrt_batch": "gwd",
-    "gaussian_wasserstein_distance_batch": "gwd",
-    "_raw_index_to_feature_index": "targets",
-    "build_cartesian_centerpoint_targets": "targets",
-    "build_radenet_gaussian_heatmap": "targets",
-    "cartesian_centerpoint_detection_loss": "centerpoint",
-    "_gather_regression_at_centers": "radenet",
-    "_normalize_radenet_loss_term": "radenet",
-    "radenet_continuous_focal_loss": "radenet",
-    "radenet_detection_loss": "radenet",
-    "yolox_detection_loss": "yolox",
-}
-
-
-def __getattr__(name):
-    module_name = _EXPORT_MODULES.get(name)
-    if module_name is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    value = getattr(import_module(f"{__name__}.{module_name}"), name)
-    globals()[name] = value
-    return value
+from .common import (
+    DEFAULT_NUM_CLASSES,
+    build_raw_ignore_mask,
+    draw_gaussian,
+    gaussian2d,
+    heatmap_focal_loss,
+    masked_l1_loss,
+)
+from .gwd import gaussian_wasserstein_distance_batch
+from .targets import build_cartesian_centerpoint_targets, build_radenet_gaussian_heatmap
+from .centerpoint import cartesian_centerpoint_detection_loss
+from .radenet import radenet_continuous_focal_loss, radenet_detection_loss
+from .yolox import yolox_detection_loss
 
 
 __all__ = [

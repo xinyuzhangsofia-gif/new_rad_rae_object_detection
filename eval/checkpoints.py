@@ -410,7 +410,7 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
     config = validate_current_checkpoint(checkpoint)
     # Detector geometry is checkpoint-owned; standalone evaluation has no
     # coordinate-mode override.
-    args.box_coordinate_mode = infer_checkpoint_box_coordinate_mode(checkpoint)
+    args.box_coordinate_mode = require_cartesian_data(config["box_coordinate_mode"])
     if should_inherit_from_checkpoint("max_detections") and config["max_detections"] is not None:
         args.max_detections = int(config["max_detections"])
     if should_inherit_from_checkpoint("include_bus_as_target"):
@@ -440,7 +440,11 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
     ):
         args.ignore_mask_expand_ratio = float(config["ignore_mask_expand_ratio"])
     if should_inherit_from_checkpoint("loss_mode"):
-        args.loss_mode = infer_checkpoint_loss_mode(checkpoint)
+        args.loss_mode = resolve_loss_mode(
+            config["model_type"],
+            box_coordinate_mode=config["box_coordinate_mode"],
+            loss_mode=config["loss_mode"],
+        )
     if (
         should_inherit_from_checkpoint("custom_iou_range_eval_enabled")
         and config.get("custom_iou_range_eval_enabled") is not None

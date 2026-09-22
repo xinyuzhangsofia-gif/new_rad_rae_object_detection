@@ -5,11 +5,6 @@ import cv2
 import numpy as np
 import torch
 import open3d as o3d
-from data.paths import (
-    get_camera_path,
-    get_lidar_idx,
-    get_lidar_path,
-)
 from visualization.geometry import (
     boxes_to_corners_3d,
     camera_corners_to_2d_undistort,
@@ -30,6 +25,9 @@ from visualization.config import (
 )
 import visualization.radar as radar
 from visualization.paths import (
+    get_camera_path,
+    get_lidar_idx,
+    get_lidar_path,
     get_picture_save_path,
     resolve_visualize_mode,
 )

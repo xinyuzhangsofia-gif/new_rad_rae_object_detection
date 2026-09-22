@@ -28,6 +28,7 @@ class CheckpointSelectionTests(unittest.TestCase):
     def test_best_state_keeps_only_selection_value_and_artifact_references(self):
         state = BestCheckpointState()
         self.assertEqual(set(vars(state)), {
+            "metric_key",
             "metric_value",
             "epoch",
             "checkpoint_path",
@@ -42,6 +43,7 @@ class CheckpointSelectionTests(unittest.TestCase):
             },
             checkpoint_payload={"epoch": 2},
         )
+        self.assertEqual(state.metric_key, "val_loss")
         self.assertEqual(state.metric_value, 1.5)
         self.assertTrue(state.is_better({
             "selection_metric_key": "val_loss",
@@ -51,6 +53,11 @@ class CheckpointSelectionTests(unittest.TestCase):
             "selection_metric_key": "val_loss",
             "selection_metric_value": 2.0,
         }))
+        with self.assertRaisesRegex(ValueError, "selection metric changed"):
+            state.is_better({
+                "selection_metric_key": "mAP",
+                "selection_metric_value": 2.0,
+            })
 
     def test_best_between_intervals_uses_cloned_payload(self):
         payload = {"epoch": 1, "model_state_dict": {"weight": torch.tensor([1.0])}}

@@ -7,8 +7,7 @@ from data.geometry import (
     centerpoint_outputs_to_metric_regression,
     regression_cell_to_metric_box,
 )
-from training.losses import DEFAULT_NUM_CLASSES
-from training.losses.common import build_raw_ignore_mask, heatmap_focal_loss
+from training.losses.common import DEFAULT_NUM_CLASSES, build_raw_ignore_mask, heatmap_focal_loss
 from training.losses.gwd import gaussian_wasserstein_distance_batch
 from training.losses.targets import build_cartesian_centerpoint_targets
 

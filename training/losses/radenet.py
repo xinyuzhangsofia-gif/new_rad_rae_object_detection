@@ -11,8 +11,7 @@ from data.coordinates import get_rae_scope_start_and_shape
 from data.geometry import (
     feature_indices_to_cartesian_xy,
 )
-from training.losses import DEFAULT_NUM_CLASSES
-from training.losses.common import build_raw_ignore_mask
+from training.losses.common import DEFAULT_NUM_CLASSES, build_raw_ignore_mask
 from training.losses.gwd import gaussian_wasserstein_distance_batch
 from training.losses.targets import build_radenet_gaussian_heatmap
 

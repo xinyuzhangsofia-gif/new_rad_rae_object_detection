@@ -4,8 +4,7 @@ import torch
 import torch.nn.functional as F
 
 from data.geometry import raw_local_centers_to_feature_indices
-from training.losses import DEFAULT_NUM_CLASSES
-from training.losses.common import build_raw_ignore_mask
+from training.losses.common import DEFAULT_NUM_CLASSES, build_raw_ignore_mask
 from training.losses.gwd import gaussian_wasserstein_distance_batch
 from training.losses.matching import simota_assign
 from training.yolox_utils import decode_yolox_boxes, yolox_grid_centers

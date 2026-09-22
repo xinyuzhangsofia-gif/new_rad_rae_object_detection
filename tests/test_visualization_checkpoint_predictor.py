@@ -25,8 +25,7 @@ from visualization.multisensor import (
     visualize_bbx_on_camera,
 )
 from visualization.radar import add_ra_box_label, get_radar_frame
-from visualization.paths import get_label_dir
-from data.paths import get_label_files
+from visualization.paths import get_label_dir, get_label_files
 
 
 def make_multisensor_config(**overrides):
