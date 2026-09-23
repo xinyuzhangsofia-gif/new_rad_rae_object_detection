@@ -223,18 +223,8 @@ def save_group_best_only_plot_exports(
         print(f"Saved evaluation YAML: {yaml_output_path}")
 
 
-def build_eval_context(args):
-    device = select_evaluation_device(args.cuda, args.gpu_ids)
-    checkpoint_paths = find_epoch_checkpoints(
-        args.checkpoint_root,
-        args.epoch_step,
-        start_epoch=args.start_epoch,
-        end_epoch=args.end_epoch,
-    )
-    if len(checkpoint_paths) == 0:
-        raise ValueError(f"No epoch checkpoints found in {args.checkpoint_root}")
-
-    apply_checkpoint_config_defaults(args, checkpoint_paths)
+def _apply_standalone_evaluation_controls(args):
+    """Apply evaluation-only controls after checkpoint configuration defaults."""
     # These evaluation-control inputs are deliberately applied *after*
     # checkpoint inheritance. They are authoritative for this standalone test
     # and cannot silently fall back to the checkpoint's target test split.
@@ -284,20 +274,11 @@ def build_eval_context(args):
             "neutralizes matching detections through occluded=3 GT instead of "
             "removing predictions."
         )
-    apply_standalone_evaluation_coordinate_mode(args)
-    args = apply_task_configuration(args)
-    print(
-        "Ignore object_label=-1: "
-        f"{args.ignore_object_label_minus_one}"
-    )
-    (
-        args.official_class_name_map,
-        args.class_display_name_map,
-    ) = resolve_official_eval_class_name_map(args.class_names)
-    args.metric_class_names = [
-        args.official_class_name_map[class_id]
-        for class_id in sorted(args.official_class_name_map.keys())
-    ]
+    return args
+
+
+def _build_evaluation_source_identity(args, checkpoint_paths):
+    """Resolve checkpoint model identity and source provenance metadata."""
     model_type = resolve_model_type(args, checkpoint_paths)
     reference_checkpoint = load_torch_checkpoint(
         checkpoint_paths[0][1],
@@ -339,7 +320,11 @@ def build_eval_context(args):
         source_metadata.get("weather_group"),
         model_variant_name,
     )
+    return model_type, model_variant_name, source_metadata
 
+
+def _build_evaluation_data(args):
+    """Build either strict standalone data or the checkpoint/default split."""
     if args.eval_val_sequences is not None:
         validation_dataset, validation_loader = build_evaluation_dataloader(
             batch_size=args.batch_size,
@@ -394,6 +379,42 @@ def build_eval_context(args):
     split_statistics_metadata = build_split_statistics_metadata(
         train_dataset=train_dataset,
         test_dataset=validation_dataset,
+    )
+    return validation_loader, split_statistics_metadata
+
+
+def build_eval_context(args):
+    device = select_evaluation_device(args.cuda, args.gpu_ids)
+    checkpoint_paths = find_epoch_checkpoints(
+        args.checkpoint_root,
+        args.epoch_step,
+        start_epoch=args.start_epoch,
+        end_epoch=args.end_epoch,
+    )
+    if len(checkpoint_paths) == 0:
+        raise ValueError(f"No epoch checkpoints found in {args.checkpoint_root}")
+
+    apply_checkpoint_config_defaults(args, checkpoint_paths)
+    args = _apply_standalone_evaluation_controls(args)
+    apply_standalone_evaluation_coordinate_mode(args)
+    args = apply_task_configuration(args)
+    print(
+        "Ignore object_label=-1: "
+        f"{args.ignore_object_label_minus_one}"
+    )
+    (
+        args.official_class_name_map,
+        args.class_display_name_map,
+    ) = resolve_official_eval_class_name_map(args.class_names)
+    args.metric_class_names = [
+        args.official_class_name_map[class_id]
+        for class_id in sorted(args.official_class_name_map.keys())
+    ]
+    model_type, model_variant_name, source_metadata = (
+        _build_evaluation_source_identity(args, checkpoint_paths)
+    )
+    validation_loader, split_statistics_metadata = _build_evaluation_data(
+        args
     )
 
     model, _ = build_model_for_checkpoint(

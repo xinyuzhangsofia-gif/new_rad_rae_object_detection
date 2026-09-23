@@ -276,7 +276,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 文件 | 功能 | 处理建议 |
 | --- | --- | --- |
 | [training/__init__.py](../training/__init__.py) | 声明核心训练包。 | 保留清晰包边界，不提供旧包兼容层。 |
-| [training/runner.py](../training/runner.py) | 普通训练与断点续训共享的数据、模型、epoch 循环、检查点、TensorBoard 和收尾工作流。 | `train.py` 与 `train_resume.py` 的统一训练实现。 |
+| [training/runner.py](../training/runner.py) | 普通训练与断点续训共享的数据、模型、epoch 循环、检查点、TensorBoard 和收尾工作流；统一保障 writer 异常关闭。 | `train.py` 与 `train_resume.py` 的统一训练实现；成功后才继续 global-best 与训练后评估。 |
 | [training/loop.py](../training/loop.py) | 执行单个训练 epoch 和验证损失，并路由到不同模型损失。 | 保留 batch、optimizer step 和损失调度语义。 |
 | [training/configuration.py](../training/configuration.py) | 处理任务类别、域偏移、坐标/损失模式、受控划分和 Model15 学习率配置。 | 用户可编辑值仍在 `configs/`；此处只解析运行配置。 |
 | [training/checkpoints.py](../training/checkpoints.py) | 选择训练目录，构建/保存 checkpoint payload，解析最佳指标并管理按轮次保存及全局最佳检查点。 | 保留普通 `object_detection` 与天气 train/test 目录语义。 |
@@ -329,7 +329,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [eval/tensorboard_reporting.py](../eval/tensorboard_reporting.py) | 创建独立评估 writer 并写 config/scalar。 | 保留 `run/config` 与 `*/metrics/*` tags。 |
 | [eval/domain_shift_summaries.py](../eval/domain_shift_summaries.py) | 解析 source/target TXT、按完整历史身份配对，写 weather 和 `total_result.txt`。 | 保留 TD=target-source、天气/seed 排序和 sample std。 |
 | [eval/result_metadata.py](../eval/result_metadata.py) | 计算训练/测试帧和 Sedan/Bus 框数量 metadata。 | 不计算 AP 或改变数据划分。 |
-| [eval/runner.py](../eval/runner.py) | 组织多个检查点的独立评估，以及图片、表格、TensorBoard、YAML 和域比较输出。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
+| [eval/runner.py](../eval/runner.py) | 应用 standalone evaluation 控制，解析 checkpoint/source identity，并构建评估数据、模型和输出上下文。 | 保留首 checkpoint 模型身份、末 checkpoint 来源 metadata 及两条评估数据路径。 |
 | [eval/workflow.py](../eval/workflow.py) | 为根目录 `evaluation.py` 提供高层编排，并将配置打印、输出路径、标准评估、group-best 两阶段评估和报告输出分配给明确 helper。 | TensorBoard writer 由入口统一创建并在 `finally` 中关闭；具体评估和报告算法仍由既有模块负责。 |
 
 ### scripts
@@ -407,6 +407,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [tests/test_domain_shift_tables.py](../tests/test_domain_shift_tables.py) | 域表构建、配置隔离、记录更新和旧格式转换。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_domain_shift_training_config.py](../tests/test_domain_shift_training_config.py) | 共享/源/目标训练配置和验证序列推导。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_entrypoints.py](../tests/test_entrypoints.py) | 保护当前 train.py / evaluation.py 命令入口。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
+| [tests/test_eval_context.py](../tests/test_eval_context.py) | standalone 控制优先级、首尾 checkpoint identity、两条评估数据路径和 context 契约。 | 使用 mock 验证上下文构建，不读取真实 checkpoint 或数据集。 |
 | [tests/test_eval_test_control.py](../tests/test_eval_test_control.py) | 精确测试清单、中性忽略 GT 和固定四分位控制。 | 保留回归测试；直接测试公共 ignore 校验函数。 |
 | [tests/test_evaluate_quartile_experiments.py](../tests/test_evaluate_quartile_experiments.py) | 四分位启动器元数据、相对下降、状态和表格。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_experiment_analysis_infrastructure.py](../tests/test_experiment_analysis_infrastructure.py) | 完成检查点/配对、四分位命令公共段、CUDA 环境、报告 metadata、结果复用及失败状态。 | 保留四分位仍需的基础设施等价性覆盖。 |

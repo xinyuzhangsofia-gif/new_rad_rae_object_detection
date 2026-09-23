@@ -560,40 +560,42 @@ def run_training(
         run_relative_path=tensorboard_run_relative_path,
         existing_log_dir=existing_tensorboard_log_dir,
     )
-    write_training_run_config(
-        writer=writer,
-        args=args,
-        train_dataset=train_dataset,
-        val_dataset=val_dataset,
-        loss_mode=loss_mode,
-    )
+    try:
+        write_training_run_config(
+            writer=writer,
+            args=args,
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            loss_mode=loss_mode,
+        )
 
-    best_state = BestCheckpointState()
-    if (
-        args.training_eval_enabled
-        and initialize_best_state_callback is not None
-    ):
-        initialize_best_state_callback(best_state, checkpoint_dir)
+        best_state = BestCheckpointState()
+        if (
+            args.training_eval_enabled
+            and initialize_best_state_callback is not None
+        ):
+            initialize_best_state_callback(best_state, checkpoint_dir)
 
-    run_training_epochs(
-        args=args,
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        device=device,
-        writer=writer,
-        best_state=best_state,
-        checkpoint_dir=checkpoint_dir,
-        start_epoch=start_epoch,
-        end_epoch=end_epoch,
-        loss_mode=loss_mode,
-        include_detection_metrics_setting=include_detection_metrics_setting,
-        print_saved_checkpoints=report_resume_progress,
-    )
+        run_training_epochs(
+            args=args,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            device=device,
+            writer=writer,
+            best_state=best_state,
+            checkpoint_dir=checkpoint_dir,
+            start_epoch=start_epoch,
+            end_epoch=end_epoch,
+            loss_mode=loss_mode,
+            include_detection_metrics_setting=include_detection_metrics_setting,
+            print_saved_checkpoints=report_resume_progress,
+        )
+    finally:
+        writer.close()
 
-    writer.close()
     if args.training_eval_enabled:
         global_best_path, _ = save_global_best_checkpoint(
             best_state=best_state,

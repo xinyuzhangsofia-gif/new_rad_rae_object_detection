@@ -1,5 +1,6 @@
 """Focused invariants for the shared normal/resume training workflow."""
 
+from contextlib import ExitStack
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
@@ -152,6 +153,168 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
         self.assertIsNone(RESUME_CONFIG_OVERRIDES["resume_tensorboard_log_dir"])
         with self.assertRaisesRegex(ValueError, "Set resume_checkpoint"):
             resume.build_resume_args(self._resume_config())
+
+
+class TrainingWriterLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.patch_stack = ExitStack()
+        self.addCleanup(self.patch_stack.close)
+
+    @staticmethod
+    def _args():
+        return SimpleNamespace(
+            seed=42,
+            split_mode="sequence",
+            train_sequences=(1,),
+            val_sequences=(2,),
+            model_type="model7",
+            box_coordinate_mode="cartesian",
+            loss_mode="centerpoint",
+            gpu_ids="",
+            epochs=1,
+            checkpoint_base_dir="checkpoints",
+            log_base_dir="runs",
+            training_eval_enabled=True,
+            post_training_eval_enabled=True,
+            post_training_eval_min_free_memory_mb=1024,
+        )
+
+    def _patch_training_dependencies(self, args, writer, epoch_side_effect):
+        train_dataset = object()
+        val_dataset = object()
+        train_loader = object()
+        val_loader = object()
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "prepare_training_configuration",
+            return_value=args,
+        ))
+        self.patch_stack.enter_context(mock.patch.object(runner, "set_seed"))
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "get_dataset_sequences_for_split",
+            return_value=(1, 2),
+        ))
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "prepare_training_task_configuration",
+            return_value=args,
+        ))
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "resolve_loss_mode",
+            return_value="centerpoint",
+        ))
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "print_training_configuration",
+        ))
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "select_device_and_gpus",
+            return_value=(torch.device("cpu"), []),
+        ))
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "build_training_data",
+            return_value=(
+                train_dataset,
+                val_dataset,
+                train_loader,
+                val_loader,
+            ),
+        ))
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "build_training_components",
+            return_value=(object(), object(), object()),
+        ))
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "checkpoint_run_relative_path",
+            return_value="object_detection/run",
+        ))
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "create_tensorboard_writer",
+            return_value=writer,
+        ))
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "write_training_run_config",
+        ))
+        self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "run_training_epochs",
+            side_effect=epoch_side_effect,
+        ))
+        save_best = self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "save_global_best_checkpoint",
+            return_value=("global_best.pth", {}),
+        ))
+        post_evaluation = self.patch_stack.enter_context(mock.patch.object(
+            runner,
+            "run_post_training_evaluation",
+        ))
+        directory_resolver = mock.Mock(return_value=(
+            {(1, 2): "checkpoints/run"},
+            (1, 2),
+            "checkpoints/run",
+        ))
+        return directory_resolver, save_best, post_evaluation
+
+    def test_writer_closes_and_failure_skips_training_finalization(self):
+        args = self._args()
+        writer = mock.Mock()
+        directory_resolver, save_best, post_evaluation = (
+            self._patch_training_dependencies(
+                args,
+                writer,
+                RuntimeError("training failed"),
+            )
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "training failed"):
+            runner.run_training(
+                args,
+                resolve_checkpoint_directories=directory_resolver,
+            )
+
+        writer.close.assert_called_once_with()
+        save_best.assert_not_called()
+        post_evaluation.assert_not_called()
+
+    def test_success_closes_writer_before_best_and_post_evaluation(self):
+        args = self._args()
+        events = []
+        writer = mock.Mock()
+        writer.close.side_effect = lambda: events.append("writer_close")
+        directory_resolver, save_best, post_evaluation = (
+            self._patch_training_dependencies(
+                args,
+                writer,
+                lambda **_kwargs: events.append("epochs"),
+            )
+        )
+        save_best.side_effect = lambda **_kwargs: (
+            events.append("global_best") or ("global_best.pth", {})
+        )
+        post_evaluation.side_effect = lambda **_kwargs: events.append(
+            "post_evaluation"
+        )
+
+        result = runner.run_training(
+            args,
+            resolve_checkpoint_directories=directory_resolver,
+        )
+
+        self.assertEqual(result, "checkpoints/run")
+        self.assertEqual(
+            events,
+            ["epochs", "writer_close", "global_best", "post_evaluation"],
+        )
+        writer.close.assert_called_once_with()
 
 
 class ResumeRestorationTests(unittest.TestCase):
