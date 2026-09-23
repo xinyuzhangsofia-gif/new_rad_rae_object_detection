@@ -2,6 +2,7 @@
 
 import os
 import re
+from configs.evaluation import EVAL_CONFIG
 from data.coordinates import SCOPE_CHOICES
 from configs.coordinates import (
     require_cartesian_data,
@@ -18,12 +19,43 @@ from training.configuration import (
 )
 from training.torch_load import load_torch_checkpoint
 
-from eval.evaluation_config import (
+from eval.configuration import (
     normalize_float_thresholds,
-    should_inherit_from_checkpoint,
 )
 
+CHECKPOINT_INHERITABLE_FIELDS = frozenset({
+    "loss_mode",
+    "include_bus_as_target",
+    "max_detections",
+    "ignore_class_names",
+    "gt_object_ignore_override_path",
+    "train_control_split_enabled",
+    "train_control_split_dir",
+    "ignore_mask_margin",
+    "ignore_mask_expand_ratio",
+    "custom_iou_range_eval_enabled",
+    "custom_iou_thresholds",
+    "nuscenes_style_eval_enabled",
+    "split_mode",
+    "split_dir",
+    "train_sequences",
+    "val_sequences",
+    "seed",
+    "cartesian_gt_root",
+})
+
+
+def should_inherit_from_checkpoint(key, args=None):
+    """Inherit declared checkpoint defaults unless the CLI set the field."""
+    if key not in CHECKPOINT_INHERITABLE_FIELDS:
+        raise ValueError(f"Unknown checkpoint-inheritable evaluation field: {key}")
+    if args is not None and key in getattr(args, "_explicit_cli_fields", ()):
+        return False
+    value = EVAL_CONFIG[key]
+    return value is None or (key == "loss_mode" and str(value).strip().lower() == "auto")
+
 __all__ = [
+    'should_inherit_from_checkpoint',
     'checkpoint_epoch',
     'find_epoch_checkpoints',
     'get_checkpoint_state_dict',
@@ -411,64 +443,64 @@ def apply_checkpoint_config_defaults(args, checkpoint_paths):
     # Detector geometry is checkpoint-owned; standalone evaluation has no
     # coordinate-mode override.
     args.box_coordinate_mode = require_cartesian_data(config["box_coordinate_mode"])
-    if should_inherit_from_checkpoint("max_detections") and config["max_detections"] is not None:
+    if should_inherit_from_checkpoint("max_detections", args) and config["max_detections"] is not None:
         args.max_detections = int(config["max_detections"])
-    if should_inherit_from_checkpoint("include_bus_as_target"):
+    if should_inherit_from_checkpoint("include_bus_as_target", args):
         args.include_bus_as_target = bool(config["include_bus_as_target"])
-    if should_inherit_from_checkpoint("ignore_class_names") and config.get("ignore_class_names") is not None:
+    if should_inherit_from_checkpoint("ignore_class_names", args) and config.get("ignore_class_names") is not None:
         args.ignore_class_names = tuple(config["ignore_class_names"])
     if (
-        should_inherit_from_checkpoint("gt_object_ignore_override_path")
+        should_inherit_from_checkpoint("gt_object_ignore_override_path", args)
         and config.get("gt_object_ignore_override_path") is not None
     ):
         args.gt_object_ignore_override_path = config["gt_object_ignore_override_path"]
     if (
-        should_inherit_from_checkpoint("train_control_split_enabled")
+        should_inherit_from_checkpoint("train_control_split_enabled", args)
         and config["train_control_split_enabled"] is not None
     ):
         args.train_control_split_enabled = bool(config["train_control_split_enabled"])
     if (
-        should_inherit_from_checkpoint("train_control_split_dir")
+        should_inherit_from_checkpoint("train_control_split_dir", args)
         and config["train_control_split_dir"] is not None
     ):
         args.train_control_split_dir = config["train_control_split_dir"]
-    if should_inherit_from_checkpoint("ignore_mask_margin") and config.get("ignore_mask_margin") is not None:
+    if should_inherit_from_checkpoint("ignore_mask_margin", args) and config.get("ignore_mask_margin") is not None:
         args.ignore_mask_margin = float(config["ignore_mask_margin"])
     if (
-        should_inherit_from_checkpoint("ignore_mask_expand_ratio")
+        should_inherit_from_checkpoint("ignore_mask_expand_ratio", args)
         and config.get("ignore_mask_expand_ratio") is not None
     ):
         args.ignore_mask_expand_ratio = float(config["ignore_mask_expand_ratio"])
-    if should_inherit_from_checkpoint("loss_mode"):
+    if should_inherit_from_checkpoint("loss_mode", args):
         args.loss_mode = resolve_loss_mode(
             config["model_type"],
             box_coordinate_mode=config["box_coordinate_mode"],
             loss_mode=config["loss_mode"],
         )
     if (
-        should_inherit_from_checkpoint("custom_iou_range_eval_enabled")
+        should_inherit_from_checkpoint("custom_iou_range_eval_enabled", args)
         and config.get("custom_iou_range_eval_enabled") is not None
     ):
         args.custom_iou_range_eval_enabled = bool(config["custom_iou_range_eval_enabled"])
-    if should_inherit_from_checkpoint("custom_iou_thresholds") and config.get("custom_iou_thresholds") is not None:
+    if should_inherit_from_checkpoint("custom_iou_thresholds", args) and config.get("custom_iou_thresholds") is not None:
         args.custom_iou_thresholds = normalize_float_thresholds(
             config["custom_iou_thresholds"],
             name="checkpoint.config.custom_iou_thresholds",
         )
-    if should_inherit_from_checkpoint("nuscenes_style_eval_enabled") and config.get("nuscenes_style_eval_enabled") is not None:
+    if should_inherit_from_checkpoint("nuscenes_style_eval_enabled", args) and config.get("nuscenes_style_eval_enabled") is not None:
         args.nuscenes_style_eval_enabled = bool(config["nuscenes_style_eval_enabled"])
-    if should_inherit_from_checkpoint("split_mode") and config["split_mode"] is not None:
+    if should_inherit_from_checkpoint("split_mode", args) and config["split_mode"] is not None:
         args.split_mode = config["split_mode"]
-    if should_inherit_from_checkpoint("split_dir") and config["split_dir"] is not None:
+    if should_inherit_from_checkpoint("split_dir", args) and config["split_dir"] is not None:
         args.split_dir = config["split_dir"]
-    if should_inherit_from_checkpoint("train_sequences") and config["train_sequences"] is not None:
+    if should_inherit_from_checkpoint("train_sequences", args) and config["train_sequences"] is not None:
         args.train_sequences = config["train_sequences"]
-    if should_inherit_from_checkpoint("val_sequences") and config["val_sequences"] is not None:
+    if should_inherit_from_checkpoint("val_sequences", args) and config["val_sequences"] is not None:
         args.val_sequences = config["val_sequences"]
-    if should_inherit_from_checkpoint("seed") and config["seed"] is not None:
+    if should_inherit_from_checkpoint("seed", args) and config["seed"] is not None:
         args.seed = int(config["seed"])
     if (
-        should_inherit_from_checkpoint("cartesian_gt_root")
+        should_inherit_from_checkpoint("cartesian_gt_root", args)
         and config["cartesian_gt_root"] is not None
     ):
         args.cartesian_gt_root = config["cartesian_gt_root"]

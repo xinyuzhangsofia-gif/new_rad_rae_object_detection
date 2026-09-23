@@ -1,46 +1,22 @@
 """Evaluation configuration, argument parsing, and runtime helpers."""
 
 import argparse
+import sys
 
 import numpy as np
 import torch
 
-from configs.data import CARTESIAN_GT_ROOT
 from data.coordinates import SCOPE_CHOICES
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     require_cartesian_data,
 )
-from eval.custom_iou_range import DEFAULT_CUSTOM_IOU_THRESHOLDS
 from eval.distance_quartiles import normalize_distance_quartile_bins
 from models import MODEL_TYPES
 
 from configs.evaluation import EVAL_CONFIG
 
 HEATMAP_SCORE_MODES = ("peak_times_local_mean", "peak_only")
-CHECKPOINT_INHERITABLE_FIELDS = frozenset({
-    # Current checkpoint identity. Model type and class mapping are resolved
-    # directly by the checkpoint loader, outside this optional-default helper.
-    "loss_mode",
-    "include_bus_as_target",
-    # Evaluation defaults and training provenance inherited only when unset.
-    "max_detections",
-    "ignore_class_names",
-    "gt_object_ignore_override_path",
-    "train_control_split_enabled",
-    "train_control_split_dir",
-    "ignore_mask_margin",
-    "ignore_mask_expand_ratio",
-    "custom_iou_range_eval_enabled",
-    "custom_iou_thresholds",
-    "nuscenes_style_eval_enabled",
-    "split_mode",
-    "split_dir",
-    "train_sequences",
-    "val_sequences",
-    "seed",
-    "cartesian_gt_root",
-})
 OFFICIAL_CLASS_TOKEN_BY_DATASET_NAME = {
     "Sedan": "sed",
     "Bus or Truck": "bus",
@@ -48,7 +24,6 @@ OFFICIAL_CLASS_TOKEN_BY_DATASET_NAME = {
 
 
 __all__ = [
-    'should_inherit_from_checkpoint',
     'parse_gpu_ids',
     'parse_cuda_choice',
     'select_evaluation_device',
@@ -58,18 +33,6 @@ __all__ = [
     'apply_standalone_evaluation_coordinate_mode',
     'resolve_official_eval_class_name_map'
 ]
-
-
-def should_inherit_from_checkpoint(key):
-    """Inherit only a declared checkpoint default when evaluation leaves it unset."""
-    if key not in CHECKPOINT_INHERITABLE_FIELDS:
-        raise ValueError(f"Unknown checkpoint-inheritable evaluation field: {key}")
-    value = EVAL_CONFIG.get(key)
-    if value is None:
-        return True
-    if key == "loss_mode":
-        return str(value).strip().lower() == "auto"
-    return False
 
 
 def parse_gpu_ids(gpu_ids_text):
@@ -132,92 +95,26 @@ def select_evaluation_device(cuda_text, gpu_ids_text):
     return torch.device("cpu")
 
 
-def parse_args():
-    cfg_defaults = {
-        "checkpoint_root": None,
-        "epoch_step": 1,
-        "start_epoch": None,
-        "end_epoch": None,
-        "batch_size": 100,
-        "split_mode": "kradar_file",
-        "split_dir": "data/manifests/kradar",
-        "train_sequences": None,
-        "val_sequences": None,
-        "eval_val_sequences": None,
-        "eval_frame_manifest_path": None,
-        "eval_gt_object_ignore_override_path": None,
-        "eval_report_path": None,
-        "seed": 42,
-        "num_workers": 0,
-        "limit_samples": None,
-        "eval_scope": None,
-        "cartesian_gt_root": CARTESIAN_GT_ROOT,
-        "include_bus_as_target": True,
-        "gt_object_ignore_override_path": None,
-        "train_control_split_enabled": False,
-        "train_control_split_dir": None,
-        "ignore_class_names": (
-            "Pedestrian",
-            "Pedestrian Group",
-            "Bicycle",
-            "Bicycle Group",
-            "Motorcycle",
-        ),
-        "ignore_mask_margin": 1.0,
-        "ignore_mask_expand_ratio": 1.0,
-        "eval_ignore_suppress_enabled": False,
-        "eval_ignore_expand_ratio": 1.5,
-        "eval_ignore_suppress_margin": 1.0,
-        "table_txt_enabled": False,
-        "table_output_base_dir": "evaluation_plots",
-        "domain_comparison_enabled": True,
-        "domain_comparison_output_dir": "evaluation_results",
-        "domain_comparison_sequence_info_path": "sequence_information.csv",
-        "evaluation_tensorboard_log_dir": "runs",
-        "max_detections": 64,
-        "heatmap_nms_kernel": 3,
-        "heatmap_score_mode": "peak_times_local_mean",
-        "yolox_nms_iou": 0.65,
-        "model_type": "auto",
-        "gpu_ids": "0,1,2",
-        "cuda": None,
-        "official_eval_version": "revised",
-        "official_eval_iou_backend": "auto",
-        "official_eval_iou_mode": "easy",
-        "custom_iou_range_eval_enabled": False,
-        "custom_iou_thresholds": DEFAULT_CUSTOM_IOU_THRESHOLDS.tolist(),
-        "coco_style_eval_enabled": False,
-        "distance_quartile_eval_enabled": False,
-        "distance_quartile_bins": None,
-        "nuscenes_style_eval_enabled": False,
-        "official_detection_metrics_enabled": True,
-        "group_checkpoint_plot_best_only": False,
-        "ap_score_thresh": 0.01,
-        "score_thresh": 0.3,
-        "plot_output": None,
-    }
-    eval_config = dict(EVAL_CONFIG)
-    cfg_defaults.update(eval_config)
-
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Run official K-Radar KITTI-style evaluation."
     )
-    parser.add_argument("--checkpoint-root", default=cfg_defaults["checkpoint_root"])
-    parser.add_argument("--epoch-step", type=int, default=cfg_defaults["epoch_step"])
-    parser.add_argument("--start-epoch", type=int, default=cfg_defaults["start_epoch"])
-    parser.add_argument("--end-epoch", type=int, default=cfg_defaults["end_epoch"])
-    parser.add_argument("--batch-size", type=int, default=cfg_defaults["batch_size"])
+    parser.add_argument("--checkpoint-root", default=EVAL_CONFIG["checkpoint_root"])
+    parser.add_argument("--epoch-step", type=int, default=EVAL_CONFIG["epoch_step"])
+    parser.add_argument("--start-epoch", type=int, default=EVAL_CONFIG["start_epoch"])
+    parser.add_argument("--end-epoch", type=int, default=EVAL_CONFIG["end_epoch"])
+    parser.add_argument("--batch-size", type=int, default=EVAL_CONFIG["batch_size"])
     parser.add_argument(
         "--split-mode",
-        default=cfg_defaults["split_mode"],
+        default=EVAL_CONFIG["split_mode"],
         choices=["kradar_file", "sequence"],
     )
-    parser.add_argument("--split-dir", default=cfg_defaults["split_dir"])
-    parser.add_argument("--train-sequences", default=cfg_defaults["train_sequences"])
-    parser.add_argument("--val-sequences", default=cfg_defaults["val_sequences"])
+    parser.add_argument("--split-dir", default=EVAL_CONFIG["split_dir"])
+    parser.add_argument("--train-sequences", default=EVAL_CONFIG["train_sequences"])
+    parser.add_argument("--val-sequences", default=EVAL_CONFIG["val_sequences"])
     parser.add_argument(
         "--eval-val-sequences",
-        default=cfg_defaults["eval_val_sequences"],
+        default=EVAL_CONFIG["eval_val_sequences"],
         help=(
             "Authoritative standalone-evaluation sequences. When supplied, "
             "these replace checkpoint val_sequences after checkpoint defaults."
@@ -225,12 +122,12 @@ def parse_args():
     )
     parser.add_argument(
         "--eval-frame-manifest-path",
-        default=cfg_defaults["eval_frame_manifest_path"],
+        default=EVAL_CONFIG["eval_frame_manifest_path"],
         help="Strict sequence,frame.txt manifest for validation-only evaluation.",
     )
     parser.add_argument(
         "--eval-gt-object-ignore-override-path",
-        default=cfg_defaults["eval_gt_object_ignore_override_path"],
+        default=EVAL_CONFIG["eval_gt_object_ignore_override_path"],
         help=(
             "Evaluation-only object ignore JSON. It never changes checkpoint "
             "training metadata or the training dataset."
@@ -238,102 +135,102 @@ def parse_args():
     )
     parser.add_argument(
         "--eval-report-path",
-        default=cfg_defaults["eval_report_path"],
+        default=EVAL_CONFIG["eval_report_path"],
         help="Exact evaluation TXT report path; implies --table-txt-enabled.",
     )
-    parser.add_argument("--seed", type=int, default=cfg_defaults["seed"])
-    parser.add_argument("--num-workers", type=int, default=cfg_defaults["num_workers"])
-    parser.add_argument("--limit-samples", type=int, default=cfg_defaults["limit_samples"])
-    parser.add_argument("--eval-scope", default=cfg_defaults["eval_scope"], choices=SCOPE_CHOICES)
+    parser.add_argument("--seed", type=int, default=EVAL_CONFIG["seed"])
+    parser.add_argument("--num-workers", type=int, default=EVAL_CONFIG["num_workers"])
+    parser.add_argument("--limit-samples", type=int, default=EVAL_CONFIG["limit_samples"])
+    parser.add_argument("--eval-scope", default=EVAL_CONFIG["eval_scope"], choices=SCOPE_CHOICES)
     parser.add_argument(
         "--cartesian-gt-root",
-        default=cfg_defaults["cartesian_gt_root"],
+        default=EVAL_CONFIG["cartesian_gt_root"],
     )
     parser.add_argument(
         "--include-bus-as-target",
-        default=cfg_defaults["include_bus_as_target"],
+        default=EVAL_CONFIG["include_bus_as_target"],
     )
     parser.add_argument(
         "--gt-object-ignore-override-path",
-        default=cfg_defaults["gt_object_ignore_override_path"],
+        default=EVAL_CONFIG["gt_object_ignore_override_path"],
     )
     parser.add_argument(
         "--train-control-split-enabled",
-        default=cfg_defaults["train_control_split_enabled"],
+        default=EVAL_CONFIG["train_control_split_enabled"],
     )
     parser.add_argument(
         "--train-control-split-dir",
-        default=cfg_defaults["train_control_split_dir"],
+        default=EVAL_CONFIG["train_control_split_dir"],
     )
-    parser.add_argument("--ignore-mask-margin", type=float, default=cfg_defaults["ignore_mask_margin"])
+    parser.add_argument("--ignore-mask-margin", type=float, default=EVAL_CONFIG["ignore_mask_margin"])
     parser.add_argument(
         "--ignore-mask-expand-ratio",
         type=float,
-        default=cfg_defaults["ignore_mask_expand_ratio"],
+        default=EVAL_CONFIG["ignore_mask_expand_ratio"],
     )
     parser.add_argument(
         "--eval-ignore-suppress-enabled",
-        default=cfg_defaults["eval_ignore_suppress_enabled"],
+        default=EVAL_CONFIG["eval_ignore_suppress_enabled"],
     )
     parser.add_argument(
         "--eval-ignore-expand-ratio",
         type=float,
-        default=cfg_defaults["eval_ignore_expand_ratio"],
+        default=EVAL_CONFIG["eval_ignore_expand_ratio"],
     )
     parser.add_argument(
         "--eval-ignore-suppress-margin",
         type=float,
-        default=cfg_defaults["eval_ignore_suppress_margin"],
+        default=EVAL_CONFIG["eval_ignore_suppress_margin"],
     )
-    parser.add_argument("--max-detections", type=int, default=cfg_defaults["max_detections"])
-    parser.add_argument("--heatmap-nms-kernel", type=int, default=cfg_defaults["heatmap_nms_kernel"])
+    parser.add_argument("--max-detections", type=int, default=EVAL_CONFIG["max_detections"])
+    parser.add_argument("--heatmap-nms-kernel", type=int, default=EVAL_CONFIG["heatmap_nms_kernel"])
     parser.add_argument(
         "--heatmap-score-mode",
-        default=cfg_defaults["heatmap_score_mode"],
+        default=EVAL_CONFIG["heatmap_score_mode"],
         choices=list(HEATMAP_SCORE_MODES),
         help=(
             "peak_only uses pure local peaks; peak_times_local_mean uses "
             "0.85 * peak_score + 0.15 * local_mean."
         ),
     )
-    parser.add_argument("--yolox-nms-iou", type=float, default=cfg_defaults["yolox_nms_iou"])
+    parser.add_argument("--yolox-nms-iou", type=float, default=EVAL_CONFIG["yolox_nms_iou"])
     parser.add_argument(
         "--model-type",
-        default=cfg_defaults["model_type"],
+        default=EVAL_CONFIG["model_type"],
         choices=["auto"] + sorted(MODEL_TYPES),
     )
-    parser.add_argument("--gpu-ids", default=cfg_defaults["gpu_ids"])
-    parser.add_argument("--cuda", default=cfg_defaults["cuda"])
+    parser.add_argument("--gpu-ids", default=EVAL_CONFIG["gpu_ids"])
+    parser.add_argument("--cuda", default=EVAL_CONFIG["cuda"])
     parser.add_argument(
         "--official-eval-version",
-        default=cfg_defaults["official_eval_version"],
+        default=EVAL_CONFIG["official_eval_version"],
         choices=["revised", "kradar"],
     )
     parser.add_argument(
         "--official-eval-iou-backend",
-        default=cfg_defaults["official_eval_iou_backend"],
+        default=EVAL_CONFIG["official_eval_iou_backend"],
         choices=["auto", "cuda", "gpu", "cpu", "axis_aligned"],
     )
     parser.add_argument(
         "--official-eval-iou-mode",
-        default=cfg_defaults["official_eval_iou_mode"],
+        default=EVAL_CONFIG["official_eval_iou_mode"],
         choices=["easy", "mod", "hard", "all"],
     )
     parser.add_argument(
         "--custom-iou-range-eval-enabled",
-        default=cfg_defaults["custom_iou_range_eval_enabled"],
+        default=EVAL_CONFIG["custom_iou_range_eval_enabled"],
     )
     parser.add_argument(
         "--custom-iou-thresholds",
-        default=cfg_defaults["custom_iou_thresholds"],
+        default=EVAL_CONFIG["custom_iou_thresholds"],
     )
     parser.add_argument(
         "--coco-style-eval-enabled",
-        default=cfg_defaults["coco_style_eval_enabled"],
+        default=EVAL_CONFIG["coco_style_eval_enabled"],
     )
     parser.add_argument(
         "--distance-quartile-eval-enabled",
-        default=cfg_defaults["distance_quartile_eval_enabled"],
+        default=EVAL_CONFIG["distance_quartile_eval_enabled"],
         help=(
             "Derive four half-open GT-distance quartiles from the evaluation "
             "set and report official BEV/3D AP@0.3 for each quartile."
@@ -341,7 +238,7 @@ def parse_args():
     )
     parser.add_argument(
         "--distance-quartile-bins",
-        default=cfg_defaults["distance_quartile_bins"],
+        default=EVAL_CONFIG["distance_quartile_bins"],
         help=(
             "Optional fixed target-domain quartile boundaries as JSON/list, "
             "evaluation report/JSON path, or 0-a,a-b,b-c,c-inf."
@@ -349,53 +246,64 @@ def parse_args():
     )
     parser.add_argument(
         "--nuscenes-style-eval-enabled",
-        default=cfg_defaults["nuscenes_style_eval_enabled"],
+        default=EVAL_CONFIG["nuscenes_style_eval_enabled"],
     )
     parser.add_argument(
         "--official-detection-metrics-enabled",
-        default=cfg_defaults["official_detection_metrics_enabled"],
+        default=EVAL_CONFIG["official_detection_metrics_enabled"],
     )
     parser.add_argument(
         "--group-checkpoint-plot-best-only",
-        default=cfg_defaults["group_checkpoint_plot_best_only"],
+        default=EVAL_CONFIG["group_checkpoint_plot_best_only"],
     )
     parser.add_argument(
         "--ap-score-thresh",
         type=float,
-        default=cfg_defaults["ap_score_thresh"],
+        default=EVAL_CONFIG["ap_score_thresh"],
     )
     parser.add_argument(
         "--score-thresh",
         type=float,
-        default=cfg_defaults["score_thresh"],
+        default=EVAL_CONFIG["score_thresh"],
     )
-    parser.add_argument("--plot-output", default=cfg_defaults["plot_output"])
+    parser.add_argument("--plot-output", default=EVAL_CONFIG["plot_output"])
     parser.add_argument(
         "--table-txt-enabled",
-        default=cfg_defaults["table_txt_enabled"],
+        default=EVAL_CONFIG["table_txt_enabled"],
     )
     parser.add_argument(
         "--table-output-base-dir",
-        default=cfg_defaults["table_output_base_dir"],
+        default=EVAL_CONFIG["table_output_base_dir"],
     )
     parser.add_argument(
         "--domain-comparison-enabled",
-        default=cfg_defaults["domain_comparison_enabled"],
+        default=EVAL_CONFIG["domain_comparison_enabled"],
     )
     parser.add_argument(
         "--domain-comparison-output-dir",
-        default=cfg_defaults["domain_comparison_output_dir"],
+        default=EVAL_CONFIG["domain_comparison_output_dir"],
     )
     parser.add_argument(
         "--domain-comparison-sequence-info-path",
-        default=cfg_defaults["domain_comparison_sequence_info_path"],
+        default=EVAL_CONFIG["domain_comparison_sequence_info_path"],
     )
     parser.add_argument(
         "--evaluation-tensorboard-log-dir",
-        default=cfg_defaults["evaluation_tensorboard_log_dir"],
+        default=EVAL_CONFIG["evaluation_tensorboard_log_dir"],
     )
-    args = parser.parse_args()
-    args.ignore_class_names = tuple(cfg_defaults.get("ignore_class_names", ()))
+    cli_args = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(cli_args)
+    option_destinations = {
+        option: action.dest
+        for action in parser._actions
+        for option in action.option_strings
+    }
+    args._explicit_cli_fields = frozenset(
+        option_destinations[option]
+        for token in cli_args
+        if (option := token.split("=", 1)[0]) in option_destinations
+    )
+    args.ignore_class_names = tuple(EVAL_CONFIG["ignore_class_names"])
     # Evaluation always keeps object_label=-1 rows.  This is intentionally
     # not exposed as an eval_cfg or command-line switch.
     args.ignore_object_label_minus_one = False

@@ -5,11 +5,13 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 from configs import data
 from configs.domain_shift import DOMAIN_SHIFT_CONFIG, EXPERIMENT_QUEUE_CONFIG
 from configs.evaluation import EVAL_CONFIG
-from eval.evaluation_config import should_inherit_from_checkpoint
+from eval.configuration import parse_args, parse_cuda_choice
+from eval.checkpoints import should_inherit_from_checkpoint
 from configs.resume import RESUME_CONFIG_OVERRIDES, build_resume_config
 from configs.runtime import (
     EVALUATION_RUNTIME_CONFIG,
@@ -19,9 +21,32 @@ from configs.runtime import (
 from configs.training import TRAIN_CONFIG
 from models import MODEL_TYPES
 from training.configuration import LOSS_MODE_CHOICES, resolve_loss_mode
+from visualize_cfg import VISUALIZE_CONFIG
 
 
 class ConfigContractTests(unittest.TestCase):
+    def test_evaluation_defaults_cli_and_checkpoint_precedence(self):
+        with mock.patch.object(sys, "argv", ["evaluation.py"]):
+            defaults = parse_args()
+        self.assertEqual(defaults.batch_size, EVAL_CONFIG["batch_size"])
+        self.assertEqual(defaults.split_mode, EVAL_CONFIG["split_mode"])
+        self.assertEqual(defaults.eval_report_path, EVAL_CONFIG["eval_report_path"])
+        self.assertTrue(should_inherit_from_checkpoint("val_sequences", defaults))
+
+        with mock.patch.object(sys, "argv", [
+            "evaluation.py",
+            "--coco-style-eval-enabled", "true",
+            "--batch-size", "7",
+            "--val-sequences", "2,3",
+            "--cuda", "cpu",
+        ]):
+            args = parse_args()
+        self.assertTrue(args.coco_style_eval_enabled)
+        self.assertEqual(args.batch_size, 7)
+        self.assertEqual(args.val_sequences, "2,3")
+        self.assertFalse(should_inherit_from_checkpoint("val_sequences", args))
+        self.assertEqual(parse_cuda_choice(args.cuda, args.gpu_ids), [])
+
     def test_checkpoint_inheritance_keeps_local_auto_meanings(self):
         self.assertTrue(should_inherit_from_checkpoint("loss_mode"))
         self.assertTrue(should_inherit_from_checkpoint("val_sequences"))
@@ -126,9 +151,24 @@ class ConfigContractTests(unittest.TestCase):
             data.LOG_BASE_DIR,
         )
 
-    def test_raw_sensor_defaults_use_shared_path_constants(self):
-        config = data.DataConfig()
-        self.assertEqual(config.root_dir, data.RAW_KRADAR_ROOT)
+    def test_visualization_defaults_use_shared_path_constants(self):
+        self.assertFalse(hasattr(data, "DataConfig"))
+        self.assertEqual(
+            VISUALIZE_CONFIG["raw_sensor_root"],
+            data.RAW_KRADAR_ROOT,
+        )
+        self.assertEqual(
+            VISUALIZE_CONFIG["camera_rgb_root"],
+            data.CAMERA_RGB_ROOT,
+        )
+        self.assertEqual(
+            VISUALIZE_CONFIG["lidar2radar_calib_path"],
+            data.LIDAR2RADAR_CALIB_PATH,
+        )
+        self.assertEqual(
+            VISUALIZE_CONFIG["info_label_root"],
+            data.OFFICIAL_KRADAR_GT_ROOT,
+        )
 
     def test_ordinary_and_controlled_split_asset_roots_are_separate(self):
         self.assertEqual(TRAIN_CONFIG["split_dir"], "data/manifests/kradar")

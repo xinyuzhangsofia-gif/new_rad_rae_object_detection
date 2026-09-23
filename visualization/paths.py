@@ -52,7 +52,7 @@ def get_label_files(label_dir):
 
 
 def get_lidar_dir(cfg):
-    lidar_dir = f"{cfg.root_dir}/{cfg.sequence}/{cfg.lidar_type}"
+    lidar_dir = f"{cfg.raw_sensor_root}/{cfg.sequence}/{cfg.lidar_type}"
     return lidar_dir
 
 
@@ -90,9 +90,15 @@ def get_camera_path(camera_dir,cam_front_idx):
 
 def get_camera_calib_path(cfg):
     if cfg.sequence < 10:
-        path_calib = f"{cfg.root_dir}/{cfg.calib_seq}/seq_0{cfg.sequence}/{cfg.choose_camera}.yml"
+        path_calib = (
+            f"{cfg.raw_sensor_root}/{cfg.camera_calibration_set}/"
+            f"seq_0{cfg.sequence}/{cfg.camera_name}.yml"
+        )
     else:
-        path_calib = f"{cfg.root_dir}/{cfg.calib_seq}/seq_{cfg.sequence}/{cfg.choose_camera}.yml"
+        path_calib = (
+            f"{cfg.raw_sensor_root}/{cfg.camera_calibration_set}/"
+            f"seq_{cfg.sequence}/{cfg.camera_name}.yml"
+        )
 
     return path_calib
 

@@ -8,7 +8,7 @@ from unittest import mock
 
 import numpy as np
 
-from eval.evaluation_config import parse_args
+from eval.configuration import parse_args
 from eval.metrics_runner import run_kradar_eval_revised
 from eval.result_serialization import (
     format_epoch_range_average_ap_summary,

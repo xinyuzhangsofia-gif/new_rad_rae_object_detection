@@ -5,7 +5,7 @@ from pathlib import Path
 
 import tqdm
 
-from eval.evaluation_config import parse_args
+from eval.configuration import parse_args
 from eval.domain_shift_summaries import refresh_weather_domain_shift_summary
 from eval.report_paths import (
     default_eval_table_txt_path,

@@ -29,7 +29,7 @@ from eval.checkpoints import (
     infer_checkpoint_box_coordinate_mode,
 )
 from tests.checkpoint_fixtures import current_checkpoint
-from eval.evaluation_config import parse_args as parse_evaluation_args
+from eval.configuration import parse_args as parse_evaluation_args
 from training.configuration import apply_training_coordinate_mode
 from visualization.workflow import parse_args as parse_visualization_args
 

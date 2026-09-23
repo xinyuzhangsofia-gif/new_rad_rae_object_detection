@@ -29,8 +29,8 @@ been verified.
 
 Install a PyTorch/torchvision build appropriate for your machine, then install
 the remaining dependencies with `pip install -r requirements.txt`.
-Optional figure tools additionally use `pyvista` (3D radar) or `python-pptx`
-(editable slides). The bundled `Rotated_IoU/cuda_op/setup.py` builds the native
+Optional figure tools additionally use `python-pptx` for editable slides. The
+bundled `Rotated_IoU/cuda_op/setup.py` builds the native
 CUDA extension if you use the differentiable rotated-IoU implementation.
 
 Datasets, checkpoints, generated reports, and videos are not distributed with

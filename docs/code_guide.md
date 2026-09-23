@@ -77,7 +77,7 @@ scripts/{analysis,figures,maintenance}/ → 独立统计、论文图和维护工
 - `data.labels.load_cartesian_gt` 只读取上述平铺文件；文件不存在时报告预期的 `gt.txt` 路径。`read_kradar_revised_label_dir` 仍保留给逐帧标签工具使用。
 - 数据根目录的 `README.txt` 记录来源为官方 K-Radar revised v2.1 visibility 标签；生成脚本将 LiDAR 坐标转换到雷达坐标，平铺训练标签仅保留 `R` / `LR` 可见目标。
 - 同根目录逐帧 TXT 保留传感器对应信息，供当前多传感器可视化使用。可视化的 `info_label_root=CURRENT_GT_ROOT` 是独立设置，并非动态跟随训练配置。
-- `configs/data.py::DataConfig.choose_info_label="info_label_rev2"` 用于原始标签路径辅助函数，不决定上述训练 GT。它容易造成误解，不应作为当前训练标签版本的依据。
+- `visualize_cfg.py::VISUALIZE_CONFIG["info_label_root"]` 只选择可视化读取的逐帧标签根目录，不决定上述训练 GT。
 - Polar GT 读取函数、路径参数及 Dataset 分支已移除。`sequence_information.csv` 仍只是序列元数据/统计，不是逐目标监督标签。
 
 ### 一帧如何变成模型输入
@@ -140,7 +140,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 ## 本次已经做了什么
 
 - 删除 13 个只转发旧模块名的文件，把项目内部导入直接指向正式实现。未修改模型结构、损失公式、坐标计算或指标选择规则。
-- 删除根目录表格重建包装器和旧三 GPU shell 包装器。正式实现分别是 `python -m scripts.maintenance.rebuild_domain_shift_tables` 和 `scripts/experiments/evaluate_model7_seq1_58_single_process.sh`。
+- 删除根目录表格重建包装器和旧三 GPU shell 包装器。表格重建使用 `python -m scripts.maintenance.rebuild_domain_shift_tables`；模型检查点评估使用通用 `python evaluation.py` 参数。
 - 独立统计程序位于 `scripts/analysis/`，保留原输出目录。
 - 删除仅验证已移除别名的两份测试及另一个别名断言；保留入口与工具路径测试。将三项依赖已删除实验状态的测试改为临时检查点/状态夹具；不改变生产状态恢复逻辑。
 - 将图表、报告、视频、事件日志、缓存和本机编辑器设置从 Git 索引中移除并加入忽略规则。此次取消跟踪共 1,662 项，本地仍存在的文件未被删除。
@@ -284,7 +284,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [training/logging_utils.py](../training/logging_utils.py) | — | 打印逐 epoch 摘要，并向 TensorBoard 写入配置和指标。 | 保留 scalar tag、`run/config` 和 resume 目录语义。 |
 | [training/post_training_evaluation.py](../training/post_training_evaluation.py) | — | 释放训练显存、选择评估 GPU，并在训练成功后启动独立评估。 | 不与训练期或手动独立评估合并。 |
 | [training/runtime.py](../training/runtime.py) | — | 设置随机种子，解析 GPU ID，并选择 CPU、单 GPU 或 DataParallel。 | 保留 seed 与 device 行为。 |
-| [training/torch_load.py](../training/torch_load.py) | — | 加载可信任的项目检查点，处理 PyTorch 版本间的 `weights_only` 参数差异。 | 保留多调用方共享的加载入口。 |
+| [training/torch_load.py](../training/torch_load.py) | — | 用当前 PyTorch 的 `weights_only=False` 加载可信任的项目检查点。 | 保留多调用方共享的加载入口。 |
 | [training/yolox_utils.py](../training/yolox_utils.py) | — | YOLOX R-A 网格锚点到 Cartesian 米制框的解码及候选分数。 | SimOTA 位于 `training/losses/matching.py`；旋转 BEV NMS 在最终预测路径执行一次。 |
 | [training/losses/__init__.py](../training/losses/__init__.py) | — | 损失的唯一公开 API，直接导出各 loss family 与共享操作。 | 没有并行 facade 或算法副本。 |
 | [training/losses/common.py](../training/losses/common.py) | — | 共享 Gaussian、R-A ignore mask、focal 与 masked L1。 | CenterPoint、RADE-Net 和 YOLOX 的单一共享实现。 |
@@ -308,13 +308,13 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | --- | ---: | --- | --- |
 | [eval/__init__.py](../eval/__init__.py) | 1 | 声明评估支持包。 | 保留：包边界/公开导出，不按行数删除。 |
 | [eval/adapter.py](../eval/adapter.py) | 695 | 将项目框与类别转换为官方 K-Radar/KITTI 评估格式，并计算补充 TP/FP/FN 指标。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [eval/checkpoints.py](../eval/checkpoints.py) | 767 | 查找 epoch 检查点、读取当前规范元数据、重建匹配模型并严格加载权重。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
+| [eval/checkpoints.py](../eval/checkpoints.py) | — | 查找 epoch 检查点、继承检查点配置、读取当前规范元数据、重建匹配模型并严格加载权重。 | 检查点专属规则留在此处。 |
 | [eval/coco_style.py](../eval/coco_style.py) | 333 | 对旋转 BEV/3D 框计算 COCO 风格多 IoU AP。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/custom_iou_range.py](../eval/custom_iou_range.py) | 288 | 在可配置 IoU 阈值范围内计算 AP。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/decoding.py](../eval/decoding.py) | 525 | 将模型输出转换为米制框和分数，并执行热力图处理、质量融合、NMS 和范围过滤。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/domain_shift_tables.py](../eval/domain_shift_tables.py) | — | 维护域注册、模型配置身份、best-BEV/best-3D/best-overall 比较表、JSON 记录与 CLI。 | 保留原子写、`fcntl` 锁、输出层级和旧表转换。 |
 | [eval/distance_quartiles.py](../eval/distance_quartiles.py) | 335 | 从 GT 推导保留并列值的距离四分位，并过滤评估状态。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [eval/evaluation_config.py](../eval/evaluation_config.py) | 707 | 解析评估参数、继承检查点配置、选择设备、标准化阈值并解析类别映射。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
+| [eval/configuration.py](../eval/configuration.py) | — | 从 `configs/evaluation.py` 的静态默认值解析 CLI，标准化和校验参数、选择设备并解析类别映射。 | `eval/checkpoints.py` 负责检查点继承；`eval/runner.py` 执行评估，`eval/workflow.py` 编排流程。 |
 | [eval/inference.py](../eval/inference.py) | — | 统一准备批次输入、执行 `model.eval()`/无梯度前向，并把原始输出交给 canonical decoder。 | 评估、主可视化和多传感器检查点预测共同使用。 |
 | [eval/kitti_eval/axis_aligned_iou.py](../eval/kitti_eval/axis_aligned_iou.py) | 71 | 与旋转 IoU 接口兼容的轴对齐 BEV 重叠后端。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/kitti_eval/eval_revised.py](../eval/kitti_eval/eval_revised.py) | 834 | 修订版官方 KITTI/K-Radar AP：重叠计算、匹配、难度过滤和结果格式化。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
@@ -338,7 +338,6 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | --- | ---: | --- | --- |
 | [scripts/__init__.py](../scripts/__init__.py) | 1 | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留：包边界/公开导出，不按行数删除。 |
 | [scripts/data/build_cartesian_gt_dataset.py](../scripts/data/build_cartesian_gt_dataset.py) | 445 | 将官方 LiDAR 坐标修订标签转换为雷达对齐的 Cartesian 逐帧及扁平 GT。 | 数据准备入口；路径尽量由参数传入。 |
-| [scripts/experiments/add_domain_table_context.py](../scripts/experiments/add_domain_table_context.py) | 76 | 向已有域偏移表添加或刷新说明上下文。 | 与实验表语义放在一起。 |
 | [scripts/experiments/evaluate_quartile_experiments.py](../scripts/experiments/evaluate_quartile_experiments.py) | — | 定义 GT 距离四分位、相对 TD 和该 CLI；通过共享基础设施运行评估。 | 保留边界、计数和相对下降公式。 |
 | [scripts/experiments/analysis/discovery.py](../scripts/experiments/analysis/discovery.py) | — | 读取实验行、按现有 updated_at 规则选择完成检查点，并从同一行建立 source/target 任务。 | 不解释模型权重；检查点 payload 仍由 `eval/checkpoints.py` 负责。 |
 | [scripts/experiments/analysis/execution.py](../scripts/experiments/analysis/execution.py) | — | 构造 evaluation.py 公共参数、校验/分配 GPU、设置 CUDA 环境、管理子进程/日志/失败。 | 不包含四分位计算。 |
@@ -377,7 +376,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | `geometry.py`、`labels.py`、`paths.py` | 标定、坐标投影、逐帧传感器索引/GT 与路径解析。 |
 | `video.py` | RA 和多传感器模式共享的惰性 MP4 writer。 |
 
-旧 `visualization_based_gt/` Python 源码、独立入口、`path_setup.py` 和 ARR/MAT loader 已删除；本地未跟踪的历史 PNG/MP4 不属于活动源码。
+旧 `visualization_based_gt/` Python 源码、独立入口、`path_setup.py` 和 ARR/MAT loader 已删除；本地未跟踪的历史 PNG/MP4 是保留的生成结果，不属于活动源码，也没有当前代码写入该目录。
 
 ### Rotated_IoU
 
@@ -429,7 +428,6 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 
 | 文件/目录 | 用途与处理 |
 | --- | --- |
-| `scripts/experiments/evaluate_model7_seq1_58_single_process.sh` | 实际串行评估配方；保留。项目路径、Conda 路径、检查点、GPU/epoch 为本机设定，运行前检查。 |
 | `Rotated_IoU/cuda_op/sort_vert.cpp` | CUDA 顶点排序的 C++/PyBind 接口，保留。 |
 | `Rotated_IoU/cuda_op/sort_vert_kernel.cu` | CUDA 排序 kernel，保留。 |
 | `Rotated_IoU/cuda_op/sort_vert.h` | 排序接口声明，保留。 |

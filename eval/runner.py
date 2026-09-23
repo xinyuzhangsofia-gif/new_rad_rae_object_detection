@@ -1,6 +1,7 @@
 """Standalone evaluation orchestration."""
 
 import os
+from types import SimpleNamespace
 
 from data.dataloader import (
     build_evaluation_dataloader,
@@ -13,7 +14,7 @@ from eval.domain_shift_tables import (
     update_domain_shift_tables,
 )
 from training.configuration import apply_task_configuration
-from configs.data import DataConfig
+from configs.data import DEFAULT_KRADAR_SEQUENCE, KRADAR_SEQUENCE_IDS
 
 from eval.checkpoints import (
     apply_checkpoint_config_defaults,
@@ -25,7 +26,7 @@ from eval.checkpoints import (
     load_model_checkpoint,
     resolve_model_type,
 )
-from eval.evaluation_config import (
+from eval.configuration import (
     apply_standalone_evaluation_coordinate_mode,
     resolve_official_eval_class_name_map,
     select_evaluation_device,
@@ -225,7 +226,10 @@ def save_group_best_only_plot_exports(
 
 def build_eval_context(args):
     device = select_evaluation_device(args.cuda, args.gpu_ids)
-    cfg = DataConfig()
+    cfg = SimpleNamespace(
+        sequence=DEFAULT_KRADAR_SEQUENCE,
+        sequences=KRADAR_SEQUENCE_IDS,
+    )
     checkpoint_paths = find_epoch_checkpoints(
         args.checkpoint_root,
         args.epoch_step,

@@ -75,7 +75,7 @@ TRAIN_CONFIG = {
     "checkpoint_epoch_step": 1,
     "checkpoint_base_dir": CHECKPOINT_BASE_DIR,
     "log_base_dir": LOG_BASE_DIR,
-    "model_type": "model8",
+    "model_type": "model12",
     "model7_decoder_hidden_channels": "64",
 
     # Composed training, experiment, and runtime settings.

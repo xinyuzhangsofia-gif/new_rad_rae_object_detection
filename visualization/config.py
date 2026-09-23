@@ -97,7 +97,7 @@ def build_render_config(args):
         )
 
     return SimpleNamespace(
-        root_dir=args.raw_sensor_root,
+        raw_sensor_root=args.raw_sensor_root,
         info_label_root=args.info_label_root,
         radar_npy_root=args.radar_npy_root,
         radar_view_source=args.radar_view_source,
@@ -142,7 +142,7 @@ def build_render_config(args):
             )
         ),
         display_window=args.display,
-        choose_camera=args.camera_name,
+        camera_name=args.camera_name,
         lidar_type=args.lidar_type,
-        calib_seq=args.camera_calibration_set,
+        camera_calibration_set=args.camera_calibration_set,
     )

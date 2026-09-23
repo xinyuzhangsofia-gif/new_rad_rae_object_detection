@@ -25,8 +25,19 @@ EVAL_CONFIG = {
     "model_type": "auto",
     "split_mode": "sequence",
     "split_dir": "data/manifests/kradar",
+    "train_sequences": None,
     "val_sequences": None,
+    "eval_val_sequences": None,
+    "eval_frame_manifest_path": None,
+    "eval_gt_object_ignore_override_path": None,
+    "eval_report_path": None,
+    "seed": 42,
+    "limit_samples": None,
     "eval_scope": None,
+    "include_bus_as_target": True,
+    "gt_object_ignore_override_path": None,
+    "train_control_split_enabled": False,
+    "train_control_split_dir": None,
 
     # Official K-Radar KITTI-style metric settings.
     "official_eval_version": "revised",
@@ -41,6 +52,7 @@ EVAL_CONFIG = {
     # Opt in with --distance-quartile-eval-enabled true. Quartile boundaries
     # are derived from eligible evaluation GT centers for every checkpoint.
     "distance_quartile_eval_enabled": False,
+    "distance_quartile_bins": None,
     "nuscenes_style_eval_enabled": False,  # skip per-epoch nuScenes-style metrics
     "heatmap_score_mode": "peak_times_local_mean",  # peak_times_local_mean or peak_only
     "ap_score_thresh": 0.01,  # boxes below this are dropped before AP/mAP evaluation

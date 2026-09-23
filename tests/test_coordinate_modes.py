@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import torch
 
 from data.coordinates import RANGE_AXIS
-from eval.evaluation_config import apply_standalone_evaluation_coordinate_mode
+from eval.configuration import apply_standalone_evaluation_coordinate_mode
 from eval.decoding import (
     cartesian_rotated_nms_indices,
     outputs_to_detections,

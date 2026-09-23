@@ -27,7 +27,7 @@ from eval.adapter import (
     compute_supplementary_detection_metrics,
     metric_boxes_to_kitti_anno,
 )
-from eval.evaluation_config import parse_args
+from eval.configuration import parse_args
 from eval.metrics_runner import (
     append_frame_annos_for_kradar_eval,
     init_kradar_eval_state,

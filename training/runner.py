@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import torch
 
-from configs.data import DataConfig
+from configs.data import DEFAULT_KRADAR_SEQUENCE, KRADAR_SEQUENCE_IDS
 from configs.training import TRAIN_CONFIG
 from data.coordinates import SCOPE_CHOICES
 from data.dataloader import (
@@ -17,7 +17,7 @@ from data.dataloader import (
     get_dataset_sequences_for_split,
     prepare_model_inputs,
 )
-from eval.evaluation_config import resolve_official_eval_class_name_map
+from eval.configuration import resolve_official_eval_class_name_map
 from eval.metrics_runner import evaluate_train_val_iou
 from models import MODEL_TYPES, build_model
 from training.checkpoints import (
@@ -584,7 +584,10 @@ def run_training(
     """
     args = prepare_training_configuration(args)
     set_seed(args.seed)
-    cfg = DataConfig()
+    cfg = SimpleNamespace(
+        sequence=DEFAULT_KRADAR_SEQUENCE,
+        sequences=KRADAR_SEQUENCE_IDS,
+    )
     configured_sequences = get_dataset_sequences_for_split(
         cfg=cfg,
         split_mode=args.split_mode,

@@ -60,11 +60,11 @@ class VisualizationArchitectureTests(unittest.TestCase):
             camera_dir.mkdir()
             (camera_dir / "cam-front_003.png").touch()
             cfg = SimpleNamespace(
-                root_dir=directory,
+                raw_sensor_root=directory,
                 sequence=11,
                 lidar_type="os2-64",
-                calib_seq="calibration",
-                choose_camera="cam-front",
+                camera_calibration_set="calibration",
+                camera_name="cam-front",
             )
 
             self.assertEqual(get_label_files(labels), ["a.txt", "b.txt"])
@@ -82,6 +82,27 @@ class VisualizationArchitectureTests(unittest.TestCase):
                 get_camera_calib_path(cfg),
                 f"{directory}/calibration/seq_11/cam-front.yml",
             )
+            cfg.sequence = 9
+            self.assertEqual(
+                get_camera_calib_path(cfg),
+                f"{directory}/calibration/seq_09/cam-front.yml",
+            )
+
+    def test_render_config_uses_canonical_sensor_field_names(self):
+        settings = load_visualization_config(
+            show_prediction=False,
+            checkpoint_path=None,
+        )
+        renderer = build_render_config(settings)
+
+        self.assertEqual(renderer.raw_sensor_root, settings.raw_sensor_root)
+        self.assertEqual(renderer.camera_name, settings.camera_name)
+        self.assertEqual(
+            renderer.camera_calibration_set,
+            settings.camera_calibration_set,
+        )
+        for legacy_name in ("root_dir", "choose_camera", "calib_seq"):
+            self.assertFalse(hasattr(renderer, legacy_name))
 
     def test_root_entrypoint_is_thin_and_importable(self):
         self.assertTrue(callable(visualize.main))
