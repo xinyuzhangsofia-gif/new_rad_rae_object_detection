@@ -146,7 +146,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 - 将图表、报告、视频、事件日志、缓存和本机编辑器设置从 Git 索引中移除并加入忽略规则。此次取消跟踪共 1,662 项，本地仍存在的文件未被删除。
 - 合并重复的结构说明；保留实验表生成规则、数据划分和控制清单。
 - 数据输入改为 Cartesian-only，删除 Polar GT 专用分支/工具、集中路径、增加拒绝错误输入和数值回归测试。
-- 按单一职责整理数据模块：`dataset.py` 从 726 行降为 354 行；移动几何、标签选择、ignore 校验和 collate。
+- 按单一职责精简 `dataset.py`；移动几何、标签选择、ignore 校验和 collate。
 - 可视化统一由 `visualize.py` + `visualize_cfg.py` 驱动；四种模式共享 RAD/RAE、checkpoint、RA renderer、多传感器和视频模块，旧 MAT/ARR 与独立脚本已删除。
 - 将域偏移实验队列按职责拆为 `schema`、`tables`、`state`、`scheduling` 和 `execution`；`training/experiments/queue.py` 只保留按 seed 的两阶段编排：当前 seed 全部训练完成后才并行评估，评估全部完成后才进入下一 seed。已删除串行和训练/评估交错执行模式及 `experiment_queue_execution_mode`；任务身份、表顺序、恢复、GPU、worker 命令和结果写回规则未改变。
 - 距离四分位实验入口共享完成检查点发现、命令公共段、CUDA/subprocess 队列、锁/原子状态及报告 metadata 校验；GT 四分位和相对 TD 仍由该脚本定义。固定距离与 Source Drop 执行入口均已删除。
@@ -209,7 +209,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 文件 | 功能 | 处理建议 |
 | --- | --- | --- |
 | [evaluation.py](../evaluation.py) | 独立评估命令入口；评估工作流在 eval/workflow.py。 | 保留主要入口；不继续复制工作流。 |
-| [train.py](../train.py) | 训练命令入口，调用 `training/runner.py`，并导出 worker 使用的接口。 | 保留主要入口；不继续复制工作流。 |
+| [train.py](../train.py) | 普通训练的薄入口，委托给 `training.runner.main`。 | 保留主要入口；实验 worker 属于实验基础设施。 |
 | [train_resume.py](../train_resume.py) | 断点续训入口；转发到 `training/resume.py` 与共享 runner。 | 保留现有命令和公开辅助函数。 |
 | [visualize.py](../visualize.py) | 唯一用户可视化入口，只调用统一 workflow。 | 用户编辑 `visualize_cfg.py` 后运行 `python visualize.py`。 |
 | [visualize_cfg.py](../visualize_cfg.py) | 四种输出模式、RA 表示、checkpoint、帧、传感器路径和输出的唯一配置。 | 默认 `ra_map` + `polar`；GT 绿色、预测红色由代码语义固定。 |

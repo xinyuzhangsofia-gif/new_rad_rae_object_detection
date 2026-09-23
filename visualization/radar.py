@@ -203,7 +203,7 @@ def visualize_bbx_on_ra_cartesian(
             color=color,
             linewidth=linewidth,
         )
-        
+
         if texts is not None and box_idx < len(texts):
             add_ra_box_label(ax, bbx_2d, texts[box_idx], color)
 
@@ -319,7 +319,7 @@ def visualize_bbx_on_ra_cartesian_with_yaw(
             color=color,
             linewidth=linewidth,
         )
-        
+
         if texts is not None and box_idx < len(texts):
             add_ra_box_label(ax, bbx_2d, texts[box_idx], color)
 
