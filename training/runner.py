@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import torch
 
-from configs.data import DEFAULT_KRADAR_SEQUENCE, KRADAR_SEQUENCE_IDS
+from configs.data import KRADAR_SEQUENCE_IDS
 from configs.training import TRAIN_CONFIG
 from data.coordinates import SCOPE_CHOICES
 from data.dataloader import (
@@ -288,8 +288,6 @@ def write_training_run_config(
     """Write the shared TensorBoard run metadata without changing tag names."""
     write_tensorboard_run_config(
         writer=writer,
-        default_sequence=DEFAULT_KRADAR_SEQUENCE,
-        dataset_sequences=KRADAR_SEQUENCE_IDS,
         num_epochs=args.epochs,
         batch_size=args.batch_size,
         train_size=len(train_dataset),
@@ -474,8 +472,6 @@ def run_training_epochs(
             optimizer=optimizer,
             scheduler=scheduler,
             args=args,
-            default_sequence=DEFAULT_KRADAR_SEQUENCE,
-            dataset_sequences=KRADAR_SEQUENCE_IDS,
             epoch=epoch_number,
             train_metrics=train_metrics,
             val_metrics=val_metrics,

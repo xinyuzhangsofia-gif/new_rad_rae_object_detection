@@ -60,6 +60,22 @@ class _OutputModel(torch.nn.Module):
 
 
 class CheckpointReconstructionTests(unittest.TestCase):
+    def test_historical_extra_metadata_remains_tolerated(self):
+        checkpoint = current_checkpoint(
+            sequence=11,
+            sequences=tuple(range(1, 59)),
+            configured_model_type="model7",
+            cartesian_training_workflow="centerpoint_cartesian_in_model7",
+            run_model_type="model7",
+            resume_save_in_checkpoint_dir=True,
+            resume_tensorboard_log_dir="runs/historical",
+        )
+        checkpoint["weather_group"] = "historical_top_level_value"
+
+        self.assertEqual(infer_model_type_from_checkpoint(checkpoint), "model7")
+        self.assertEqual(infer_checkpoint_loss_mode(checkpoint), "centerpoint")
+        self.assertEqual(infer_checkpoint_num_classes(checkpoint), 2)
+
     def test_complete_metadata_is_authoritative(self):
         checkpoint = current_checkpoint(
             model_state_dict={

@@ -10,7 +10,6 @@ from unittest import mock
 import torch
 
 from configs.resume import RESUME_CONFIG_OVERRIDES, build_resume_config
-from configs.data import DEFAULT_KRADAR_SEQUENCE, KRADAR_SEQUENCE_IDS
 from configs.training import TRAIN_CONFIG
 from eval import metrics_runner
 from training import configuration, resume, runner
@@ -455,8 +454,6 @@ class SharedEpochWorkflowTests(unittest.TestCase):
         writer = mock.Mock()
         write_tensorboard_run_config(
             writer=writer,
-            default_sequence=DEFAULT_KRADAR_SEQUENCE,
-            dataset_sequences=KRADAR_SEQUENCE_IDS,
             num_epochs=2,
             batch_size=1,
             train_size=3,
@@ -472,8 +469,8 @@ class SharedEpochWorkflowTests(unittest.TestCase):
         )
 
         config_text = writer.add_text.call_args.args[1]
-        self.assertIn("sequence: 11", config_text)
-        self.assertIn(f"sequences: {tuple(range(1, 59))}", config_text)
+        self.assertNotIn("\nsequence:", config_text)
+        self.assertNotIn("\nsequences:", config_text)
         self.assertIn("training_eval_train_set_enabled: False", config_text)
         self.assertIn("training_eval_best_metric_key: auto", config_text)
         self.assertIn("training_eval_official_enabled: True", config_text)
@@ -592,8 +589,6 @@ class SharedEpochWorkflowTests(unittest.TestCase):
             optimizer=optimizer,
             scheduler=scheduler,
             args=args,
-            default_sequence=DEFAULT_KRADAR_SEQUENCE,
-            dataset_sequences=KRADAR_SEQUENCE_IDS,
             epoch=1,
             train_metrics={"train_loss": 1.0},
             val_metrics={
@@ -612,7 +607,6 @@ class SharedEpochWorkflowTests(unittest.TestCase):
             {
                 "epoch",
                 "saved_at",
-                "weather_group",
                 "model_state_dict",
                 "optimizer_state_dict",
                 "scheduler_state_dict",
@@ -627,6 +621,8 @@ class SharedEpochWorkflowTests(unittest.TestCase):
                 "mAP",
             },
         )
+        self.assertNotIn("weather_group", payload)
+        self.assertIn("weather_group", payload["config"])
         self.assertNotIn("init_from_checkpoint", payload["config"])
         self.assertNotIn("checkpoint_layout", payload["config"])
         self.assertNotIn("checkpoint_filename_style", payload["config"])
@@ -640,14 +636,17 @@ class SharedEpochWorkflowTests(unittest.TestCase):
             "auto",
         )
         self.assertTrue(payload["config"]["training_eval_official_enabled"])
-        self.assertEqual(
-            payload["config"]["sequence"],
-            DEFAULT_KRADAR_SEQUENCE,
-        )
-        self.assertEqual(
-            payload["config"]["sequences"],
-            KRADAR_SEQUENCE_IDS,
-        )
+        for legacy_or_derived_field in (
+            "sequence",
+            "sequences",
+            "resume_save_in_checkpoint_dir",
+            "resume_tensorboard_log_dir",
+            "configured_model_type",
+            "cartesian_training_workflow",
+            "run_model_type",
+        ):
+            self.assertNotIn(legacy_or_derived_field, payload["config"])
+        self.assertIn("resume_checkpoint", payload["config"])
         self.assertEqual(
             payload["config"]["train_sequences"],
             args.train_sequences,
@@ -656,6 +655,22 @@ class SharedEpochWorkflowTests(unittest.TestCase):
             payload["config"]["val_sequences"],
             args.val_sequences,
         )
+        for truthful_current_field in (
+            "split_mode",
+            "train_sequences",
+            "val_sequences",
+            "domain_shift_experiment_enabled",
+            "domain_shift_train_branch",
+            "shared_train_sequences",
+            "source_train_sequences",
+            "target_train_sequences",
+            "target_test_sequences",
+            "seed",
+            "model_type",
+            "loss_mode",
+            "box_coordinate_mode",
+        ):
+            self.assertIn(truthful_current_field, payload["config"])
         for ambiguous_name in (
             "eval_train",
             "best_metric_key",

@@ -56,8 +56,6 @@ class CurrentCheckpointRoundTripTests(unittest.TestCase):
                     optimizer=optimizer,
                     scheduler=None,
                     args=args,
-                    default_sequence=1,
-                    dataset_sequences=(1, 2),
                     epoch=1,
                     train_metrics={},
                     val_metrics={},

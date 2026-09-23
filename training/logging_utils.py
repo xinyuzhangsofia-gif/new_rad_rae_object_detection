@@ -82,8 +82,6 @@ def create_tensorboard_writer(
 
 def write_tensorboard_run_config(
         writer,
-        default_sequence,
-        dataset_sequences,
         num_epochs,
         batch_size,
         train_size,
@@ -134,8 +132,6 @@ def write_tensorboard_run_config(
         test_sequence_weather=None,
     ):
     config_text = "\n".join([
-        f"sequence: {default_sequence}",
-        f"sequences: {dataset_sequences}",
         f"split_mode: {split_mode}",
         f"domain_shift_train_branch: {domain_shift_train_branch}",
         f"shared_train_sequences: {shared_train_sequences}",

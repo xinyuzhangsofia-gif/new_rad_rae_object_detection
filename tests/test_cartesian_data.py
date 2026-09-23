@@ -266,12 +266,22 @@ class CartesianDataTests(unittest.TestCase):
         self.assertFalse(hasattr(args, "box_coordinate_mode"))
         with mock.patch(
             "eval.checkpoints.load_torch_checkpoint",
-            return_value=current_checkpoint(),
+            return_value=current_checkpoint(
+                sequence=11,
+                sequences=tuple(range(1, 59)),
+                configured_model_type="model7",
+                cartesian_training_workflow="centerpoint_cartesian_in_model7",
+                run_model_type="model7",
+                resume_save_in_checkpoint_dir=True,
+                resume_tensorboard_log_dir="runs/historical",
+            ),
         ):
             apply_checkpoint_config_defaults(args, [(1, "unused.pth")])
         self.assertEqual(args.box_coordinate_mode, "cartesian")
         self.assertEqual(args.loss_mode, "centerpoint")
+        self.assertEqual(args.train_sequences, (1,))
         self.assertEqual(args.val_sequences, (2,))
+        self.assertTrue(args.include_bus_as_target)
         self.assertEqual(args.score_thresh, 0.21)
 
     def test_training_cartesian_contract_keeps_the_selected_loss(self):

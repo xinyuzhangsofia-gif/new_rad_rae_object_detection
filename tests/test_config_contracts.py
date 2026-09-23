@@ -11,7 +11,10 @@ from configs import data
 from configs.domain_shift import DOMAIN_SHIFT_CONFIG, EXPERIMENT_QUEUE_CONFIG
 from configs.evaluation import EVAL_CONFIG
 from eval.configuration import parse_args, parse_cuda_choice
-from eval.checkpoints import should_inherit_from_checkpoint
+from eval.checkpoints import (
+    CHECKPOINT_INHERITABLE_FIELDS,
+    should_inherit_from_checkpoint,
+)
 from configs.resume import RESUME_CONFIG_OVERRIDES, build_resume_config
 from configs.runtime import (
     EVALUATION_RUNTIME_CONFIG,
@@ -48,6 +51,29 @@ class ConfigContractTests(unittest.TestCase):
         self.assertEqual(parse_cuda_choice(args.cuda, args.gpu_ids), [])
 
     def test_checkpoint_inheritance_keeps_local_auto_meanings(self):
+        self.assertEqual(
+            CHECKPOINT_INHERITABLE_FIELDS,
+            frozenset({
+                "loss_mode",
+                "include_bus_as_target",
+                "max_detections",
+                "ignore_class_names",
+                "gt_object_ignore_override_path",
+                "train_control_split_enabled",
+                "train_control_split_dir",
+                "ignore_mask_margin",
+                "ignore_mask_expand_ratio",
+                "custom_iou_range_eval_enabled",
+                "custom_iou_thresholds",
+                "nuscenes_style_eval_enabled",
+                "split_mode",
+                "split_dir",
+                "train_sequences",
+                "val_sequences",
+                "seed",
+                "cartesian_gt_root",
+            }),
+        )
         self.assertTrue(should_inherit_from_checkpoint("loss_mode"))
         self.assertTrue(should_inherit_from_checkpoint("val_sequences"))
         with self.assertRaisesRegex(ValueError, "not_configured"):

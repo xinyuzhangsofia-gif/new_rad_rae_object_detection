@@ -40,7 +40,5 @@ LOG_BASE_DIR = "runs"
 EVALUATION_PLOTS_BASE_DIR = "evaluation_plots"
 EVALUATION_RESULTS_BASE_DIR = "evaluation_results"
 
-# Current K-Radar dataset coverage. These values also retain the existing
-# sequence metadata written into training checkpoints.
-DEFAULT_KRADAR_SEQUENCE = 11
+# Current K-Radar dataset coverage.
 KRADAR_SEQUENCE_IDS = tuple(range(1, 59))
