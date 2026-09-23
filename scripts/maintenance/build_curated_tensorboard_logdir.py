@@ -10,12 +10,13 @@ from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 
 
-TARGET_MODEL_PREFIXES = ("model7_", "model8_", "model15_")
 EXCLUDED_EVAL_DIRS = {"png_photos", "run_logs"}
+# Canonical evaluation TXT tables are written by
+# eval.result_serialization.format_eval_table with this first column.
 TABLE_HEADER_PREFIX = "epoch"
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description=(
             "Create a curated TensorBoard logdir that contains selected training "
@@ -29,8 +30,11 @@ def parse_args():
     )
     parser.add_argument(
         "--training-runs-root",
-        default="runs/sedan_only_detection",
-        help="Root directory that contains training event files.",
+        default="runs",
+        help=(
+            "Root directory recursively searched for matching training runs. "
+            "Directory symlinks and curated output trees are not followed."
+        ),
     )
     parser.add_argument(
         "--output-base-dir",
@@ -42,7 +46,16 @@ def parse_args():
         default=None,
         help="Optional explicit directory name under output-base-dir.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--model-prefixes",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional model-variant prefixes to include. By default all "
+            "compatible evaluation reports are included."
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def parse_timestamp_prefix(name):
@@ -76,6 +89,37 @@ def normalize_scalar_tag(name):
         .replace("/", "_")
         .replace(" ", "_")
         .replace(".", "p")
+    )
+
+
+def normalize_model_prefixes(model_prefixes):
+    if model_prefixes is None:
+        return None
+    normalized = tuple(
+        str(prefix).strip()
+        for prefix in model_prefixes
+        if str(prefix).strip()
+    )
+    if not normalized:
+        raise ValueError("model_prefixes must contain at least one non-empty value")
+    return normalized
+
+
+def evaluation_model_name(parsed):
+    metadata = parsed["metadata"]
+    return str(
+        metadata.get("model_variant")
+        or metadata.get("model_type")
+        or parsed["path"].parent.name
+    )
+
+
+def model_matches_prefixes(model_name, model_prefixes):
+    if model_prefixes is None:
+        return True
+    return any(
+        model_name.startswith(prefix) or f"_{prefix}" in model_name
+        for prefix in model_prefixes
     )
 
 
@@ -140,28 +184,30 @@ def parse_eval_txt(path):
     }
 
 
-def discover_latest_eval_files(evaluation_root):
+def discover_latest_eval_files(evaluation_root, model_prefixes=None):
     grouped = {}
     evaluation_root = Path(evaluation_root)
+    model_prefixes = normalize_model_prefixes(model_prefixes)
 
     for path in sorted(evaluation_root.rglob("*.txt")):
         if any(part in EXCLUDED_EVAL_DIRS for part in path.parts):
             continue
-        if path.parent == evaluation_root:
-            continue
-        if not any(path.parent.name.startswith(prefix) for prefix in TARGET_MODEL_PREFIXES):
-            continue
 
         parsed = parse_eval_txt(path)
+        if not parsed["rows"]:
+            continue
+        model_variant = evaluation_model_name(parsed)
+        if not model_matches_prefixes(model_variant, model_prefixes):
+            continue
+
         val_sequences = parsed["metadata"].get("val_sequences")
         if isinstance(val_sequences, int):
             val_sequence = val_sequences
         elif isinstance(val_sequences, (tuple, list)) and len(val_sequences) > 0:
             val_sequence = int(val_sequences[0])
         else:
-            raise ValueError(f"Could not parse val_sequences from {path}")
+            continue
 
-        model_variant = str(parsed["metadata"].get("model_variant", path.parent.name))
         group_key = (model_variant, val_sequence)
         current = grouped.get(group_key)
         if current is None or path.name > current["path"].name:
@@ -170,25 +216,51 @@ def discover_latest_eval_files(evaluation_root):
     return [grouped[key] for key in sorted(grouped.keys())]
 
 
+def iter_training_run_dirs(training_runs_root):
+    training_runs_root = Path(training_runs_root)
+    if not training_runs_root.is_dir():
+        return
+
+    for current_root, directory_names, _filenames in os.walk(
+        training_runs_root,
+        followlinks=False,
+    ):
+        current_root = Path(current_root)
+        directory_names[:] = sorted(
+            name
+            for name in directory_names
+            if not (current_root / name).is_symlink()
+            and not name.startswith("tensorboard_curated_")
+        )
+        if current_root != training_runs_root:
+            yield current_root
+
+
 def choose_training_run_dir(training_runs_root, checkpoint_root_text):
     checkpoint_root_name = Path(checkpoint_root_text).name
     if "__" not in checkpoint_root_name:
         return None
 
     checkpoint_tail = checkpoint_root_name.split("__", 1)[1]
-    checkpoint_timestamp = parse_timestamp_prefix(checkpoint_root_name)
+    try:
+        checkpoint_timestamp = parse_timestamp_prefix(checkpoint_root_name)
+    except ValueError:
+        return None
     candidates = []
 
-    for run_dir in sorted(Path(training_runs_root).iterdir()):
-        if not run_dir.is_dir():
-            continue
+    for run_dir in iter_training_run_dirs(training_runs_root):
         if "__" not in run_dir.name:
             continue
         if run_dir.name.split("__", 1)[1] != checkpoint_tail:
             continue
-        run_timestamp = parse_timestamp_prefix(run_dir.name)
+        try:
+            run_timestamp = parse_timestamp_prefix(run_dir.name)
+        except ValueError:
+            continue
         delta_seconds = abs((run_timestamp - checkpoint_timestamp).total_seconds())
-        candidates.append((delta_seconds, run_dir.name, run_dir))
+        candidates.append(
+            (delta_seconds, str(run_dir.relative_to(training_runs_root)), run_dir)
+        )
 
     if len(candidates) == 0:
         return None
@@ -248,7 +320,7 @@ def write_eval_tensorboard_runs(parsed_eval_files, output_root):
         metadata = parsed["metadata"]
         rows = parsed["rows"]
         path = parsed["path"]
-        model_variant = str(metadata.get("model_variant", path.parent.name))
+        model_variant = evaluation_model_name(parsed)
         val_sequences = metadata.get("val_sequences")
         if isinstance(val_sequences, int):
             val_sequence = val_sequences
@@ -294,7 +366,7 @@ def write_manifest(output_root, parsed_eval_files, selected_run_dirs, missing_ru
     ]
     for parsed in parsed_eval_files:
         lines.append(
-            f"- {parsed['metadata'].get('model_variant', parsed['path'].parent.name)} "
+            f"- {evaluation_model_name(parsed)} "
             f"| val={parsed['metadata'].get('val_sequences')} "
             f"| source={parsed['path']}"
         )
@@ -318,7 +390,7 @@ def build_output_root(output_base_dir, output_name):
     output_base_dir = Path(output_base_dir)
     if output_name is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_name = f"tensorboard_curated_6007_{timestamp}"
+        output_name = f"tensorboard_curated_{timestamp}"
     output_root = output_base_dir / output_name
     output_root.mkdir(parents=True, exist_ok=False)
     return output_root
@@ -327,7 +399,10 @@ def build_output_root(output_base_dir, output_name):
 def main():
     args = parse_args()
     output_root = build_output_root(args.output_base_dir, args.output_name)
-    parsed_eval_files = discover_latest_eval_files(args.evaluation_root)
+    parsed_eval_files = discover_latest_eval_files(
+        args.evaluation_root,
+        model_prefixes=args.model_prefixes,
+    )
 
     checkpoint_roots = {
         str(parsed["metadata"].get("checkpoint_root", ""))

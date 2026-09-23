@@ -15,12 +15,13 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from configs.data import RADAR_NPY_ROOT
 from data.dataset import KRadarRADRAEDataset
-from data.paths import get_cartesian_gt_path, get_rad_rae_npy_root_dir
+from data.paths import get_cartesian_gt_path
 from data.labels import read_cartesian_gt_txt
 
 
-RAD_ROOT = get_rad_rae_npy_root_dir()
+RAD_ROOT = RADAR_NPY_ROOT
 OUTPUT_DIR = Path("analysis_plots/domain_shift_stats")
 
 

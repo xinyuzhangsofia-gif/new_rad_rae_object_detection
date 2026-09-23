@@ -5,17 +5,17 @@ import json
 import torch
 from torch.utils.data import DataLoader, Subset
 
-from .coordinates import SCOPE_FULL
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     require_cartesian_data,
 )
+from configs.data import RADAR_NPY_ROOT
+from .coordinates import SCOPE_FULL
 from .dataset import (
     KRadarGTDetectionDataset,
     KRadarMultiSequenceGTDetectionDataset,
     KRadarRADRAEDataset,
 )
-from .paths import get_rad_rae_npy_root_dir
 from .split import (
     apply_train_control_split_indices,
     build_exact_frame_manifest_indices,
@@ -89,7 +89,7 @@ def build_detection_dataset_for_sequence(
     ):
     box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     radar_dataset = KRadarRADRAEDataset(
-        get_rad_rae_npy_root_dir(),
+        RADAR_NPY_ROOT,
         sequence,
         scope_mode=scope_mode,
     )

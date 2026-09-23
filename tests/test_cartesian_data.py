@@ -200,7 +200,7 @@ class CartesianDataTests(unittest.TestCase):
             "00033": {"ignore_object_labels": [1]},
             "00035": {"ignore_object_labels": [5]},
         }}}}))
-        with mock.patch.object(dataloader, "get_rad_rae_npy_root_dir", return_value=str(self.radar_root)):
+        with mock.patch.object(dataloader, "RADAR_NPY_ROOT", str(self.radar_root)):
             train, val, train_loader, val_loader = dataloader.build_train_val_dataloaders(
                 1, 42, 0, None, default_sequences=(1,),
                 split_mode="kradar_file", split_dir=str(split),
@@ -218,11 +218,10 @@ class CartesianDataTests(unittest.TestCase):
     def test_all_gt_and_radar_defaults_share_configured_roots(self):
         from configs.evaluation import EVAL_CONFIG
         from configs.training import TRAIN_CONFIG
-        from data.paths import get_rad_rae_npy_root_dir
 
         self.assertEqual(TRAIN_CONFIG["cartesian_gt_root"], data_config.CARTESIAN_GT_ROOT)
         self.assertEqual(EVAL_CONFIG["cartesian_gt_root"], data_config.CARTESIAN_GT_ROOT)
-        self.assertEqual(get_rad_rae_npy_root_dir(), data_config.RADAR_NPY_ROOT)
+        self.assertEqual(dataloader.RADAR_NPY_ROOT, data_config.RADAR_NPY_ROOT)
         self.assertEqual(get_cartesian_gt_path(1), str(Path(data_config.CARTESIAN_GT_ROOT) / "1/gt/gt.txt"))
         self.assertFalse(hasattr(labels, "read_gt_txt"))
 

@@ -1,12 +1,8 @@
-"""Resolve shared radar and Cartesian GT paths."""
+"""Build shared Cartesian GT paths."""
 
 import os
 
-from configs.data import CARTESIAN_GT_ROOT, RADAR_NPY_ROOT
-
-
-def get_rad_rae_npy_root_dir():
-    return RADAR_NPY_ROOT
+from configs.data import CARTESIAN_GT_ROOT
 
 
 def get_cartesian_gt_path(sequence, cartesian_gt_root=None):
