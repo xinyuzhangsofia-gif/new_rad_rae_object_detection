@@ -2,7 +2,6 @@
 
 import gc
 from pathlib import Path
-from types import SimpleNamespace
 import tempfile
 import unittest
 
@@ -14,6 +13,8 @@ from eval.checkpoints import (
     load_model_checkpoint,
 )
 from models import build_model
+from configs.training import TRAIN_CONFIG
+from training import runner as training_runner
 from training.checkpoints import build_checkpoint_payload
 from training.torch_load import load_torch_checkpoint
 
@@ -37,34 +38,26 @@ class CurrentCheckpointRoundTripTests(unittest.TestCase):
                     loss_mode=loss_mode,
                 )
                 optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
-                args = SimpleNamespace(
-                    epochs=1,
-                    batch_size=1,
-                    lr=1e-3,
-                    max_detections=64,
-                    num_classes=2,
-                    model_type=model_type,
-                    model7_decoder_hidden_channels=(
-                        "64" if model_type == "model7" else None
-                    ),
-                    box_coordinate_mode="cartesian",
-                    loss_mode=loss_mode,
-                    include_bus_as_target=True,
-                    class_names={0: "Sedan", 1: "Bus or Truck"},
-                    class_to_idx={"Sedan": 0, "Bus or Truck": 1},
-                    split_mode="kradar_file",
-                    train_sequences=(1,),
-                    val_sequences=(2,),
-                    domain_shift_experiment_enabled=False,
-                    seed=42,
-                    limit_samples=None,
+                args = training_runner.build_train_args(
+                    dict(
+                        TRAIN_CONFIG,
+                        epochs=1,
+                        batch_size=1,
+                        lr=1e-3,
+                        model_type=model_type,
+                        model7_decoder_hidden_channels="64",
+                        loss_mode=loss_mode,
+                    )
                 )
+                args = training_runner.prepare_training_configuration(args)
+                args = training_runner.prepare_training_task_configuration(args)
                 payload = build_checkpoint_payload(
                     model=model,
                     optimizer=optimizer,
                     scheduler=None,
                     args=args,
-                    cfg=SimpleNamespace(sequence=1, sequences=(1, 2)),
+                    default_sequence=1,
+                    dataset_sequences=(1, 2),
                     epoch=1,
                     train_metrics={},
                     val_metrics={},

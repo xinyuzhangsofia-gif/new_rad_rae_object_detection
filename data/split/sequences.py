@@ -47,18 +47,21 @@ def unique_sequences(*sequence_groups):
 
 
 def get_dataset_sequences_for_split(
-    cfg,
     split_mode,
+    *,
+    default_sequences=None,
     train_sequences=None,
     val_sequences=None,
 ):
     if split_mode == "kradar_file":
-        sequences = getattr(cfg, "sequences", None)
-        if sequences is None:
-            sequences = (cfg.sequence,)
-        sequences = normalize_sequence_list(sequences, name="cfg.sequences")
-        if len(sequences) == 0:
-            raise ValueError("cfg.sequences must not be empty")
+        sequences = normalize_sequence_list(
+            default_sequences,
+            name="default_sequences",
+        )
+        if not sequences:
+            raise ValueError(
+                "kradar_file split requires non-empty default_sequences"
+            )
         return sequences
 
     if split_mode != "sequence":

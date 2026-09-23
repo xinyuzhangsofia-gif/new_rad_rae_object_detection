@@ -87,9 +87,9 @@ def prepare_training_configuration(args):
     if args.checkpoint_epoch_step <= 0:
         raise ValueError("checkpoint_epoch_step must be greater than 0")
     if (
-        getattr(args, "training_eval_enabled", True)
-        and getattr(args, "training_eval_official_enabled", False)
-        and getattr(args, "training_eval_iou_backend", "auto") == "auto"
+        args.training_eval_enabled
+        and args.training_eval_official_enabled
+        and args.training_eval_iou_backend == "auto"
     ):
         args.training_eval_iou_backend = "cpu"
 
@@ -117,9 +117,9 @@ def print_training_configuration(args, loss_mode):
     print(
         "Test weather group: "
         f"{getattr(args, 'weather_group', 'unspecified')} "
-        f"(auto from {getattr(args, 'sequence_information_path', 'unknown')})"
+        f"(auto from {args.sequence_information_path})"
     )
-    if getattr(args, "domain_shift_experiment_enabled", False):
+    if args.domain_shift_experiment_enabled:
         print(
             "Domain-shift training: "
             f"branch={args.domain_shift_train_branch}, "
@@ -174,11 +174,11 @@ def print_training_configuration(args, loss_mode):
             )
         else:
             print("Separate quality loss: inactive for this model")
-    if not getattr(args, "training_eval_enabled", True):
+    if not args.training_eval_enabled:
         print("Best checkpoint selection: disabled (epoch checkpoints only)")
     if args.train_control_split_enabled:
         print(f"Train control split: {args.train_control_split_dir}")
-    if getattr(args, "train_sequence_half_selection", {}):
+    if args.train_sequence_half_selection:
         print(
             "Train sequence half selection: "
             f"{args.train_sequence_half_selection}, "
@@ -190,29 +190,21 @@ def print_training_configuration(args, loss_mode):
         print("Model15 LR mode: official RADE-Net CosineAnnealingLR")
 
 
-def build_training_data(args, cfg):
+def build_training_data(args):
     """Build the datasets and loaders used by both training workflows."""
     result = build_train_val_dataloaders(
-        cfg=cfg,
         batch_size=args.batch_size,
         seed=args.seed,
         num_workers=args.num_workers,
         limit_samples=args.limit_samples,
-        train_sequence_half_selection=getattr(
-            args, "train_sequence_half_selection", None
-        ),
-        train_sequence_half_ratio=getattr(
-            args, "train_sequence_half_ratio", 0.5
-        ),
+        default_sequences=KRADAR_SEQUENCE_IDS,
+        train_sequence_half_selection=args.train_sequence_half_selection,
+        train_sequence_half_ratio=args.train_sequence_half_ratio,
         class_to_idx=args.class_to_idx,
         ignore_class_names=args.ignore_class_names,
         gt_object_ignore_override_path=args.gt_object_ignore_override_path,
         split_mode=args.split_mode,
-        split_dir=getattr(
-            args,
-            "split_dir",
-            "data/manifests/kradar",
-        ),
+        split_dir=args.split_dir,
         scope_mode=args.train_scope,
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
@@ -274,22 +266,10 @@ def create_training_checkpoint_directories(args, configured_sequences):
         experiment_name=EXPERIMENT_NAME,
         sequences=configured_sequences,
         model_type=args.run_model_type,
-        train_sequence_half_selection=getattr(
-            args, "train_sequence_half_selection", None
-        ),
-        train_sequence_half_ratio=getattr(
-            args, "train_sequence_half_ratio", None
-        ),
-        domain_shift_experiment_enabled=getattr(
-            args,
-            "domain_shift_experiment_enabled",
-            False,
-        ),
-        domain_shift_train_branch=getattr(
-            args,
-            "domain_shift_train_branch",
-            None,
-        ),
+        train_sequence_half_selection=args.train_sequence_half_selection,
+        train_sequence_half_ratio=args.train_sequence_half_ratio,
+        domain_shift_experiment_enabled=args.domain_shift_experiment_enabled,
+        domain_shift_train_branch=args.domain_shift_train_branch,
         weather_group=getattr(args, "weather_group", None),
         train_sequences=args.train_sequences,
         test_sequences=args.val_sequences,
@@ -300,7 +280,6 @@ def create_training_checkpoint_directories(args, configured_sequences):
 
 def write_training_run_config(
     writer,
-    cfg,
     args,
     train_dataset,
     val_dataset,
@@ -309,7 +288,8 @@ def write_training_run_config(
     """Write the shared TensorBoard run metadata without changing tag names."""
     write_tensorboard_run_config(
         writer=writer,
-        cfg=cfg,
+        default_sequence=DEFAULT_KRADAR_SEQUENCE,
+        dataset_sequences=KRADAR_SEQUENCE_IDS,
         num_epochs=args.epochs,
         batch_size=args.batch_size,
         train_size=len(train_dataset),
@@ -326,64 +306,36 @@ def write_training_run_config(
         split_mode=args.split_mode,
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
-        domain_shift_train_branch=getattr(
-            args, "domain_shift_train_branch", None
-        ),
-        shared_train_sequences=getattr(args, "shared_train_sequences", None),
-        source_train_sequences=getattr(args, "source_train_sequences", None),
-        target_train_sequences=getattr(args, "target_train_sequences", None),
-        target_test_sequences=getattr(args, "target_test_sequences", None),
-        train_sequence_half_selection=getattr(
-            args, "train_sequence_half_selection", None
-        ),
-        train_sequence_half_ratio=getattr(
-            args, "train_sequence_half_ratio", None
-        ),
-        training_eval_enabled=getattr(args, "training_eval_enabled", True),
-        training_eval_train_set_enabled=getattr(
-            args,
-            "training_eval_train_set_enabled",
-            False,
-        ),
+        domain_shift_train_branch=args.domain_shift_train_branch,
+        shared_train_sequences=args.shared_train_sequences,
+        source_train_sequences=args.source_train_sequences,
+        target_train_sequences=args.target_train_sequences,
+        target_test_sequences=args.target_test_sequences,
+        train_sequence_half_selection=args.train_sequence_half_selection,
+        train_sequence_half_ratio=args.train_sequence_half_ratio,
+        training_eval_enabled=args.training_eval_enabled,
+        training_eval_train_set_enabled=args.training_eval_train_set_enabled,
         training_eval_best_metric_key=(
-            getattr(args, "training_eval_best_metric_key", "auto")
-            if getattr(args, "training_eval_enabled", True)
+            args.training_eval_best_metric_key
+            if args.training_eval_enabled
             else None
         ),
-        training_eval_official_enabled=getattr(
-            args, "training_eval_official_enabled", False
+        training_eval_official_enabled=args.training_eval_official_enabled,
+        training_eval_official_version=args.training_eval_official_version,
+        training_eval_iou_backend=args.training_eval_iou_backend,
+        training_eval_iou_mode=args.training_eval_iou_mode,
+        training_eval_detection_metrics_enabled=(
+            args.training_eval_detection_metrics_enabled
         ),
-        training_eval_official_version=getattr(
-            args, "training_eval_official_version", "revised"
+        training_eval_ap_score_thresh=args.training_eval_ap_score_thresh,
+        training_eval_score_thresh=args.training_eval_score_thresh,
+        training_eval_coco_style_enabled=args.training_eval_coco_style_enabled,
+        training_eval_nuscenes_style_enabled=(
+            args.training_eval_nuscenes_style_enabled
         ),
-        training_eval_iou_backend=getattr(
-            args, "training_eval_iou_backend", "auto"
-        ),
-        training_eval_iou_mode=getattr(
-            args, "training_eval_iou_mode", "easy"
-        ),
-        training_eval_detection_metrics_enabled=getattr(
-            args, "training_eval_detection_metrics_enabled", False
-        ),
-        training_eval_ap_score_thresh=getattr(
-            args, "training_eval_ap_score_thresh", 0.01
-        ),
-        training_eval_score_thresh=getattr(
-            args, "training_eval_score_thresh", 0.3
-        ),
-        training_eval_coco_style_enabled=getattr(
-            args, "training_eval_coco_style_enabled", False
-        ),
-        training_eval_nuscenes_style_enabled=getattr(
-            args, "training_eval_nuscenes_style_enabled", False
-        ),
-        gt_object_ignore_override_path=getattr(
-            args, "gt_object_ignore_override_path", None
-        ),
-        train_control_split_enabled=getattr(
-            args, "train_control_split_enabled", False
-        ),
-        train_control_split_dir=getattr(args, "train_control_split_dir", None),
+        gt_object_ignore_override_path=args.gt_object_ignore_override_path,
+        train_control_split_enabled=args.train_control_split_enabled,
+        train_control_split_dir=args.train_control_split_dir,
         centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
         quality_loss_weight=args.quality_loss_weight,
         quality_loss_active=model_uses_separate_quality_loss(args.model_type),
@@ -392,9 +344,7 @@ def write_training_run_config(
         cartesian_gt_root=args.cartesian_gt_root,
         weather_group=getattr(args, "weather_group", None),
         weather_group_source=getattr(args, "weather_group_source", None),
-        sequence_information_path=getattr(
-            args, "sequence_information_path", None
-        ),
+        sequence_information_path=args.sequence_information_path,
         test_sequence_weather=getattr(args, "test_sequence_weather", None),
     )
 
@@ -407,42 +357,20 @@ def _training_evaluation_kwargs(args, include_detection_metrics_setting):
         "prepare_model_inputs": prepare_model_inputs,
         "max_detections": args.max_detections,
         "scope_mode": args.train_scope,
-        "evaluate_train": getattr(
-            args,
-            "training_eval_train_set_enabled",
-            False,
-        ),
-        "official_eval_enabled": getattr(
-            args, "training_eval_official_enabled", False
-        ),
-        "official_eval_version": getattr(
-            args, "training_eval_official_version", "revised"
-        ),
-        "official_eval_iou_backend": getattr(
-            args, "training_eval_iou_backend", "auto"
-        ),
-        "official_eval_iou_mode": getattr(
-            args, "training_eval_iou_mode", "easy"
-        ),
-        "coco_style_eval_enabled": getattr(
-            args, "training_eval_coco_style_enabled", False
-        ),
-        "nuscenes_style_eval_enabled": getattr(
-            args, "training_eval_nuscenes_style_enabled", False
-        ),
-        "ap_score_thresh": getattr(
-            args, "training_eval_ap_score_thresh", 0.01
-        ),
-        "score_thresh": getattr(
-            args, "training_eval_score_thresh", 0.3
-        ),
+        "evaluate_train": args.training_eval_train_set_enabled,
+        "official_eval_enabled": args.training_eval_official_enabled,
+        "official_eval_version": args.training_eval_official_version,
+        "official_eval_iou_backend": args.training_eval_iou_backend,
+        "official_eval_iou_mode": args.training_eval_iou_mode,
+        "coco_style_eval_enabled": args.training_eval_coco_style_enabled,
+        "nuscenes_style_eval_enabled": args.training_eval_nuscenes_style_enabled,
+        "ap_score_thresh": args.training_eval_ap_score_thresh,
+        "score_thresh": args.training_eval_score_thresh,
         "box_coordinate_mode": args.box_coordinate_mode,
     }
     if include_detection_metrics_setting:
-        kwargs["official_detection_metrics_enabled"] = getattr(
-            args,
-            "training_eval_detection_metrics_enabled",
-            True,
+        kwargs["official_detection_metrics_enabled"] = (
+            args.training_eval_detection_metrics_enabled
         )
     return kwargs
 
@@ -450,7 +378,6 @@ def _training_evaluation_kwargs(args, include_detection_metrics_setting):
 def run_training_epochs(
     *,
     args,
-    cfg,
     model,
     optimizer,
     scheduler,
@@ -504,7 +431,7 @@ def run_training_epochs(
         )
 
         eval_metrics = None
-        if getattr(args, "training_eval_enabled", True):
+        if args.training_eval_enabled:
             evaluation_kwargs = _training_evaluation_kwargs(
                 args,
                 include_detection_metrics_setting,
@@ -520,16 +447,10 @@ def run_training_epochs(
         val_metrics, f1 = build_epoch_eval_metrics(
             eval_metrics=eval_metrics,
             val_loss_metrics=val_loss_metrics,
-            training_eval_enabled=getattr(args, "training_eval_enabled", True),
-            best_metric_key=getattr(
-                args, "training_eval_best_metric_key", "auto"
-            ),
-            official_eval_enabled=getattr(
-                args, "training_eval_official_enabled", False
-            ),
-            official_eval_iou_mode=getattr(
-                args, "training_eval_iou_mode", "easy"
-            ),
+            training_eval_enabled=args.training_eval_enabled,
+            best_metric_key=args.training_eval_best_metric_key,
+            official_eval_enabled=args.training_eval_official_enabled,
+            official_eval_iou_mode=args.training_eval_iou_mode,
         )
         print_epoch_evaluation_summary(
             epoch=epoch_number,
@@ -553,7 +474,8 @@ def run_training_epochs(
             optimizer=optimizer,
             scheduler=scheduler,
             args=args,
-            cfg=cfg,
+            default_sequence=DEFAULT_KRADAR_SEQUENCE,
+            dataset_sequences=KRADAR_SEQUENCE_IDS,
             epoch=epoch_number,
             train_metrics=train_metrics,
             val_metrics=val_metrics,
@@ -561,7 +483,7 @@ def run_training_epochs(
             learning_rate=learning_rate,
             total_epochs=end_epoch,
             checkpoint_epoch_step=args.checkpoint_epoch_step,
-            best_selection_enabled=getattr(args, "training_eval_enabled", True),
+            best_selection_enabled=args.training_eval_enabled,
         )
         if print_saved_checkpoints and checkpoint_path is not None:
             print(f"Saved checkpoint: {checkpoint_path}")
@@ -584,13 +506,9 @@ def run_training(
     """
     args = prepare_training_configuration(args)
     set_seed(args.seed)
-    cfg = SimpleNamespace(
-        sequence=DEFAULT_KRADAR_SEQUENCE,
-        sequences=KRADAR_SEQUENCE_IDS,
-    )
     configured_sequences = get_dataset_sequences_for_split(
-        cfg=cfg,
         split_mode=args.split_mode,
+        default_sequences=KRADAR_SEQUENCE_IDS,
         train_sequences=args.train_sequences,
         val_sequences=args.val_sequences,
     )
@@ -603,10 +521,7 @@ def run_training(
     print_training_configuration(args, loss_mode)
 
     device, gpu_ids = select_device_and_gpus(args.gpu_ids)
-    train_dataset, val_dataset, train_loader, val_loader = build_training_data(
-        args,
-        cfg,
-    )
+    train_dataset, val_dataset, train_loader, val_loader = build_training_data(args)
     model, optimizer, scheduler = build_training_components(
         args=args,
         device=device,
@@ -651,7 +566,6 @@ def run_training(
     )
     write_training_run_config(
         writer=writer,
-        cfg=cfg,
         args=args,
         train_dataset=train_dataset,
         val_dataset=val_dataset,
@@ -660,14 +574,13 @@ def run_training(
 
     best_state = BestCheckpointState()
     if (
-        getattr(args, "training_eval_enabled", True)
+        args.training_eval_enabled
         and initialize_best_state_callback is not None
     ):
         initialize_best_state_callback(best_state, checkpoint_dir)
 
     run_training_epochs(
         args=args,
-        cfg=cfg,
         model=model,
         optimizer=optimizer,
         scheduler=scheduler,
@@ -685,7 +598,7 @@ def run_training(
     )
 
     writer.close()
-    if getattr(args, "training_eval_enabled", True):
+    if args.training_eval_enabled:
         global_best_path, _ = save_global_best_checkpoint(
             best_state=best_state,
             checkpoint_dirs=checkpoint_dirs,
@@ -697,12 +610,8 @@ def run_training(
     run_post_training_evaluation(
         checkpoint_root=checkpoint_dir,
         gpu_ids_text=args.gpu_ids,
-        enabled=getattr(args, "post_training_eval_enabled", False),
-        min_free_memory_mb=getattr(
-            args,
-            "post_training_eval_min_free_memory_mb",
-            4096,
-        ),
+        enabled=args.post_training_eval_enabled,
+        min_free_memory_mb=args.post_training_eval_min_free_memory_mb,
     )
     return checkpoint_dir
 

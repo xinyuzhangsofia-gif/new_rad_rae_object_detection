@@ -54,7 +54,6 @@ class CartesianDataTests(unittest.TestCase):
         self.gt_path = Path(get_cartesian_gt_path(1, self.gt_root))
         self.gt_path.parent.mkdir(parents=True)
         self.gt_path.write_text(HEADER + ROWS)
-        self.cfg = SimpleNamespace(sequence=1, sequences=(1,))
         for kind, shape in (("rad", (4, 5, 2)), ("rae", (4, 5, 3))):
             directory = self.radar_root / "1" / kind
             directory.mkdir(parents=True)
@@ -127,13 +126,21 @@ class CartesianDataTests(unittest.TestCase):
         with mock.patch.object(dataloader, "KRadarRADRAEDataset") as radar:
             calls = (
                 lambda: dataloader.build_detection_dataset_for_sequence(
-                    self.cfg, 1, box_coordinate_mode="polar"
+                    1, box_coordinate_mode="polar"
                 ),
                 lambda: dataloader.build_train_val_dataloaders(
-                    self.cfg, 1, 42, 0, None, box_coordinate_mode="polar"
+                    1,
+                    42,
+                    0,
+                    None,
+                    default_sequences=(1,),
+                    box_coordinate_mode="polar",
                 ),
                 lambda: dataloader.build_evaluation_dataloader(
-                    self.cfg, 1, 0, val_sequences=(1,), box_coordinate_mode="polar"
+                    1,
+                    0,
+                    val_sequences=(1,),
+                    box_coordinate_mode="polar",
                 ),
             )
             for call in calls:
@@ -195,7 +202,7 @@ class CartesianDataTests(unittest.TestCase):
         }}}}))
         with mock.patch.object(dataloader, "get_rad_rae_npy_root_dir", return_value=str(self.radar_root)):
             train, val, train_loader, val_loader = dataloader.build_train_val_dataloaders(
-                self.cfg, 1, 42, 0, None,
+                1, 42, 0, None, default_sequences=(1,),
                 split_mode="kradar_file", split_dir=str(split),
                 cartesian_gt_root=self.gt_root,
                 gt_object_ignore_override_path=str(override),
@@ -267,8 +274,14 @@ class CartesianDataTests(unittest.TestCase):
         self.assertEqual(args.val_sequences, (2,))
         self.assertEqual(args.score_thresh, 0.21)
 
-    def test_training_defaults_to_cartesian_and_keeps_the_selected_loss(self):
-        args = SimpleNamespace(model_type="model7", loss_mode="centerpoint", cartesian_gt_root=self.gt_root)
+    def test_training_cartesian_contract_keeps_the_selected_loss(self):
+        args = SimpleNamespace(
+            model_type="model7",
+            model7_decoder_hidden_channels="64",
+            loss_mode="centerpoint",
+            box_coordinate_mode="cartesian",
+            cartesian_gt_root=self.gt_root,
+        )
         result = apply_training_coordinate_mode(args)
         self.assertEqual(result.box_coordinate_mode, "cartesian")
         self.assertEqual(result.cartesian_training_workflow, "centerpoint_cartesian_in_model7")

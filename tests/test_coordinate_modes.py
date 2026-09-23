@@ -70,6 +70,8 @@ class CoordinateModeTests(unittest.TestCase):
             box_coordinate_mode="polar",
             cartesian_gt_root=None,
             model_type="model7",
+            model7_decoder_hidden_channels="64",
+            loss_mode="auto",
             training_eval_best_metric_key="auto",
         )
         with self.assertRaisesRegex(ValueError, "Only Cartesian"):
@@ -79,6 +81,8 @@ class CoordinateModeTests(unittest.TestCase):
             box_coordinate_mode="cartesian",
             cartesian_gt_root="/labels",
             model_type="model7",
+            model7_decoder_hidden_channels="64",
+            loss_mode="auto",
             training_eval_best_metric_key="auto",
         )
         apply_training_coordinate_mode(cartesian_args)
@@ -106,6 +110,7 @@ class CoordinateModeTests(unittest.TestCase):
                 box_coordinate_mode="cartesian",
                 cartesian_gt_root="/labels",
                 model_type="model7",
+                model7_decoder_hidden_channels="64",
                 loss_mode=requested_mode,
                 training_eval_best_metric_key="auto",
             )

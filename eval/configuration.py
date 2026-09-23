@@ -369,9 +369,6 @@ def parse_args(argv=None):
         args.official_detection_metrics_enabled,
         name="official_detection_metrics_enabled",
     )
-    # Keep the regular metric set permanently enabled.  The old command-line
-    # AP@0.3-only and terminal epoch-table switches were removed.
-    args.official_ap03_only = False
     args.group_checkpoint_plot_best_only = normalize_bool_flag(
         args.group_checkpoint_plot_best_only,
         name="group_checkpoint_plot_best_only",
@@ -384,12 +381,14 @@ def parse_args(argv=None):
         args.table_txt_enabled,
         name="table_txt_enabled",
     )
-    for path_name in (
-        "eval_frame_manifest_path",
-        "eval_gt_object_ignore_override_path",
-        "eval_report_path",
+    for path_name, value in (
+        ("eval_frame_manifest_path", args.eval_frame_manifest_path),
+        (
+            "eval_gt_object_ignore_override_path",
+            args.eval_gt_object_ignore_override_path,
+        ),
+        ("eval_report_path", args.eval_report_path),
     ):
-        value = getattr(args, path_name)
         if value is not None:
             value = str(value).strip()
             if value == "":

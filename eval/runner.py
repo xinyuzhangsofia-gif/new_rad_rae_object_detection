@@ -1,7 +1,6 @@
 """Standalone evaluation orchestration."""
 
 import os
-from types import SimpleNamespace
 
 from data.dataloader import (
     build_evaluation_dataloader,
@@ -14,7 +13,7 @@ from eval.domain_shift_tables import (
     update_domain_shift_tables,
 )
 from training.configuration import apply_task_configuration
-from configs.data import DEFAULT_KRADAR_SEQUENCE, KRADAR_SEQUENCE_IDS
+from configs.data import KRADAR_SEQUENCE_IDS
 
 from eval.checkpoints import (
     apply_checkpoint_config_defaults,
@@ -125,7 +124,7 @@ def evaluate_checkpoint_result(
         eval_ignore_suppress_margin=args.eval_ignore_suppress_margin,
         box_coordinate_mode=args.box_coordinate_mode,
         distance_quartile_eval_enabled=args.distance_quartile_eval_enabled,
-        distance_quartile_bins=getattr(args, "distance_quartile_bins", None),
+        distance_quartile_bins=args.distance_quartile_bins,
     )
     attach_evaluation_main_metric(
         metrics,
@@ -226,10 +225,6 @@ def save_group_best_only_plot_exports(
 
 def build_eval_context(args):
     device = select_evaluation_device(args.cuda, args.gpu_ids)
-    cfg = SimpleNamespace(
-        sequence=DEFAULT_KRADAR_SEQUENCE,
-        sequences=KRADAR_SEQUENCE_IDS,
-    )
     checkpoint_paths = find_epoch_checkpoints(
         args.checkpoint_root,
         args.epoch_step,
@@ -251,11 +246,13 @@ def build_eval_context(args):
         args.val_sequences = args.eval_val_sequences
         if not args.val_sequences:
             raise ValueError("eval_val_sequences must not be empty.")
-    for path_name in (
-        "eval_frame_manifest_path",
-        "eval_gt_object_ignore_override_path",
+    for path_name, path_value in (
+        ("eval_frame_manifest_path", args.eval_frame_manifest_path),
+        (
+            "eval_gt_object_ignore_override_path",
+            args.eval_gt_object_ignore_override_path,
+        ),
     ):
-        path_value = getattr(args, path_name)
         if path_value is not None:
             setattr(
                 args,
@@ -343,18 +340,17 @@ def build_eval_context(args):
         model_variant_name,
     )
 
-    if getattr(args, "eval_val_sequences", None) is not None:
+    if args.eval_val_sequences is not None:
         validation_dataset, validation_loader = build_evaluation_dataloader(
-            cfg=cfg,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
             val_sequences=args.val_sequences,
             limit_samples=args.limit_samples,
-            frame_manifest_path=getattr(args, "eval_frame_manifest_path", None),
+            frame_manifest_path=args.eval_frame_manifest_path,
             class_to_idx=args.class_to_idx,
             ignore_class_names=args.ignore_class_names,
             gt_object_ignore_override_path=(
-                getattr(args, "eval_gt_object_ignore_override_path", None)
+                args.eval_gt_object_ignore_override_path
             ),
             ignore_unmapped_classes=True,
             scope_mode=args.eval_scope,
@@ -370,16 +366,16 @@ def build_eval_context(args):
             _,
             validation_loader,
         ) = build_train_val_dataloaders(
-            cfg=cfg,
             batch_size=args.batch_size,
             seed=args.seed,
             num_workers=args.num_workers,
             limit_samples=args.limit_samples,
+            default_sequences=KRADAR_SEQUENCE_IDS,
             class_to_idx=args.class_to_idx,
             ignore_class_names=args.ignore_class_names,
             gt_object_ignore_override_path=args.gt_object_ignore_override_path,
             eval_gt_object_ignore_override_path=(
-                getattr(args, "eval_gt_object_ignore_override_path", None)
+                args.eval_gt_object_ignore_override_path
             ),
             ignore_unmapped_classes=True,
             split_mode=args.split_mode,
@@ -387,16 +383,8 @@ def build_eval_context(args):
             scope_mode=args.eval_scope,
             train_sequences=args.train_sequences,
             val_sequences=args.val_sequences,
-            train_control_split_enabled=getattr(
-                args,
-                "train_control_split_enabled",
-                False,
-            ),
-            train_control_split_dir=getattr(
-                args,
-                "train_control_split_dir",
-                None,
-            ),
+            train_control_split_enabled=args.train_control_split_enabled,
+            train_control_split_dir=args.train_control_split_dir,
             box_coordinate_mode=args.box_coordinate_mode,
             cartesian_gt_root=args.cartesian_gt_root,
             ignore_object_label_minus_one=args.ignore_object_label_minus_one,
@@ -458,12 +446,10 @@ def update_domain_comparison_outputs(
         "train_sequences": source_metadata.get("train_sequences"),
         "checkpoint_val_sequences": source_metadata.get("val_sequences"),
         "val_sequences": args.val_sequences,
-        "eval_val_sequences": getattr(args, "eval_val_sequences", None),
-        "eval_frame_manifest_path": getattr(
-            args, "eval_frame_manifest_path", None
-        ),
-        "eval_gt_object_ignore_override_path": getattr(
-            args, "eval_gt_object_ignore_override_path", None
+        "eval_val_sequences": args.eval_val_sequences,
+        "eval_frame_manifest_path": args.eval_frame_manifest_path,
+        "eval_gt_object_ignore_override_path": (
+            args.eval_gt_object_ignore_override_path
         ),
         "include_bus_as_target": bool(args.include_bus_as_target),
         "checkpoint_include_bus_as_target": bool(

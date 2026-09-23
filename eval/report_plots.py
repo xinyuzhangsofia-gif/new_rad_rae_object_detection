@@ -32,14 +32,12 @@ def build_plot_metadata(args, model_variant_name, source_metadata):
         ),
         "checkpoint_val_sequences": sequence_name_for_filename(source_val_sequences, "val_unknown"),
         "val_sequences": sequence_name_for_filename(args.val_sequences, "val_unknown"),
-        "eval_val_sequences": getattr(args, "eval_val_sequences", None),
-        "eval_frame_manifest_path": getattr(
-            args, "eval_frame_manifest_path", None
+        "eval_val_sequences": args.eval_val_sequences,
+        "eval_frame_manifest_path": args.eval_frame_manifest_path,
+        "eval_gt_object_ignore_override_path": (
+            args.eval_gt_object_ignore_override_path
         ),
-        "eval_gt_object_ignore_override_path": getattr(
-            args, "eval_gt_object_ignore_override_path", None
-        ),
-        "eval_report_path": getattr(args, "eval_report_path", None),
+        "eval_report_path": args.eval_report_path,
         "eval_scope": str(args.eval_scope),
         "eval_coordinate_mode": str(args.eval_coordinate_mode),
         "effective_eval_coordinate_mode": str(args.effective_eval_coordinate_mode),
@@ -64,17 +62,14 @@ def build_plot_metadata(args, model_variant_name, source_metadata):
         "ap_score_thresh": float(args.ap_score_thresh),
         "score_thresh": float(args.score_thresh),
         "official_iou_mode": str(args.official_eval_iou_mode),
-        "official_ap03_only": bool(args.official_ap03_only),
         "official_detection_metrics_enabled": bool(args.official_detection_metrics_enabled),
         "group_checkpoint_plot_best_only": bool(args.group_checkpoint_plot_best_only),
         "custom_iou_range_eval_enabled": bool(args.custom_iou_range_eval_enabled),
         "custom_iou_thresholds": [float(value) for value in args.custom_iou_thresholds],
         "distance_quartile_eval_enabled": bool(
-            getattr(args, "distance_quartile_eval_enabled", False)
+            args.distance_quartile_eval_enabled
         ),
-        "distance_quartile_bins_requested": getattr(
-            args, "distance_quartile_bins", None
-        ),
+        "distance_quartile_bins_requested": args.distance_quartile_bins,
         "coco_style_eval_enabled": bool(args.coco_style_eval_enabled),
         "nuscenes_style_eval_enabled": bool(args.nuscenes_style_eval_enabled),
         "official_eval_enabled": bool(args.official_eval_enabled),

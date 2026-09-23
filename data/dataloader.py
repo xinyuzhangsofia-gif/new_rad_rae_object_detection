@@ -75,7 +75,6 @@ def detection_collate(batch):
 
 
 def build_detection_dataset_for_sequence(
-        cfg,
         sequence,
         class_to_idx=None,
         ignore_unmapped_classes=True,
@@ -130,11 +129,11 @@ def build_detection_dataset_for_sequence(
 
 
 def build_train_val_dataloaders(
-    cfg,
     batch_size,
     seed,
     num_workers,
     limit_samples,
+    default_sequences=None,
     train_sequence_half_selection=None,
     train_sequence_half_ratio=0.5,
     class_to_idx=None,
@@ -161,14 +160,13 @@ def build_train_val_dataloaders(
             "split_mode='sequence'."
         )
     dataset_sequences = get_dataset_sequences_for_split(
-        cfg=cfg,
         split_mode=split_mode,
+        default_sequences=default_sequences,
         train_sequences=train_sequences,
         val_sequences=val_sequences,
     )
     sequence_datasets = [
         build_detection_dataset_for_sequence(
-            cfg=cfg,
             sequence=sequence,
             class_to_idx=class_to_idx,
             ignore_unmapped_classes=ignore_unmapped_classes,
@@ -189,7 +187,6 @@ def build_train_val_dataloaders(
     if gt_object_ignore_override_path is not None:
         controlled_sequence_datasets = [
             build_detection_dataset_for_sequence(
-                cfg=cfg,
                 sequence=sequence,
                 class_to_idx=class_to_idx,
                 ignore_unmapped_classes=ignore_unmapped_classes,
@@ -210,7 +207,6 @@ def build_train_val_dataloaders(
     if eval_gt_object_ignore_override_path is not None:
         eval_sequence_datasets = [
             build_detection_dataset_for_sequence(
-                cfg=cfg,
                 sequence=sequence,
                 class_to_idx=class_to_idx,
                 ignore_unmapped_classes=ignore_unmapped_classes,
@@ -282,7 +278,6 @@ def build_train_val_dataloaders(
 
 
 def build_evaluation_dataloader(
-        cfg,
         batch_size,
         num_workers,
         val_sequences,
@@ -339,7 +334,6 @@ def build_evaluation_dataloader(
             )
     sequence_datasets = [
         build_detection_dataset_for_sequence(
-            cfg=cfg,
             sequence=sequence,
             class_to_idx=class_to_idx,
             ignore_unmapped_classes=ignore_unmapped_classes,

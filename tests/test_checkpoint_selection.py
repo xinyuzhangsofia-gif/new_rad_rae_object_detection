@@ -6,6 +6,8 @@ from unittest import mock
 
 import torch
 
+from configs.training import TRAIN_CONFIG
+from training import runner
 from training.torch_load import load_torch_checkpoint
 from training.checkpoints import (
     BestCheckpointState,
@@ -79,7 +81,8 @@ class CheckpointSelectionTests(unittest.TestCase):
                 optimizer=None,
                 scheduler=None,
                 args=None,
-                cfg=None,
+                default_sequence=11,
+                dataset_sequences=tuple(range(1, 59)),
                 epoch=1,
                 train_metrics={"train_loss": 3.0},
                 val_metrics={
@@ -276,7 +279,8 @@ class CheckpointSelectionTests(unittest.TestCase):
             optimizer=None,
             scheduler=None,
             args=None,
-            cfg=None,
+            default_sequence=11,
+            dataset_sequences=tuple(range(1, 59)),
             epoch=1,
             train_metrics={},
             val_metrics={"val_loss": 2.0},
@@ -293,30 +297,21 @@ class CheckpointSelectionTests(unittest.TestCase):
     def test_periodic_checkpoint_is_saved_without_best_metadata(self):
         model = torch.nn.Linear(2, 1)
         optimizer = torch.optim.Adam(model.parameters(), lr=5e-5)
-        args = SimpleNamespace(
-            epochs=2,
-            batch_size=1,
-            lr=5e-5,
-            max_detections=64,
-            num_classes=1,
-            model_type="model7",
-            run_model_type="model7_sedan_only",
-            box_coordinate_mode="cartesian",
-            loss_mode="centerpoint",
-            model7_decoder_hidden_channels=64,
-            include_bus_as_target=False,
-            class_names={0: "Sedan"},
-            class_to_idx={"Sedan": 0},
-            split_mode="kradar_file",
-            train_sequences=(1,),
-            val_sequences=(2,),
-            domain_shift_experiment_enabled=False,
-            training_eval_enabled=False,
-            training_eval_best_metric_key="auto",
-            seed=42,
-            limit_samples=None,
+        args = runner.build_train_args(
+            dict(
+                TRAIN_CONFIG,
+                epochs=2,
+                batch_size=1,
+                lr=5e-5,
+                model_type="model7",
+                loss_mode="centerpoint",
+                model7_decoder_hidden_channels="64",
+                include_bus_as_target=False,
+                training_eval_enabled=False,
+            )
         )
-        cfg = SimpleNamespace(sequence=1, sequences=(1,))
+        args = runner.prepare_training_configuration(args)
+        args = runner.prepare_training_task_configuration(args)
         best_state = BestCheckpointState()
 
         with tempfile.TemporaryDirectory() as temporary_dir:
@@ -327,7 +322,8 @@ class CheckpointSelectionTests(unittest.TestCase):
                 optimizer=optimizer,
                 scheduler=None,
                 args=args,
-                cfg=cfg,
+                default_sequence=1,
+                dataset_sequences=(1,),
                 epoch=1,
                 train_metrics={"train_loss": 3.0},
                 val_metrics={"val_loss": 2.0},

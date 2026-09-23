@@ -20,7 +20,11 @@ from eval.report_paths import (
     total_result_summary_path,
     weather_domain_shift_summary_path,
 )
-from eval.report_plots import save_evaluation_plot
+from eval.configuration import (
+    apply_standalone_evaluation_coordinate_mode,
+    parse_args,
+)
+from eval.report_plots import build_plot_metadata, save_evaluation_plot
 from eval.result_metadata import build_eval_table_metadata
 from eval.result_selection import (
     select_best_main_metric_result,
@@ -129,6 +133,7 @@ class ReportingArchitectureTests(unittest.TestCase):
             historical_path = root / "historical.yml"
             historical_path.write_text(
                 "plot_metadata:\n  model_type: model7\n"
+                "official_ap03_only: true\n"
                 "unknown_historical_field:\n  nested: preserved\n",
                 encoding="utf-8",
             )
@@ -145,6 +150,17 @@ class ReportingArchitectureTests(unittest.TestCase):
             historical["unknown_historical_field"],
             {"nested": "preserved"},
         )
+        self.assertTrue(historical["official_ap03_only"])
+
+    def test_new_plot_metadata_omits_removed_official_ap03_only_field(self):
+        args = parse_args([])
+        args.box_coordinate_mode = "cartesian"
+        args.eval_scope = "full"
+        apply_standalone_evaluation_coordinate_mode(args)
+
+        metadata = build_plot_metadata(args, "model7", {})
+
+        self.assertNotIn("official_ap03_only", metadata)
 
     def test_txt_metadata_builder_preserves_field_names_and_order(self):
         args = argparse.Namespace(

@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from configs.data import KRADAR_SEQUENCE_IDS
 from data.dataloader import (
     apply_train_control_split_indices,
     build_exact_frame_manifest_indices,
@@ -128,8 +129,8 @@ class OrdinarySplitMembershipGoldenTests(unittest.TestCase):
                 "Unknown split_mode",
             ):
                 get_dataset_sequences_for_split(
-                    type("Cfg", (), {"sequences": (1, 2)})(),
                     removed_mode,
+                    default_sequences=(1, 2),
                 )
             with self.subTest(mode=removed_mode), self.assertRaisesRegex(
                 ValueError,
@@ -205,14 +206,27 @@ class OrdinarySplitMembershipGoldenTests(unittest.TestCase):
     def test_sequence_normalization_keeps_duplicates_and_unique_order_contract(self):
         self.assertEqual(normalize_sequence_list("1,3-5,3"), (1, 3, 4, 5, 3))
         self.assertEqual(unique_sequences((2, 1, 2), (3, 1)), (2, 1, 3))
-        cfg = type("Cfg", (), {"sequences": (8, 7)})()
         self.assertEqual(
-            get_dataset_sequences_for_split(cfg, "kradar_file"),
+            get_dataset_sequences_for_split(
+                "kradar_file",
+                default_sequences=(8, 7),
+            ),
             (8, 7),
         )
         self.assertEqual(
-            get_dataset_sequences_for_split(cfg, "sequence", (2, 1, 2), (3, 1)),
+            get_dataset_sequences_for_split(
+                "sequence",
+                train_sequences=(2, 1, 2),
+                val_sequences=(3, 1),
+            ),
             (2, 1, 3),
+        )
+        self.assertEqual(
+            get_dataset_sequences_for_split(
+                "kradar_file",
+                default_sequences=KRADAR_SEQUENCE_IDS,
+            ),
+            tuple(range(1, 59)),
         )
 
     def test_sequence_split_error_contracts(self):

@@ -106,7 +106,6 @@ class ExactManifestTests(unittest.TestCase):
                     "outside the selected evaluation manifest",
                 ):
                     build_evaluation_dataloader(
-                        cfg=object(),
                         batch_size=1,
                         num_workers=0,
                         val_sequences=(3,),
@@ -391,10 +390,9 @@ class StandaloneCocoConfigurationTests(unittest.TestCase):
             enabled_args = parse_args()
 
         self.assertFalse(default_args.coco_style_eval_enabled)
+        self.assertFalse(hasattr(default_args, "official_ap03_only"))
         self.assertTrue(enabled_args.coco_style_eval_enabled)
         self.assertEqual(enabled_args.score_thresh, 0.25)
-        self.assertFalse(default_args.official_ap03_only)
-
         for removed_option in (
             "--official-ap03-only",
             "--detection-score-thresh",

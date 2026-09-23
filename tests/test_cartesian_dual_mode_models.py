@@ -30,6 +30,7 @@ class CartesianDualModeModelTests(unittest.TestCase):
                 with self.subTest(model_type=model_type, loss_mode=loss_mode):
                     args = SimpleNamespace(
                         model_type=model_type,
+                        model7_decoder_hidden_channels="64",
                         box_coordinate_mode="cartesian",
                         cartesian_gt_root="/labels",
                         loss_mode=loss_mode,

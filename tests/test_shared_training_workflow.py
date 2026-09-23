@@ -10,6 +10,7 @@ from unittest import mock
 import torch
 
 from configs.resume import RESUME_CONFIG_OVERRIDES, build_resume_config
+from configs.data import DEFAULT_KRADAR_SEQUENCE, KRADAR_SEQUENCE_IDS
 from configs.training import TRAIN_CONFIG
 from eval import metrics_runner
 from training import configuration, resume, runner
@@ -454,7 +455,8 @@ class SharedEpochWorkflowTests(unittest.TestCase):
         writer = mock.Mock()
         write_tensorboard_run_config(
             writer=writer,
-            cfg=SimpleNamespace(sequence=1, sequences=(1,)),
+            default_sequence=DEFAULT_KRADAR_SEQUENCE,
+            dataset_sequences=KRADAR_SEQUENCE_IDS,
             num_epochs=2,
             batch_size=1,
             train_size=3,
@@ -470,6 +472,8 @@ class SharedEpochWorkflowTests(unittest.TestCase):
         )
 
         config_text = writer.add_text.call_args.args[1]
+        self.assertIn("sequence: 11", config_text)
+        self.assertIn(f"sequences: {tuple(range(1, 59))}", config_text)
         self.assertIn("training_eval_train_set_enabled: False", config_text)
         self.assertIn("training_eval_best_metric_key: auto", config_text)
         self.assertIn("training_eval_official_enabled: True", config_text)
@@ -539,7 +543,6 @@ class SharedEpochWorkflowTests(unittest.TestCase):
         ):
             result = runner.run_training_epochs(
                 args=args,
-                cfg=object(),
                 model=object(),
                 optimizer=optimizer,
                 scheduler=object(),
@@ -571,41 +574,26 @@ class SharedEpochWorkflowTests(unittest.TestCase):
         model = torch.nn.Linear(2, 1)
         optimizer = torch.optim.Adam(model.parameters(), lr=5e-5)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
-        args = SimpleNamespace(
-            epochs=2,
-            batch_size=1,
-            lr=5e-5,
-            max_detections=64,
-            num_classes=2,
-            model_type="model7",
-            box_coordinate_mode="cartesian",
-            loss_mode="centerpoint",
-            include_bus_as_target=True,
-            class_names={0: "Sedan", 1: "Bus or Truck"},
-            class_to_idx={"Sedan": 0, "Bus or Truck": 1},
-            split_mode="kradar_file",
-            train_sequences=(1,),
-            val_sequences=(2,),
-            domain_shift_experiment_enabled=False,
-            seed=42,
-            limit_samples=None,
-            training_eval_enabled=True,
-            training_eval_train_set_enabled=False,
-            training_eval_best_metric_key="auto",
-            training_eval_official_enabled=True,
-            training_eval_official_version="revised",
-            training_eval_iou_backend="gpu",
-            training_eval_iou_mode="easy",
-            training_eval_detection_metrics_enabled=False,
-            training_eval_ap_score_thresh=0.01,
-            training_eval_score_thresh=0.3,
+        args = runner.build_train_args(
+            dict(
+                TRAIN_CONFIG,
+                epochs=2,
+                batch_size=1,
+                lr=5e-5,
+                model_type="model7",
+                loss_mode="centerpoint",
+                model7_decoder_hidden_channels="64",
+            )
         )
+        args = runner.prepare_training_configuration(args)
+        args = runner.prepare_training_task_configuration(args)
         payload = build_checkpoint_payload(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
             args=args,
-            cfg=SimpleNamespace(sequence=1, sequences=(1,)),
+            default_sequence=DEFAULT_KRADAR_SEQUENCE,
+            dataset_sequences=KRADAR_SEQUENCE_IDS,
             epoch=1,
             train_metrics={"train_loss": 1.0},
             val_metrics={
@@ -652,6 +640,22 @@ class SharedEpochWorkflowTests(unittest.TestCase):
             "auto",
         )
         self.assertTrue(payload["config"]["training_eval_official_enabled"])
+        self.assertEqual(
+            payload["config"]["sequence"],
+            DEFAULT_KRADAR_SEQUENCE,
+        )
+        self.assertEqual(
+            payload["config"]["sequences"],
+            KRADAR_SEQUENCE_IDS,
+        )
+        self.assertEqual(
+            payload["config"]["train_sequences"],
+            args.train_sequences,
+        )
+        self.assertEqual(
+            payload["config"]["val_sequences"],
+            args.val_sequences,
+        )
         for ambiguous_name in (
             "eval_train",
             "best_metric_key",

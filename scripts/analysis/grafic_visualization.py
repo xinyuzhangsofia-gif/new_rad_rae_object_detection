@@ -422,23 +422,6 @@ def main(argv=None):
                 )
                 print(overview_path)
 
-    combined_sequences = [
-        value for value in DEFAULT_TEST_SEQUENCES if value in requested_sequences
-    ]
-    if len(combined_sequences) == len(DEFAULT_TEST_SEQUENCES):
-        compatibility_dir = args.experiment_dir.resolve() / "relative_ap_drop_plots"
-        for metric in METRICS:
-            for show_title in (True, False):
-                overview_path = plot_overall_relative_target_drop(
-                    frame,
-                    combined_sequences,
-                    metric,
-                    args.output_dir.resolve(),
-                    dpi=args.dpi,
-                    show_title=show_title,
-                    destination_dir=compatibility_dir,
-                )
-                print(overview_path)
     return 0
 
 

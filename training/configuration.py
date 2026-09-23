@@ -15,13 +15,6 @@ from data.sequence_metadata import (
 )
 
 
-DEFAULT_IGNORE_CLASS_NAMES = (
-    "Pedestrian",
-    "Pedestrian Group",
-    "Bicycle",
-    "Bicycle Group",
-    "Motorcycle",
-)
 BUS_CLASS_NAME = CLASS_NAMES[1]
 SEDAN_CLASS_NAME = CLASS_NAMES[0]
 DEFAULT_GT_OBJECT_IGNORE_OVERRIDE_FILENAME = "object_ignore_override.json"
@@ -128,32 +121,32 @@ def normalize_domain_shift_sequences(value, name):
 def apply_domain_shift_training_configuration(args):
     """Derive the ordinary train/val fields for a domain-shift experiment."""
     branch = normalize_domain_shift_train_branch(
-        getattr(args, "domain_shift_train_branch", None)
+        args.domain_shift_train_branch
     )
     args.domain_shift_train_branch = branch
     args.domain_shift_experiment_enabled = branch is not None
     if branch is None:
         return args
 
-    if str(getattr(args, "split_mode", "")).strip().lower() != "sequence":
+    if str(args.split_mode).strip().lower() != "sequence":
         raise ValueError(
             "Domain-shift source/target training requires split_mode='sequence'."
         )
 
     shared_sequences = normalize_domain_shift_sequences(
-        getattr(args, "shared_train_sequences", None),
+        args.shared_train_sequences,
         "shared_train_sequences",
     )
     source_sequences = normalize_domain_shift_sequences(
-        getattr(args, "source_train_sequences", None),
+        args.source_train_sequences,
         "source_train_sequences",
     )
     target_sequences = normalize_domain_shift_sequences(
-        getattr(args, "target_train_sequences", None),
+        args.target_train_sequences,
         "target_train_sequences",
     )
     target_test_sequences = normalize_domain_shift_sequences(
-        getattr(args, "target_test_sequences", None),
+        args.target_test_sequences,
         "target_test_sequences",
     )
 
@@ -191,7 +184,7 @@ def apply_domain_shift_training_configuration(args):
     if (
         branch == "target"
         and normalize_bool_flag(
-            getattr(args, "train_control_split_enabled", False),
+            args.train_control_split_enabled,
             name="train_control_split_enabled",
         )
     ):
@@ -256,10 +249,10 @@ def infer_test_weather_group(
 
 def apply_test_sequence_weather_configuration(args):
     """Set weather_group automatically from the configured test sequences."""
-    if getattr(args, "domain_shift_experiment_enabled", False):
-        test_sequences = getattr(args, "target_test_sequences", None)
+    if args.domain_shift_experiment_enabled:
+        test_sequences = args.target_test_sequences
     else:
-        test_sequences = getattr(args, "val_sequences", None)
+        test_sequences = args.val_sequences
 
     if test_sequences in (None, "", ()):
         return args
@@ -270,7 +263,7 @@ def apply_test_sequence_weather_configuration(args):
         information_path,
     ) = infer_test_weather_group(
         test_sequences,
-        getattr(args, "sequence_information_path", None),
+        args.sequence_information_path,
     )
     args.sequence_information_path = str(information_path)
     args.weather_group_source = "sequence_information.csv"
@@ -380,21 +373,19 @@ def resolve_model7_decoder_hidden_channels(value, box_coordinate_mode):
 
 def apply_training_coordinate_mode(args):
     """Configure Cartesian GT, regression, and the training-time evaluator."""
-    args.loss_mode = normalize_loss_mode(
-        getattr(args, "loss_mode", "auto")
-    )
+    args.loss_mode = normalize_loss_mode(args.loss_mode)
     args.box_coordinate_mode = require_cartesian_data(
-        getattr(args, "box_coordinate_mode", BOX_COORDINATE_CARTESIAN)
+        args.box_coordinate_mode
     )
     args.model7_decoder_hidden_channels = resolve_model7_decoder_hidden_channels(
-        getattr(args, "model7_decoder_hidden_channels", "auto"),
+        args.model7_decoder_hidden_channels,
         args.box_coordinate_mode,
     )
     args.cartesian_gt_root = normalize_optional_path(
-        getattr(args, "cartesian_gt_root", None)
+        args.cartesian_gt_root
     )
     configured_model_type = str(
-        getattr(args, "configured_model_type", getattr(args, "model_type", ""))
+        getattr(args, "configured_model_type", args.model_type)
     )
     args.configured_model_type = configured_model_type
 
@@ -488,7 +479,7 @@ def model_uses_separate_quality_loss(model_type):
 def apply_task_configuration(args):
     args = resolve_centerpoint_gwd_loss_weight(args)
     args.ignore_object_label_minus_one = normalize_bool_flag(
-        getattr(args, "ignore_object_label_minus_one", False),
+        args.ignore_object_label_minus_one,
         name="ignore_object_label_minus_one",
     )
     args.ignore_out_of_scope_gt = normalize_bool_flag(
@@ -496,11 +487,11 @@ def apply_task_configuration(args):
         name="ignore_out_of_scope_gt",
     )
     args.train_control_split_enabled = normalize_bool_flag(
-        getattr(args, "train_control_split_enabled", False),
+        args.train_control_split_enabled,
         name="train_control_split_enabled",
     )
     args.train_control_split_dir = normalize_optional_path(
-        getattr(args, "train_control_split_dir", None)
+        args.train_control_split_dir
     )
     args.train_sequence_half_selection = normalize_train_sequence_half_selection(
         getattr(args, "train_sequence_half_selection", None)
@@ -510,7 +501,7 @@ def apply_task_configuration(args):
     )
 
     args.include_bus_as_target = normalize_bool_flag(
-        getattr(args, "include_bus_as_target", True),
+        args.include_bus_as_target,
         name="include_bus_as_target",
     )
 
@@ -519,28 +510,22 @@ def apply_task_configuration(args):
     args.class_to_idx = class_to_idx
     args.num_classes = len(class_names)
 
-    configured_ignore_class_names = tuple(
-        getattr(args, "ignore_class_names", DEFAULT_IGNORE_CLASS_NAMES)
-    )
+    configured_ignore_class_names = tuple(args.ignore_class_names)
     args.ignore_class_names = resolve_effective_ignore_class_names(
         configured_ignore_class_names=configured_ignore_class_names,
         include_bus_as_target=args.include_bus_as_target,
     )
 
-    args.ignore_mask_margin = float(
-        getattr(args, "ignore_mask_margin", 1.0)
-    )
+    args.ignore_mask_margin = float(args.ignore_mask_margin)
 
-    args.ignore_mask_expand_ratio = float(
-        getattr(args, "ignore_mask_expand_ratio", 1.0)
-    )
+    args.ignore_mask_expand_ratio = float(args.ignore_mask_expand_ratio)
     if args.ignore_mask_expand_ratio <= 0.0:
         raise ValueError(
             f"ignore_mask_expand_ratio must be greater than 0, got {args.ignore_mask_expand_ratio!r}"
         )
 
     args.gt_object_ignore_override_path = normalize_optional_path(
-        getattr(args, "gt_object_ignore_override_path", None)
+        args.gt_object_ignore_override_path
     )
     if (
         args.gt_object_ignore_override_path is None
@@ -553,7 +538,7 @@ def apply_task_configuration(args):
     if args.gt_object_ignore_override_path is None:
         args.gt_object_ignore_override_path = resolve_gt_object_ignore_override_path(
             None,
-            split_dir=getattr(args, "split_dir", None),
+            split_dir=args.split_dir,
         )
 
     return args
@@ -561,7 +546,7 @@ def apply_task_configuration(args):
 
 def prepare_controlled_train_data(args):
     """Generate the configured controlled split before building train dataloaders."""
-    if not getattr(args, "train_control_split_enabled", False):
+    if not args.train_control_split_enabled:
         return args
 
     from data.split.controlled import prepare_controlled_train_data as _prepare
@@ -623,16 +608,16 @@ def use_official_model15_lr_mode(model_type):
 
 
 def apply_model15_lr_defaults(args):
-    if use_official_model15_lr_mode(getattr(args, "model_type", None)):
+    if use_official_model15_lr_mode(args.model_type):
         args.lr = OFFICIAL_MODEL15_BASE_LR
     return args
 
 
 def build_model15_lr_scheduler(args, optimizer, num_train_samples):
-    if not use_official_model15_lr_mode(getattr(args, "model_type", None)):
+    if not use_official_model15_lr_mode(args.model_type):
         return None
 
-    batch_size = max(int(getattr(args, "batch_size", 1)), 1)
+    batch_size = max(int(args.batch_size), 1)
     total_iter = max(1, int(num_train_samples) // batch_size)
     return CosineAnnealingLR(
         optimizer,

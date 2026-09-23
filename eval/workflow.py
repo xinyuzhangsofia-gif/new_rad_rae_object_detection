@@ -77,7 +77,7 @@ def main():
         f"{source_metadata.get('weather_group') or 'not recorded'}"
     )
     print(f"Bus target enabled: {args.include_bus_as_target}")
-    if getattr(args, "train_control_split_enabled", False):
+    if args.train_control_split_enabled:
         print(f"Train control split: {args.train_control_split_dir}")
     if args.gt_object_ignore_override_path is not None:
         print(f"GT object ignore override: {args.gt_object_ignore_override_path}")
@@ -154,7 +154,7 @@ def main():
     if args.table_txt_enabled:
         default_table_txt_path = (
             Path(args.eval_report_path).expanduser().resolve()
-            if getattr(args, "eval_report_path", None) is not None
+            if args.eval_report_path is not None
             else default_eval_table_txt_path(
                 model_variant_name=model_variant_name,
                 val_sequences=args.val_sequences,

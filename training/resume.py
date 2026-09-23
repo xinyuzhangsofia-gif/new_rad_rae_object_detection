@@ -209,7 +209,7 @@ def restore_resume_training_state(*, args, model, optimizer, scheduler, device):
 
 def resolve_resume_checkpoint_directories(args, configured_sequences):
     """Reuse the interrupted run directory or create the standard layout."""
-    if not getattr(args, "resume_save_in_checkpoint_dir", False):
+    if not args.resume_save_in_checkpoint_dir:
         return create_training_checkpoint_directories(args, configured_sequences)
 
     checkpoint_dir = str(
@@ -276,7 +276,7 @@ def main(resume_config=None):
     args = build_resume_args(resume_config=resume_config)
     args.epochs = args.end_epoch
     print(f"Resume checkpoint: {args.resume_checkpoint}")
-    if getattr(args, "training_eval_enabled", True):
+    if args.training_eval_enabled:
         print(f"Initial best checkpoint: {args.initial_best_checkpoint}")
     elif args.initial_best_checkpoint:
         print("Initial best checkpoint: ignored because best selection is disabled")
@@ -294,9 +294,7 @@ def main(resume_config=None):
         args,
         restore_training_state=restore_resume_training_state,
         resolve_checkpoint_directories=resolve_resume_checkpoint_directories,
-        existing_tensorboard_log_dir=getattr(
-            args, "resume_tensorboard_log_dir", None
-        ),
+        existing_tensorboard_log_dir=args.resume_tensorboard_log_dir,
         initialize_best_state_callback=initialize_resume_best_state,
         include_detection_metrics_setting=False,
         report_resume_progress=True,
