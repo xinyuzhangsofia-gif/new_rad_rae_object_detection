@@ -27,6 +27,9 @@ __all__ = [
     'parse_gpu_ids',
     'parse_cuda_choice',
     'select_evaluation_device',
+    'build_evaluation_parser',
+    'collect_explicit_cli_fields',
+    'normalize_evaluation_args',
     'parse_args',
     'normalize_bool_flag',
     'normalize_float_thresholds',
@@ -95,7 +98,7 @@ def select_evaluation_device(cuda_text, gpu_ids_text):
     return torch.device("cpu")
 
 
-def parse_args(argv=None):
+def build_evaluation_parser():
     parser = argparse.ArgumentParser(
         description="Run official K-Radar KITTI-style evaluation."
     )
@@ -291,18 +294,25 @@ def parse_args(argv=None):
         "--evaluation-tensorboard-log-dir",
         default=EVAL_CONFIG["evaluation_tensorboard_log_dir"],
     )
-    cli_args = list(sys.argv[1:] if argv is None else argv)
-    args = parser.parse_args(cli_args)
+    return parser
+
+
+def collect_explicit_cli_fields(parser, cli_args):
+    """Return parser destinations explicitly supplied on the command line."""
     option_destinations = {
         option: action.dest
         for action in parser._actions
         for option in action.option_strings
     }
-    args._explicit_cli_fields = frozenset(
+    return frozenset(
         option_destinations[option]
         for token in cli_args
         if (option := token.split("=", 1)[0]) in option_destinations
     )
+
+
+def normalize_evaluation_args(args):
+    """Normalize and validate parsed standalone evaluation arguments."""
     args.ignore_class_names = tuple(EVAL_CONFIG["ignore_class_names"])
     # Evaluation always keeps object_label=-1 rows.  This is intentionally
     # not exposed as an eval_cfg or command-line switch.
@@ -417,6 +427,14 @@ def parse_args(argv=None):
             f"ignore_mask_expand_ratio must be greater than 0, got {args.ignore_mask_expand_ratio!r}"
         )
     return args
+
+
+def parse_args(argv=None):
+    parser = build_evaluation_parser()
+    cli_args = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(cli_args)
+    args._explicit_cli_fields = collect_explicit_cli_fields(parser, cli_args)
+    return normalize_evaluation_args(args)
 
 
 def normalize_bool_flag(value, name):

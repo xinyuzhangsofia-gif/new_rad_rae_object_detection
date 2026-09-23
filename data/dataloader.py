@@ -128,6 +128,42 @@ def build_detection_dataset_for_sequence(
     return dataset
 
 
+def _build_multisequence_detection_dataset(
+        sequences,
+        *,
+        class_to_idx,
+        ignore_unmapped_classes,
+        ignore_class_names,
+        gt_object_ignore_override_path,
+        scope_mode,
+        box_coordinate_mode,
+        cartesian_gt_root,
+        ignore_object_label_minus_one,
+        ignore_out_of_scope_gt,
+        strict_object_ignore_override=False,
+    ):
+    """Build and combine equivalent per-sequence detection datasets."""
+    sequence_datasets = [
+        build_detection_dataset_for_sequence(
+            sequence=sequence,
+            class_to_idx=class_to_idx,
+            ignore_unmapped_classes=ignore_unmapped_classes,
+            ignore_class_names=ignore_class_names,
+            gt_object_ignore_override_path=gt_object_ignore_override_path,
+            scope_mode=scope_mode,
+            box_coordinate_mode=box_coordinate_mode,
+            cartesian_gt_root=cartesian_gt_root,
+            ignore_object_label_minus_one=ignore_object_label_minus_one,
+            ignore_out_of_scope_gt=ignore_out_of_scope_gt,
+            strict_object_ignore_override=strict_object_ignore_override,
+        )
+        for sequence in sequences
+    ]
+    return KRadarMultiSequenceGTDetectionDataset(
+        sequence_datasets=sequence_datasets
+    )
+
+
 def build_train_val_dataloaders(
     batch_size,
     seed,
@@ -165,66 +201,46 @@ def build_train_val_dataloaders(
         train_sequences=train_sequences,
         val_sequences=val_sequences,
     )
-    sequence_datasets = [
-        build_detection_dataset_for_sequence(
-            sequence=sequence,
+    full_dataset = _build_multisequence_detection_dataset(
+        dataset_sequences,
+        class_to_idx=class_to_idx,
+        ignore_unmapped_classes=ignore_unmapped_classes,
+        ignore_class_names=ignore_class_names,
+        gt_object_ignore_override_path=None,
+        scope_mode=scope_mode,
+        box_coordinate_mode=box_coordinate_mode,
+        cartesian_gt_root=cartesian_gt_root,
+        ignore_object_label_minus_one=ignore_object_label_minus_one,
+        ignore_out_of_scope_gt=ignore_out_of_scope_gt,
+    )
+    train_source_dataset = full_dataset
+    if gt_object_ignore_override_path is not None:
+        train_source_dataset = _build_multisequence_detection_dataset(
+            dataset_sequences,
             class_to_idx=class_to_idx,
             ignore_unmapped_classes=ignore_unmapped_classes,
             ignore_class_names=ignore_class_names,
-            gt_object_ignore_override_path=None,
+            gt_object_ignore_override_path=gt_object_ignore_override_path,
             scope_mode=scope_mode,
             box_coordinate_mode=box_coordinate_mode,
             cartesian_gt_root=cartesian_gt_root,
             ignore_object_label_minus_one=ignore_object_label_minus_one,
             ignore_out_of_scope_gt=ignore_out_of_scope_gt,
         )
-        for sequence in dataset_sequences
-    ]
-    full_dataset = KRadarMultiSequenceGTDetectionDataset(
-        sequence_datasets=sequence_datasets
-    )
-    train_source_dataset = full_dataset
-    if gt_object_ignore_override_path is not None:
-        controlled_sequence_datasets = [
-            build_detection_dataset_for_sequence(
-                sequence=sequence,
-                class_to_idx=class_to_idx,
-                ignore_unmapped_classes=ignore_unmapped_classes,
-                ignore_class_names=ignore_class_names,
-                gt_object_ignore_override_path=gt_object_ignore_override_path,
-                scope_mode=scope_mode,
-                box_coordinate_mode=box_coordinate_mode,
-                cartesian_gt_root=cartesian_gt_root,
-                ignore_object_label_minus_one=ignore_object_label_minus_one,
-                ignore_out_of_scope_gt=ignore_out_of_scope_gt,
-            )
-            for sequence in dataset_sequences
-        ]
-        train_source_dataset = KRadarMultiSequenceGTDetectionDataset(
-            sequence_datasets=controlled_sequence_datasets
-        )
     eval_source_dataset = full_dataset
     if eval_gt_object_ignore_override_path is not None:
-        eval_sequence_datasets = [
-            build_detection_dataset_for_sequence(
-                sequence=sequence,
-                class_to_idx=class_to_idx,
-                ignore_unmapped_classes=ignore_unmapped_classes,
-                ignore_class_names=ignore_class_names,
-                gt_object_ignore_override_path=(
-                    eval_gt_object_ignore_override_path
-                ),
-                scope_mode=scope_mode,
-                box_coordinate_mode=box_coordinate_mode,
-                cartesian_gt_root=cartesian_gt_root,
-                ignore_object_label_minus_one=ignore_object_label_minus_one,
-                ignore_out_of_scope_gt=ignore_out_of_scope_gt,
-                strict_object_ignore_override=True,
-            )
-            for sequence in dataset_sequences
-        ]
-        eval_source_dataset = KRadarMultiSequenceGTDetectionDataset(
-            sequence_datasets=eval_sequence_datasets
+        eval_source_dataset = _build_multisequence_detection_dataset(
+            dataset_sequences,
+            class_to_idx=class_to_idx,
+            ignore_unmapped_classes=ignore_unmapped_classes,
+            ignore_class_names=ignore_class_names,
+            gt_object_ignore_override_path=eval_gt_object_ignore_override_path,
+            scope_mode=scope_mode,
+            box_coordinate_mode=box_coordinate_mode,
+            cartesian_gt_root=cartesian_gt_root,
+            ignore_object_label_minus_one=ignore_object_label_minus_one,
+            ignore_out_of_scope_gt=ignore_out_of_scope_gt,
+            strict_object_ignore_override=True,
         )
 
     train_indices, val_indices = build_split_indices(
@@ -332,26 +348,20 @@ def build_evaluation_dataloader(
                 "Evaluation object-ignore override contains sequences outside "
                 f"eval_val_sequences: {extra_sequences}"
             )
-    sequence_datasets = [
-        build_detection_dataset_for_sequence(
-            sequence=sequence,
-            class_to_idx=class_to_idx,
-            ignore_unmapped_classes=ignore_unmapped_classes,
-            ignore_class_names=ignore_class_names,
-            gt_object_ignore_override_path=gt_object_ignore_override_path,
-            scope_mode=scope_mode,
-            box_coordinate_mode=box_coordinate_mode,
-            cartesian_gt_root=cartesian_gt_root,
-            ignore_object_label_minus_one=ignore_object_label_minus_one,
-            ignore_out_of_scope_gt=ignore_out_of_scope_gt,
-            strict_object_ignore_override=(
-                gt_object_ignore_override_path is not None
-            ),
-        )
-        for sequence in val_sequences
-    ]
-    full_dataset = KRadarMultiSequenceGTDetectionDataset(
-        sequence_datasets=sequence_datasets
+    full_dataset = _build_multisequence_detection_dataset(
+        val_sequences,
+        class_to_idx=class_to_idx,
+        ignore_unmapped_classes=ignore_unmapped_classes,
+        ignore_class_names=ignore_class_names,
+        gt_object_ignore_override_path=gt_object_ignore_override_path,
+        scope_mode=scope_mode,
+        box_coordinate_mode=box_coordinate_mode,
+        cartesian_gt_root=cartesian_gt_root,
+        ignore_object_label_minus_one=ignore_object_label_minus_one,
+        ignore_out_of_scope_gt=ignore_out_of_scope_gt,
+        strict_object_ignore_override=(
+            gt_object_ignore_override_path is not None
+        ),
     )
     if frame_manifest_path is None:
         val_indices = list(range(len(full_dataset)))

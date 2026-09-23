@@ -102,7 +102,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 | 文件 | 本主线内的职责/函数 |
 | --- | --- |
 | `data/dataset.py` | `KRadarRADRAEDataset`、`KRadarGTDetectionDataset`、`KRadarMultiSequenceGTDetectionDataset`：配对帧、应用类别/ignore 规则并返回样本。 |
-| `data/dataloader.py` | `detection_collate`、数据集工厂、训练/评估 DataLoader 与 `prepare_model_inputs`。 |
+| `data/dataloader.py` | `detection_collate`、单序列/共享多序列数据集工厂、训练/评估 DataLoader 与 `prepare_model_inputs`。 |
 | `data/labels.py` | `load_cartesian_gt` 读取规范的平铺 GT；各 `read_*` 函数只解析对应 Cartesian 标签。 |
 | `data/paths.py` | `get_cartesian_gt_path` 构造序列对应的 Cartesian GT 路径；雷达根目录由 `configs/data.py` 直接提供。 |
 | `visualization/paths.py` | 原始传感器输入、标签目录、相机目录和可视化输出路径。 |
@@ -234,7 +234,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | --- | --- | --- |
 | [data/__init__.py](../data/__init__.py) | 声明 Python 包边界，支持稳定的导入及模块式命令。 | 保留包边界和公开导出。 |
 | [data/coordinates.py](../data/coordinates.py) | 雷达轴、RAE scope、坐标转换、RAD/RAE 裁剪和网格定位。 | 保留坐标定义职责。 |
-| [data/dataloader.py](../data/dataloader.py) | 拼接样本、创建数据集/DataLoader 并准备模型输入。 | 保留单一 DataLoader 入口；普通划分委托给 `data/split/`。 |
+| [data/dataloader.py](../data/dataloader.py) | 拼接样本，通过私有多序列工厂复用逐序列数据集构造，创建训练/评估 DataLoader 并准备模型输入。 | 保留训练与严格独立评估两个公共 DataLoader 契约；普通划分委托给 `data/split/`。 |
 | [data/dataset.py](../data/dataset.py) | 三个数据集类；只负责雷达/GT 配对、类别及 ignore 策略和样本字段。 | 已按职责精简；35 个样本字段保持不变。 |
 | [data/geometry.py](../data/geometry.py) | 供数据、训练和评估共享的 RAE 网格、米制 Cartesian 转换、FOV 与框张量构造。 | 保留共享数学实现，避免 Dataset 内重复。 |
 | [data/ignore_overrides.py](../data/ignore_overrides.py) | 加载并严格校验逐目标忽略规则。 | 保留独立策略边界。 |
@@ -314,7 +314,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [eval/decoding.py](../eval/decoding.py) | 将模型输出转换为米制框和分数，并执行热力图处理、质量融合、NMS 和范围过滤。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/domain_shift_tables.py](../eval/domain_shift_tables.py) | 维护域注册、模型配置身份、best-BEV/best-3D/best-overall 比较表、JSON 记录与 CLI。 | 保留原子写、`fcntl` 锁、输出层级和旧表转换。 |
 | [eval/distance_quartiles.py](../eval/distance_quartiles.py) | 从 GT 推导保留并列值的距离四分位，并过滤评估状态。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [eval/configuration.py](../eval/configuration.py) | 从 `configs/evaluation.py` 的静态默认值解析 CLI，标准化和校验参数、选择设备并解析类别映射。 | `eval/checkpoints.py` 负责检查点继承；`eval/runner.py` 执行评估，`eval/workflow.py` 编排流程。 |
+| [eval/configuration.py](../eval/configuration.py) | 从 `configs/evaluation.py` 的静态默认值构建 parser，跟踪显式 CLI 字段，并独立完成参数标准化/校验、设备选择和类别映射。 | `eval/checkpoints.py` 负责检查点继承；`eval/runner.py` 执行评估，`eval/workflow.py` 编排流程。 |
 | [eval/inference.py](../eval/inference.py) | 统一准备批次输入、执行 `model.eval()`/无梯度前向，并把原始输出交给 canonical decoder。 | 评估、主可视化和多传感器检查点预测共同使用。 |
 | [eval/kitti_eval/axis_aligned_iou.py](../eval/kitti_eval/axis_aligned_iou.py) | 与旋转 IoU 接口兼容的轴对齐 BEV 重叠后端。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
 | [eval/kitti_eval/eval_revised.py](../eval/kitti_eval/eval_revised.py) | 修订版官方 KITTI/K-Radar AP：重叠计算、匹配、难度过滤和结果格式化。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
@@ -330,7 +330,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [eval/domain_shift_summaries.py](../eval/domain_shift_summaries.py) | 解析 source/target TXT、按完整历史身份配对，写 weather 和 `total_result.txt`。 | 保留 TD=target-source、天气/seed 排序和 sample std。 |
 | [eval/result_metadata.py](../eval/result_metadata.py) | 计算训练/测试帧和 Sedan/Bus 框数量 metadata。 | 不计算 AP 或改变数据划分。 |
 | [eval/runner.py](../eval/runner.py) | 组织多个检查点的独立评估，以及图片、表格、TensorBoard、YAML 和域比较输出。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
-| [eval/workflow.py](../eval/workflow.py) | 实现根目录 `evaluation.py` 命令使用的独立检查点评估工作流。 | 保留：实际共享功能；减少重复实现，不为缩短文件强行合并。 |
+| [eval/workflow.py](../eval/workflow.py) | 为根目录 `evaluation.py` 提供高层编排，并将配置打印、输出路径、标准评估、group-best 两阶段评估和报告输出分配给明确 helper。 | TensorBoard writer 由入口统一创建并在 `finally` 中关闭；具体评估和报告算法仍由既有模块负责。 |
 
 ### scripts
 
@@ -411,6 +411,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [tests/test_evaluate_quartile_experiments.py](../tests/test_evaluate_quartile_experiments.py) | 四分位启动器元数据、相对下降、状态和表格。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
 | [tests/test_experiment_analysis_infrastructure.py](../tests/test_experiment_analysis_infrastructure.py) | 完成检查点/配对、四分位命令公共段、CUDA 环境、报告 metadata、结果复用及失败状态。 | 保留四分位仍需的基础设施等价性覆盖。 |
 | [tests/test_evaluation_reporting_paths.py](../tests/test_evaluation_reporting_paths.py) | 评估目录命名、天气汇总、TensorBoard 路径和绘图选择。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |
+| [tests/test_evaluation_workflow.py](../tests/test_evaluation_workflow.py) | 标准与 group-best 编排、输出调用、TensorBoard 写入及异常关闭。 | 使用 mock 验证工作流，不加载真实数据或 GPU。 |
 | [tests/test_reporting_architecture.py](../tests/test_reporting_architecture.py) | 报告 facade、路径、TXT/YAML 历史兼容、配对/TD、tie-break 和 TensorBoard tags。 | Step 6 黄金行为回归；不运行数据集评估。 |
 | [tests/test_experiment_path_layout.py](../tests/test_experiment_path_layout.py) | 活动实验目录、四分位默认路径、表顺序、历史记录路径映射和旧路径扫描。 | 路径迁移回归；不运行训练或评估。 |
 | [tests/test_experiment_queue.py](../tests/test_experiment_queue.py) | 实验表解析、校验、调度、恢复、worker 协调和结果更新。 | 保留回归测试；使用临时数据，不依赖私人运行状态。 |

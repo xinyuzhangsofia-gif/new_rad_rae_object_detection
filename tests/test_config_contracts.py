@@ -10,7 +10,11 @@ from unittest import mock
 from configs import data
 from configs.domain_shift import DOMAIN_SHIFT_CONFIG, EXPERIMENT_QUEUE_CONFIG
 from configs.evaluation import EVAL_CONFIG
-from eval.configuration import parse_args, parse_cuda_choice
+from eval.configuration import (
+    build_evaluation_parser,
+    parse_args,
+    parse_cuda_choice,
+)
 from eval.checkpoints import (
     CHECKPOINT_INHERITABLE_FIELDS,
     should_inherit_from_checkpoint,
@@ -28,6 +32,42 @@ from visualize_cfg import VISUALIZE_CONFIG
 
 
 class ConfigContractTests(unittest.TestCase):
+    def test_evaluation_parser_and_post_parse_contracts(self):
+        parser_defaults = build_evaluation_parser().parse_args([])
+        self.assertEqual(
+            parser_defaults.checkpoint_root,
+            EVAL_CONFIG["checkpoint_root"],
+        )
+        self.assertEqual(parser_defaults.batch_size, EVAL_CONFIG["batch_size"])
+
+        args = parse_args([
+            "--batch-size=7",
+            "--val-sequences=2,3",
+            "--table-txt-enabled=false",
+            "--eval-report-path=/tmp/evaluation.txt",
+        ])
+        self.assertEqual(args.batch_size, 7)
+        self.assertEqual(args.val_sequences, "2,3")
+        self.assertEqual(
+            args._explicit_cli_fields,
+            frozenset({
+                "batch_size",
+                "val_sequences",
+                "table_txt_enabled",
+                "eval_report_path",
+            }),
+        )
+        self.assertTrue(args.table_txt_enabled)
+        self.assertFalse(should_inherit_from_checkpoint("val_sequences", args))
+
+        with self.assertRaisesRegex(ValueError, "start_epoch"):
+            parse_args(["--start-epoch", "10", "--end-epoch", "9"])
+        with self.assertRaisesRegex(ValueError, "custom_iou_thresholds is empty"):
+            parse_args([
+                "--custom-iou-range-eval-enabled", "true",
+                "--custom-iou-thresholds", "",
+            ])
+
     def test_evaluation_defaults_cli_and_checkpoint_precedence(self):
         with mock.patch.object(sys, "argv", ["evaluation.py"]):
             defaults = parse_args()

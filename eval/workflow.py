@@ -44,33 +44,15 @@ from eval.runner import (
 )
 
 
-def main():
-    args = parse_args()
-    context = build_eval_context(args)
-    args = context["args"]
-    device = context["device"]
-    checkpoint_paths = context["checkpoint_paths"]
-    model_type = context["model_type"]
-    model_variant_name = context["model_variant_name"]
-    source_metadata = context["source_metadata"]
-    plot_metadata = context["plot_metadata"]
-    split_statistics_metadata = context["split_statistics_metadata"]
-    validation_loader = context["validation_loader"]
-    model = context["model"]
-    evaluation_tensorboard_writer, evaluation_tensorboard_log_dir = (
-        create_evaluation_tensorboard_writer(
-            args=args,
-            model_variant_name=model_variant_name,
-            source_metadata=source_metadata,
-        )
-    )
-    print(f"Evaluation TensorBoard log dir: {evaluation_tensorboard_log_dir}")
-    group_plot_best_only_mode = group_checkpoint_plot_best_only_active(
-        args, checkpoint_paths
-    )
-    default_plot_output_path = None
-    default_table_txt_path = None
-
+def print_evaluation_configuration(
+        args,
+        *,
+        device,
+        checkpoint_paths,
+        source_metadata,
+        group_plot_best_only_mode,
+    ):
+    """Print the resolved standalone evaluation configuration."""
     print(f"Evaluation classes: {args.class_names}")
     print(
         "Checkpoint weather group: "
@@ -83,12 +65,14 @@ def main():
         print(f"GT object ignore override: {args.gt_object_ignore_override_path}")
     print(f"Ignore-mask classes: {args.ignore_class_names}")
     print(
-        f"Ignore-mask region: GT box * {args.ignore_mask_expand_ratio} + margin {args.ignore_mask_margin}"
+        f"Ignore-mask region: GT box * {args.ignore_mask_expand_ratio} "
+        f"+ margin {args.ignore_mask_margin}"
     )
     if args.eval_ignore_suppress_enabled:
         print(
             "Eval ignore suppression: enabled "
-            f"(expand_ratio={args.eval_ignore_expand_ratio}, margin={args.eval_ignore_suppress_margin})"
+            f"(expand_ratio={args.eval_ignore_expand_ratio}, "
+            f"margin={args.eval_ignore_suppress_margin})"
         )
     print(f"Using evaluation device: {device}")
     print(f"Evaluation scope: {args.eval_scope}")
@@ -104,7 +88,8 @@ def main():
         end_epoch = args.end_epoch if args.end_epoch is not None else "latest"
         print(f"Evaluation epoch range: {start_epoch}-{end_epoch}")
     print(
-        f"Official K-Radar AP: {'enabled' if args.official_eval_enabled else 'disabled'}"
+        f"Official K-Radar AP: "
+        f"{'enabled' if args.official_eval_enabled else 'disabled'}"
         f" ({args.official_geometry_source})"
     )
     if args.official_eval_enabled:
@@ -131,11 +116,26 @@ def main():
             f"(select by {selection_labels})."
         )
     print(
-        f"Evaluating {len(checkpoint_paths)} checkpoint(s) from {args.checkpoint_root}",
+        f"Evaluating {len(checkpoint_paths)} checkpoint(s) "
+        f"from {args.checkpoint_root}",
         flush=True,
     )
+
+
+def resolve_evaluation_output_paths(
+        args,
+        *,
+        checkpoint_paths,
+        model_type,
+        model_variant_name,
+        source_metadata,
+        group_plot_best_only_mode,
+    ):
+    """Resolve standard plot and TXT paths through canonical path helpers."""
+    plot_output_path = None
+    table_txt_path = None
     if not group_plot_best_only_mode and plot_output_requested(args.plot_output):
-        default_plot_output_path = resolve_plot_output_path(
+        plot_output_path = resolve_plot_output_path(
             args=args,
             checkpoint_paths=checkpoint_paths,
             model_type=model_type,
@@ -149,10 +149,11 @@ def main():
             ),
             seed=source_metadata.get("seed", args.seed),
         )
-        if default_plot_output_path is not None:
-            print(f"Plot output path: {default_plot_output_path}", flush=True)
+        if plot_output_path is not None:
+            print(f"Plot output path: {plot_output_path}", flush=True)
+
     if args.table_txt_enabled:
-        default_table_txt_path = (
+        table_txt_path = (
             Path(args.eval_report_path).expanduser().resolve()
             if args.eval_report_path is not None
             else default_eval_table_txt_path(
@@ -187,134 +188,21 @@ def main():
                 ),
             )
         )
-        print(f"Table txt path: {default_table_txt_path}", flush=True)
+        print(f"Table txt path: {table_txt_path}", flush=True)
+    return plot_output_path, table_txt_path
 
-    if group_plot_best_only_mode:
-        selection_results = []
-        selection_iou_mode = selection_iou_mode_for_group_plot(args)
-        print(
-            f"Selection pass IoU mode: {selection_iou_mode} "
-            "(detection/custom/nuScenes follow eval_cfg; "
-            "COCO and loss remain disabled for this pass)."
-        )
-        for epoch, checkpoint_path in tqdm.tqdm(
-            checkpoint_paths,
-            desc="Checkpoint selection",
-            ncols=120,
-        ):
-            result = evaluate_checkpoint_result(
-                model=model,
-                checkpoint_path=checkpoint_path,
-                epoch=epoch,
-                validation_loader=validation_loader,
-                device=device,
-                model_type=model_type,
-                args=args,
-                official_eval_iou_mode=selection_iou_mode,
-                official_detection_metrics_enabled=(
-                    args.official_detection_metrics_enabled
-                ),
-                custom_iou_range_eval_enabled=(
-                    args.custom_iou_range_eval_enabled
-                ),
-                coco_style_eval_enabled=False,
-                nuscenes_style_eval_enabled=(
-                    args.nuscenes_style_eval_enabled
-                ),
-            )
-            selection_results.append(result)
-            write_evaluation_tensorboard_result(
-                evaluation_tensorboard_writer,
-                result,
-            )
-            print_checkpoint_metrics(int(epoch), result)
 
-        for metric_key, selection_tag in group_plot_selection_specs(args):
-            best_metric_result = select_best_result_by_metric(
-                selection_results,
-                metric_key,
-            )
-            if best_metric_result is None:
-                continue
-            print(
-                f"{selection_tag}:",
-                f"epoch={best_metric_result['epoch']}",
-                f"{metric_key}={official_ap_text(best_metric_result.get(metric_key))}",
-            )
-
-        selected_entries = build_group_plot_selection_entries(
-            selection_results,
-            args,
-        )
-        for entry in selected_entries:
-            selection_label = ", ".join(entry["selection_tags"])
-            selected_result = entry["result"]
-            print(
-                "Running full export evaluation for selected checkpoint:",
-                f"epoch={selected_result['epoch']}",
-                f"selection={selection_label}",
-            )
-            full_result = evaluate_checkpoint_result(
-                model=model,
-                checkpoint_path=selected_result["checkpoint_path"],
-                epoch=selected_result["epoch"],
-                validation_loader=validation_loader,
-                device=device,
-                model_type=model_type,
-                args=args,
-            )
-            entry["result"] = full_result
-            write_evaluation_tensorboard_result(
-                evaluation_tensorboard_writer,
-                full_result,
-                namespace="evaluation_selected",
-            )
-            print_checkpoint_metrics(int(full_result["epoch"]), full_result)
-
-        if len(selection_results) > 0 and default_table_txt_path is not None:
-            table_metadata = build_eval_table_metadata(
-                args=args,
-                model_variant_name=model_variant_name,
-                source_metadata=source_metadata,
-                results=selection_results,
-                split_statistics_metadata=split_statistics_metadata,
-                group_checkpoint_plot_best_only=True,
-            )
-            saved_table_path = save_eval_table_txt(
-                selection_results,
-                default_table_txt_path,
-                metadata=table_metadata,
-                selected_full_rows=[
-                    entry["result"]
-                    for entry in selected_entries
-                ],
-            )
-            print(f"Saved evaluation table txt: {saved_table_path}")
-            summary_path = refresh_weather_domain_shift_summary(
-                base_dir=args.table_output_base_dir,
-                weather_group=source_metadata.get("weather_group"),
-            )
-            if summary_path is not None:
-                print(f"Updated domain-shift summary txt: {summary_path}")
-
-        save_group_best_only_plot_exports(
-            selected_entries=selected_entries,
-            checkpoint_paths=checkpoint_paths,
-            model_type=model_type,
-            args=args,
-            plot_metadata=plot_metadata,
-            source_metadata=source_metadata,
-        )
-        update_domain_comparison_outputs(
-            results=selection_results,
-            args=args,
-            model_type=model_type,
-            model_variant_name=model_variant_name,
-            source_metadata=source_metadata,
-        )
-        evaluation_tensorboard_writer.close()
-        return
-
+def run_standard_evaluation(
+        *,
+        checkpoint_paths,
+        model,
+        validation_loader,
+        device,
+        model_type,
+        args,
+        tensorboard_writer,
+    ):
+    """Evaluate checkpoints in their existing order and report each result."""
     results = []
     for epoch, checkpoint_path in tqdm.tqdm(
         checkpoint_paths,
@@ -331,56 +219,248 @@ def main():
             args=args,
         )
         results.append(result)
-        write_evaluation_tensorboard_result(
-            evaluation_tensorboard_writer,
-            result,
+        write_evaluation_tensorboard_result(tensorboard_writer, result)
+        print_checkpoint_metrics(int(epoch), result)
+    return results
+
+
+def _refresh_weather_summary(args, source_metadata):
+    summary_path = refresh_weather_domain_shift_summary(
+        base_dir=args.table_output_base_dir,
+        weather_group=source_metadata.get("weather_group"),
+    )
+    if summary_path is not None:
+        print(f"Updated domain-shift summary txt: {summary_path}")
+
+
+def save_standard_table_output(
+        results,
+        table_txt_path,
+        *,
+        args,
+        model_variant_name,
+        source_metadata,
+        split_statistics_metadata,
+    ):
+    """Save the ordinary multi-checkpoint TXT table and weather summary."""
+    if not results or table_txt_path is None:
+        return
+    table_metadata = build_eval_table_metadata(
+        args=args,
+        model_variant_name=model_variant_name,
+        source_metadata=source_metadata,
+        results=results,
+        split_statistics_metadata=split_statistics_metadata,
+    )
+    saved_table_path = save_eval_table_txt(
+        results,
+        table_txt_path,
+        metadata=table_metadata,
+    )
+    print(f"Saved evaluation table txt: {saved_table_path}")
+    _refresh_weather_summary(args, source_metadata)
+
+
+def save_standard_plot_outputs(results, plot_output_path, plot_metadata):
+    """Save the ordinary multi-checkpoint PNG and YAML exports."""
+    if plot_output_path is None:
+        return
+    output_dir = os.path.dirname(plot_output_path)
+    if output_dir != "":
+        os.makedirs(output_dir, exist_ok=True)
+    save_evaluation_plot(
+        results,
+        plot_output_path,
+        plot_metadata=plot_metadata,
+    )
+    yaml_output_path = resolve_yaml_output_path(plot_output_path)
+    save_evaluation_yaml(results, yaml_output_path, plot_metadata=plot_metadata)
+    print(f"Saved evaluation plot: {plot_output_path}")
+    print(f"Saved evaluation YAML: {yaml_output_path}")
+
+
+def print_standard_best_result(results):
+    if not results:
+        return
+    best_result = select_best_main_metric_result(results)
+    best_metric_key = result_main_metric_key(best_result)
+    print(
+        "best_epoch:",
+        f"epoch={best_result['epoch']}",
+        f"{best_metric_key}="
+        f"{official_ap_text(result_main_metric_value(best_result))}",
+    )
+
+
+def run_group_best_evaluation(
+        *,
+        checkpoint_paths,
+        model,
+        validation_loader,
+        device,
+        model_type,
+        model_variant_name,
+        args,
+        tensorboard_writer,
+        table_txt_path,
+        plot_metadata,
+        source_metadata,
+        split_statistics_metadata,
+    ):
+    """Run group selection, selected full evaluation, and group exports."""
+    selection_results = []
+    selection_iou_mode = selection_iou_mode_for_group_plot(args)
+    print(
+        f"Selection pass IoU mode: {selection_iou_mode} "
+        "(detection/custom/nuScenes follow eval_cfg; "
+        "COCO and loss remain disabled for this pass)."
+    )
+    for epoch, checkpoint_path in tqdm.tqdm(
+        checkpoint_paths,
+        desc="Checkpoint selection",
+        ncols=120,
+    ):
+        result = evaluate_checkpoint_result(
+            model=model,
+            checkpoint_path=checkpoint_path,
+            epoch=epoch,
+            validation_loader=validation_loader,
+            device=device,
+            model_type=model_type,
+            args=args,
+            official_eval_iou_mode=selection_iou_mode,
+            official_detection_metrics_enabled=(
+                args.official_detection_metrics_enabled
+            ),
+            custom_iou_range_eval_enabled=(
+                args.custom_iou_range_eval_enabled
+            ),
+            coco_style_eval_enabled=False,
+            nuscenes_style_eval_enabled=(
+                args.nuscenes_style_eval_enabled
+            ),
         )
+        selection_results.append(result)
+        write_evaluation_tensorboard_result(tensorboard_writer, result)
         print_checkpoint_metrics(int(epoch), result)
 
-    if len(results) > 0:
-        best_result = select_best_main_metric_result(results)
-        best_metric_key = result_main_metric_key(best_result)
+    for metric_key, selection_tag in group_plot_selection_specs(args):
+        best_metric_result = select_best_result_by_metric(
+            selection_results,
+            metric_key,
+        )
+        if best_metric_result is None:
+            continue
         print(
-            "best_epoch:",
-            f"epoch={best_result['epoch']}",
-            f"{best_metric_key}="
-            f"{official_ap_text(result_main_metric_value(best_result))}",
+            f"{selection_tag}:",
+            f"epoch={best_metric_result['epoch']}",
+            f"{metric_key}={official_ap_text(best_metric_result.get(metric_key))}",
         )
-        if default_table_txt_path is not None:
-            table_metadata = build_eval_table_metadata(
-                args=args,
-                model_variant_name=model_variant_name,
-                source_metadata=source_metadata,
-                results=results,
-                split_statistics_metadata=split_statistics_metadata,
-            )
-            saved_table_path = save_eval_table_txt(
-                results,
-                default_table_txt_path,
-                metadata=table_metadata,
-            )
-            print(f"Saved evaluation table txt: {saved_table_path}")
-            summary_path = refresh_weather_domain_shift_summary(
-                base_dir=args.table_output_base_dir,
-                weather_group=source_metadata.get("weather_group"),
-            )
-            if summary_path is not None:
-                print(f"Updated domain-shift summary txt: {summary_path}")
 
-    if default_plot_output_path is not None:
-        output_dir = os.path.dirname(default_plot_output_path)
-        if output_dir != "":
-            os.makedirs(output_dir, exist_ok=True)
-        save_evaluation_plot(
-            results,
-            default_plot_output_path,
-            plot_metadata=plot_metadata,
+    selected_entries = build_group_plot_selection_entries(
+        selection_results,
+        args,
+    )
+    for entry in selected_entries:
+        selection_label = ", ".join(entry["selection_tags"])
+        selected_result = entry["result"]
+        print(
+            "Running full export evaluation for selected checkpoint:",
+            f"epoch={selected_result['epoch']}",
+            f"selection={selection_label}",
         )
-        yaml_output_path = resolve_yaml_output_path(default_plot_output_path)
-        save_evaluation_yaml(results, yaml_output_path, plot_metadata=plot_metadata)
-        print(f"Saved evaluation plot: {default_plot_output_path}")
-        print(f"Saved evaluation YAML: {yaml_output_path}")
+        full_result = evaluate_checkpoint_result(
+            model=model,
+            checkpoint_path=selected_result["checkpoint_path"],
+            epoch=selected_result["epoch"],
+            validation_loader=validation_loader,
+            device=device,
+            model_type=model_type,
+            args=args,
+        )
+        entry["result"] = full_result
+        write_evaluation_tensorboard_result(
+            tensorboard_writer,
+            full_result,
+            namespace="evaluation_selected",
+        )
+        print_checkpoint_metrics(int(full_result["epoch"]), full_result)
 
+    if selection_results and table_txt_path is not None:
+        table_metadata = build_eval_table_metadata(
+            args=args,
+            model_variant_name=model_variant_name,
+            source_metadata=source_metadata,
+            results=selection_results,
+            split_statistics_metadata=split_statistics_metadata,
+            group_checkpoint_plot_best_only=True,
+        )
+        saved_table_path = save_eval_table_txt(
+            selection_results,
+            table_txt_path,
+            metadata=table_metadata,
+            selected_full_rows=[
+                entry["result"]
+                for entry in selected_entries
+            ],
+        )
+        print(f"Saved evaluation table txt: {saved_table_path}")
+        _refresh_weather_summary(args, source_metadata)
+
+    save_group_best_only_plot_exports(
+        selected_entries=selected_entries,
+        checkpoint_paths=checkpoint_paths,
+        model_type=model_type,
+        args=args,
+        plot_metadata=plot_metadata,
+        source_metadata=source_metadata,
+    )
+    update_domain_comparison_outputs(
+        results=selection_results,
+        args=args,
+        model_type=model_type,
+        model_variant_name=model_variant_name,
+        source_metadata=source_metadata,
+    )
+    return selection_results
+
+
+def run_standard_evaluation_workflow(
+        *,
+        checkpoint_paths,
+        model,
+        validation_loader,
+        device,
+        model_type,
+        model_variant_name,
+        args,
+        tensorboard_writer,
+        plot_output_path,
+        table_txt_path,
+        plot_metadata,
+        source_metadata,
+        split_statistics_metadata,
+    ):
+    """Run ordinary checkpoint evaluation and its standard report outputs."""
+    results = run_standard_evaluation(
+        checkpoint_paths=checkpoint_paths,
+        model=model,
+        validation_loader=validation_loader,
+        device=device,
+        model_type=model_type,
+        args=args,
+        tensorboard_writer=tensorboard_writer,
+    )
+    print_standard_best_result(results)
+    save_standard_table_output(
+        results,
+        table_txt_path,
+        args=args,
+        model_variant_name=model_variant_name,
+        source_metadata=source_metadata,
+        split_statistics_metadata=split_statistics_metadata,
+    )
+    save_standard_plot_outputs(results, plot_output_path, plot_metadata)
     update_domain_comparison_outputs(
         results=results,
         args=args,
@@ -388,7 +468,73 @@ def main():
         model_variant_name=model_variant_name,
         source_metadata=source_metadata,
     )
-    evaluation_tensorboard_writer.close()
+    return results
+
+
+def main():
+    context = build_eval_context(parse_args())
+    args = context["args"]
+    checkpoint_paths = context["checkpoint_paths"]
+    source_metadata = context["source_metadata"]
+    writer, log_dir = create_evaluation_tensorboard_writer(
+        args=args,
+        model_variant_name=context["model_variant_name"],
+        source_metadata=source_metadata,
+    )
+    try:
+        print(f"Evaluation TensorBoard log dir: {log_dir}")
+        group_best_mode = group_checkpoint_plot_best_only_active(
+            args,
+            checkpoint_paths,
+        )
+        print_evaluation_configuration(
+            args,
+            device=context["device"],
+            checkpoint_paths=checkpoint_paths,
+            source_metadata=source_metadata,
+            group_plot_best_only_mode=group_best_mode,
+        )
+        plot_path, table_path = resolve_evaluation_output_paths(
+            args,
+            checkpoint_paths=checkpoint_paths,
+            model_type=context["model_type"],
+            model_variant_name=context["model_variant_name"],
+            source_metadata=source_metadata,
+            group_plot_best_only_mode=group_best_mode,
+        )
+        if group_best_mode:
+            run_group_best_evaluation(
+                checkpoint_paths=checkpoint_paths,
+                model=context["model"],
+                validation_loader=context["validation_loader"],
+                device=context["device"],
+                model_type=context["model_type"],
+                model_variant_name=context["model_variant_name"],
+                args=args,
+                tensorboard_writer=writer,
+                table_txt_path=table_path,
+                plot_metadata=context["plot_metadata"],
+                source_metadata=source_metadata,
+                split_statistics_metadata=context["split_statistics_metadata"],
+            )
+        else:
+            run_standard_evaluation_workflow(
+                checkpoint_paths=checkpoint_paths,
+                model=context["model"],
+                validation_loader=context["validation_loader"],
+                device=context["device"],
+                model_type=context["model_type"],
+                model_variant_name=context["model_variant_name"],
+                args=args,
+                tensorboard_writer=writer,
+                plot_output_path=plot_path,
+                table_txt_path=table_path,
+                plot_metadata=context["plot_metadata"],
+                source_metadata=source_metadata,
+                split_statistics_metadata=context["split_statistics_metadata"],
+            )
+    finally:
+        writer.close()
 
 
 if __name__ == "__main__":

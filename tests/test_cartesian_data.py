@@ -190,6 +190,45 @@ class CartesianDataTests(unittest.TestCase):
         self.assertFalse(hasattr(dataset_module, "KRadarDataset"))
         self.assertIs(dataloader.detection_collate, detection_collate)
 
+    def test_multisequence_builder_forwards_explicit_dataset_semantics(self):
+        class FakeSequenceDataset:
+            def __len__(self):
+                return 1
+
+        sequence_datasets = [FakeSequenceDataset(), FakeSequenceDataset()]
+        with mock.patch.object(
+            dataloader,
+            "build_detection_dataset_for_sequence",
+            side_effect=sequence_datasets,
+        ) as build_sequence:
+            combined = dataloader._build_multisequence_detection_dataset(
+                (1, 2),
+                class_to_idx={"Sedan": 0},
+                ignore_unmapped_classes=True,
+                ignore_class_names=("Pedestrian",),
+                gt_object_ignore_override_path="ignore.json",
+                scope_mode="full",
+                box_coordinate_mode="cartesian",
+                cartesian_gt_root="labels",
+                ignore_object_label_minus_one=False,
+                ignore_out_of_scope_gt=True,
+                strict_object_ignore_override=True,
+            )
+
+        self.assertEqual(combined.sequence_datasets, sequence_datasets)
+        self.assertEqual(
+            [call.kwargs["sequence"] for call in build_sequence.call_args_list],
+            [1, 2],
+        )
+        self.assertTrue(all(
+            call.kwargs["strict_object_ignore_override"]
+            for call in build_sequence.call_args_list
+        ))
+        self.assertTrue(all(
+            call.kwargs["gt_object_ignore_override_path"] == "ignore.json"
+            for call in build_sequence.call_args_list
+        ))
+
     def test_kradar_file_split_and_train_only_ignores_are_preserved(self):
         split = self.root / "split"
         split.mkdir()
