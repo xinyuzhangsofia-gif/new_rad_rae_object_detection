@@ -6,7 +6,6 @@ RESUME_CONFIG_OVERRIDES = {
     "initial_best_checkpoint": None,
     "start_epoch": None,
     "end_epoch": 100,
-    "load_optimizer": True,
     "training_eval_enabled": False,
     "post_training_eval_enabled": False,
     "resume_save_in_checkpoint_dir": True,

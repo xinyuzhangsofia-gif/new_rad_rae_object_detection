@@ -15,8 +15,8 @@ from data.coordinates import SCOPE_FULL, SCOPE_NARROW
 TRAIN_CONFIG = {
     # Cartesian GT only. RAD/RAE radar tensors remain the model inputs.
     "box_coordinate_mode": "cartesian",
-    # radenet, centerpoint without normalization, or auto (model-compatible selection).
-    "loss_mode": "radenet",
+    # radenet, centerpoint, or auto (model-compatible selection).
+    "loss_mode": "centerpoint",
     "cartesian_gt_root": CARTESIAN_GT_ROOT,
 
     # Model and optimization.

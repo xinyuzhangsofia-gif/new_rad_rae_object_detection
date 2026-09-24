@@ -10,7 +10,7 @@ Run commands from the repository root after configuring local data and checkpoin
 | Task | Configuration | Command |
 | --- | --- | --- |
 | Train a detector | Stable defaults in `configs/training.py` | `python train.py` |
-| Resume training | Training defaults from `configs/training.py` plus run-specific overrides in `configs/resume.py` | `python train_resume.py` |
+| Resume training | Strictly restores model and optimizer state, plus scheduler state when the current setup uses one, then continues from the saved epoch | `python train_resume.py` |
 | Evaluate checkpoints | `configs/evaluation.py` and CLI options | `python evaluation.py` |
 | Visualize predictions | `visualize_cfg.py` and CLI options | `python visualize.py` |
 

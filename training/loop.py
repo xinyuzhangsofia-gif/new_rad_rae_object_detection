@@ -13,6 +13,67 @@ from training.losses import (
 )
 
 
+def _compute_detection_loss(
+        *,
+        outputs,
+        batch,
+        loss_mode,
+        num_classes,
+        box_coordinate_mode,
+        box_loss_weight,
+        cls_loss_weight,
+        heatmap_radius,
+        centerpoint_gwd_loss_weight,
+        quality_loss_weight,
+        ignore_mask_margin,
+        ignore_mask_expand_ratio,
+    ):
+    del quality_loss_weight
+    if loss_mode == "yolox":
+        return yolox_detection_loss(
+            outputs=outputs,
+            gt_metric_boxes_list=batch["gt_metric_boxes"],
+            gt_boxes_raw_list=batch["gt_boxes_raw"],
+            gt_labels_list=batch["gt_labels"],
+            gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
+            scope_modes=batch["scope_mode"],
+            full_rae_shapes=batch["full_rae_shape"],
+            num_classes=num_classes,
+            ignore_mask_margin=ignore_mask_margin,
+            ignore_mask_expand_ratio=ignore_mask_expand_ratio,
+        )
+    if loss_mode == "radenet":
+        return radenet_detection_loss(
+            outputs=outputs,
+            gt_boxes_raw_list=batch["gt_boxes_raw"],
+            gt_labels_list=batch["gt_labels"],
+            scope_modes=batch["scope_mode"],
+            full_rae_shapes=batch["full_rae_shape"],
+            gt_metric_boxes_list=batch["gt_metric_boxes"],
+            box_coordinate_mode=box_coordinate_mode,
+            gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
+            num_classes=num_classes,
+            ignore_mask_margin=ignore_mask_margin,
+            ignore_mask_expand_ratio=ignore_mask_expand_ratio,
+        )
+    return cartesian_centerpoint_detection_loss(
+        outputs=outputs,
+        gt_boxes_raw_list=batch["gt_boxes_raw"],
+        gt_metric_boxes_list=batch["gt_metric_boxes"],
+        gt_labels_list=batch["gt_labels"],
+        gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
+        box_loss_weight=box_loss_weight,
+        cls_loss_weight=cls_loss_weight,
+        gwd_loss_weight=centerpoint_gwd_loss_weight,
+        heatmap_radius=heatmap_radius,
+        num_classes=num_classes,
+        scope_modes=batch["scope_mode"],
+        full_rae_shapes=batch["full_rae_shape"],
+        ignore_mask_margin=ignore_mask_margin,
+        ignore_mask_expand_ratio=ignore_mask_expand_ratio,
+    )
+
+
 def train_one_epoch(
         model,
         dataloader,
@@ -54,52 +115,20 @@ def train_one_epoch(
         rad, rae = prepare_model_inputs(batch, device)
         outputs = model(rad, rae)
 
-        if loss_mode == "yolox":
-            loss, loss_dict = yolox_detection_loss(
-                outputs=outputs,
-                gt_metric_boxes_list=batch["gt_metric_boxes"],
-                gt_boxes_raw_list=batch["gt_boxes_raw"],
-                gt_labels_list=batch["gt_labels"],
-                gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
-                scope_modes=batch["scope_mode"],
-                full_rae_shapes=batch["full_rae_shape"],
-                num_classes=num_classes,
-                ignore_mask_margin=ignore_mask_margin,
-                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
-            )
-        elif loss_mode == "radenet":
-            loss, loss_dict = radenet_detection_loss(
-                outputs=outputs,
-                gt_boxes_raw_list=batch["gt_boxes_raw"],
-                gt_labels_list=batch["gt_labels"],
-                scope_modes=batch["scope_mode"],
-                full_rae_shapes=batch["full_rae_shape"],
-                gt_metric_boxes_list=batch["gt_metric_boxes"],
-                box_coordinate_mode=box_coordinate_mode,
-                gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
-                num_classes=num_classes,
-                ignore_mask_margin=ignore_mask_margin,
-                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
-            )
-        else:
-            loss, loss_dict = cartesian_centerpoint_detection_loss(
-                outputs=outputs,
-                gt_boxes_raw_list=batch["gt_boxes_raw"],
-                gt_metric_boxes_list=batch["gt_metric_boxes"],
-                gt_labels_list=batch["gt_labels"],
-                gt_ignore_boxes_raw_list=batch.get(
-                    "gt_ignore_boxes_raw"
-                ),
-                box_loss_weight=box_loss_weight,
-                cls_loss_weight=cls_loss_weight,
-                gwd_loss_weight=centerpoint_gwd_loss_weight,
-                heatmap_radius=heatmap_radius,
-                num_classes=num_classes,
-                scope_modes=batch["scope_mode"],
-                full_rae_shapes=batch["full_rae_shape"],
-                ignore_mask_margin=ignore_mask_margin,
-                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
-            )
+        loss, loss_dict = _compute_detection_loss(
+            outputs=outputs,
+            batch=batch,
+            loss_mode=loss_mode,
+            num_classes=num_classes,
+            box_coordinate_mode=box_coordinate_mode,
+            box_loss_weight=box_loss_weight,
+            cls_loss_weight=cls_loss_weight,
+            heatmap_radius=heatmap_radius,
+            centerpoint_gwd_loss_weight=centerpoint_gwd_loss_weight,
+            quality_loss_weight=quality_loss_weight,
+            ignore_mask_margin=ignore_mask_margin,
+            ignore_mask_expand_ratio=ignore_mask_expand_ratio,
+        )
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -190,52 +219,20 @@ def validate_loss(
         rad, rae = prepare_model_inputs(batch, device)
         outputs = model(rad, rae)
 
-        if loss_mode == "yolox":
-            _, loss_dict = yolox_detection_loss(
-                outputs=outputs,
-                gt_metric_boxes_list=batch["gt_metric_boxes"],
-                gt_boxes_raw_list=batch["gt_boxes_raw"],
-                gt_labels_list=batch["gt_labels"],
-                gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
-                scope_modes=batch["scope_mode"],
-                full_rae_shapes=batch["full_rae_shape"],
-                num_classes=num_classes,
-                ignore_mask_margin=ignore_mask_margin,
-                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
-            )
-        elif loss_mode == "radenet":
-            _, loss_dict = radenet_detection_loss(
-                outputs=outputs,
-                gt_boxes_raw_list=batch["gt_boxes_raw"],
-                gt_labels_list=batch["gt_labels"],
-                scope_modes=batch["scope_mode"],
-                full_rae_shapes=batch["full_rae_shape"],
-                gt_metric_boxes_list=batch["gt_metric_boxes"],
-                box_coordinate_mode=box_coordinate_mode,
-                gt_ignore_boxes_raw_list=batch.get("gt_ignore_boxes_raw"),
-                num_classes=num_classes,
-                ignore_mask_margin=ignore_mask_margin,
-                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
-            )
-        else:
-            _, loss_dict = cartesian_centerpoint_detection_loss(
-                outputs=outputs,
-                gt_boxes_raw_list=batch["gt_boxes_raw"],
-                gt_metric_boxes_list=batch["gt_metric_boxes"],
-                gt_labels_list=batch["gt_labels"],
-                gt_ignore_boxes_raw_list=batch.get(
-                    "gt_ignore_boxes_raw"
-                ),
-                box_loss_weight=box_loss_weight,
-                cls_loss_weight=cls_loss_weight,
-                gwd_loss_weight=centerpoint_gwd_loss_weight,
-                heatmap_radius=heatmap_radius,
-                num_classes=num_classes,
-                scope_modes=batch["scope_mode"],
-                full_rae_shapes=batch["full_rae_shape"],
-                ignore_mask_margin=ignore_mask_margin,
-                ignore_mask_expand_ratio=ignore_mask_expand_ratio,
-            )
+        _, loss_dict = _compute_detection_loss(
+            outputs=outputs,
+            batch=batch,
+            loss_mode=loss_mode,
+            num_classes=num_classes,
+            box_coordinate_mode=box_coordinate_mode,
+            box_loss_weight=box_loss_weight,
+            cls_loss_weight=cls_loss_weight,
+            heatmap_radius=heatmap_radius,
+            centerpoint_gwd_loss_weight=centerpoint_gwd_loss_weight,
+            quality_loss_weight=quality_loss_weight,
+            ignore_mask_margin=ignore_mask_margin,
+            ignore_mask_expand_ratio=ignore_mask_expand_ratio,
+        )
         total_loss_sum += loss_dict["total_loss"]
         box_loss_sum += loss_dict["box_loss"]
         cls_loss_sum += loss_dict["cls_loss"]

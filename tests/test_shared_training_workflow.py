@@ -151,6 +151,7 @@ class SharedTrainingConfigurationTests(unittest.TestCase):
     def test_resume_defaults_require_explicit_checkpoint_selection(self):
         self.assertIsNone(RESUME_CONFIG_OVERRIDES["resume_checkpoint"])
         self.assertIsNone(RESUME_CONFIG_OVERRIDES["resume_tensorboard_log_dir"])
+        self.assertNotIn("load_optimizer", RESUME_CONFIG_OVERRIDES)
         with self.assertRaisesRegex(ValueError, "Set resume_checkpoint"):
             resume.build_resume_args(self._resume_config())
 
@@ -384,26 +385,41 @@ class ResumeRestorationTests(unittest.TestCase):
             )
         )
 
-    def test_optimizer_restore_can_be_disabled_without_disabling_scheduler(self):
+    def test_checkpoint_without_scheduler_restores_model_and_optimizer(self):
         with tempfile.TemporaryDirectory() as directory:
-            path, _model, _optimizer, saved_scheduler = self._checkpoint_fixture(
-                directory
+            path, saved_model, saved_optimizer, _saved_scheduler = (
+                self._checkpoint_fixture(directory)
             )
+            checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+            checkpoint["scheduler_state_dict"] = None
+            torch.save(checkpoint, path)
             model = torch.nn.Linear(2, 1)
             optimizer = torch.optim.Adam(model.parameters(), lr=0.5)
-            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3)
             result = resume.load_resume_checkpoint(
                 model=model,
                 optimizer=optimizer,
-                scheduler=scheduler,
+                scheduler=None,
                 checkpoint_path=str(path),
                 device=torch.device("cpu"),
-                load_optimizer=False,
             )
 
-        self.assertFalse(result[2])
-        self.assertTrue(result[3])
-        self.assertEqual(scheduler.state_dict(), saved_scheduler.state_dict())
+        self.assertEqual(result[:4], (7, "model7", True, False))
+        for actual, expected in zip(model.parameters(), saved_model.parameters()):
+            torch.testing.assert_close(actual, expected)
+        actual_optimizer = optimizer.state_dict()
+        expected_optimizer = saved_optimizer.state_dict()
+        self.assertEqual(
+            actual_optimizer["param_groups"],
+            expected_optimizer["param_groups"],
+        )
+        for parameter_id, expected_state in expected_optimizer["state"].items():
+            actual_state = actual_optimizer["state"][parameter_id]
+            for key, expected_value in expected_state.items():
+                actual_value = actual_state[key]
+                if torch.is_tensor(expected_value):
+                    torch.testing.assert_close(actual_value, expected_value)
+                else:
+                    self.assertEqual(actual_value, expected_value)
 
     def test_incomplete_resume_state_fails_before_model_restoration(self):
         for missing_field in (

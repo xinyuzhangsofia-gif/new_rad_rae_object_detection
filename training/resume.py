@@ -56,7 +56,6 @@ def load_resume_checkpoint(
     scheduler,
     checkpoint_path,
     device,
-    load_optimizer=True,
     expected_model_type=None,
     expected_num_classes=None,
     expected_include_bus_as_target=None,
@@ -115,9 +114,7 @@ def load_resume_checkpoint(
             f"{expected_box_coordinate_mode!r})."
         )
 
-    required_training_fields = []
-    if load_optimizer:
-        required_training_fields.append("optimizer_state_dict")
+    required_training_fields = ["optimizer_state_dict"]
     if scheduler is not None:
         required_training_fields.append("scheduler_state_dict")
     for field in required_training_fields:
@@ -133,14 +130,12 @@ def load_resume_checkpoint(
     )
     model_for_state_dict.load_state_dict(state_dict, strict=True)
 
-    optimizer_loaded = False
-    if load_optimizer:
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        for state in optimizer.state.values():
-            for key, value in state.items():
-                if torch.is_tensor(value):
-                    state[key] = value.to(device)
-        optimizer_loaded = True
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    for state in optimizer.state.values():
+        for key, value in state.items():
+            if torch.is_tensor(value):
+                state[key] = value.to(device)
+    optimizer_loaded = True
 
     scheduler_loaded = False
     if scheduler is not None:
@@ -184,7 +179,6 @@ def restore_resume_training_state(*, args, model, optimizer, scheduler, device):
         scheduler=scheduler,
         checkpoint_path=args.resume_checkpoint,
         device=device,
-        load_optimizer=args.load_optimizer,
         expected_model_type=args.model_type,
         expected_num_classes=args.num_classes,
         expected_include_bus_as_target=args.include_bus_as_target,
