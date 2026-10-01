@@ -17,6 +17,8 @@ from eval.configuration import (
 )
 from eval.checkpoints import (
     CHECKPOINT_INHERITABLE_FIELDS,
+    CHECKPOINT_SPLIT_IDENTITY_DEFAULT_FIELDS,
+    CHECKPOINT_TASK_IDENTITY_DEFAULT_FIELDS,
     should_inherit_from_checkpoint,
 )
 from configs.resume import RESUME_CONFIG_OVERRIDES, build_resume_config
@@ -26,9 +28,9 @@ from configs.runtime import (
     TRAIN_RUNTIME_CONFIG,
 )
 from configs.training import TRAIN_CONFIG
+from configs.visualization import VISUALIZE_CONFIG
 from models import MODEL_TYPES
 from training.configuration import LOSS_MODE_CHOICES, resolve_loss_mode
-from visualize_cfg import VISUALIZE_CONFIG
 
 
 class ConfigContractTests(unittest.TestCase):
@@ -96,16 +98,36 @@ class ConfigContractTests(unittest.TestCase):
             frozenset({
                 "loss_mode",
                 "include_bus_as_target",
-                "max_detections",
                 "ignore_class_names",
                 "gt_object_ignore_override_path",
                 "train_control_split_enabled",
                 "train_control_split_dir",
                 "ignore_mask_margin",
                 "ignore_mask_expand_ratio",
-                "custom_iou_range_eval_enabled",
-                "custom_iou_thresholds",
-                "nuscenes_style_eval_enabled",
+                "split_mode",
+                "split_dir",
+                "train_sequences",
+                "val_sequences",
+                "seed",
+                "cartesian_gt_root",
+            }),
+        )
+        self.assertEqual(
+            CHECKPOINT_TASK_IDENTITY_DEFAULT_FIELDS,
+            frozenset({
+                "loss_mode",
+                "include_bus_as_target",
+                "ignore_class_names",
+                "ignore_mask_margin",
+                "ignore_mask_expand_ratio",
+            }),
+        )
+        self.assertEqual(
+            CHECKPOINT_SPLIT_IDENTITY_DEFAULT_FIELDS,
+            frozenset({
+                "gt_object_ignore_override_path",
+                "train_control_split_enabled",
+                "train_control_split_dir",
                 "split_mode",
                 "split_dir",
                 "train_sequences",
@@ -116,6 +138,20 @@ class ConfigContractTests(unittest.TestCase):
         )
         self.assertTrue(should_inherit_from_checkpoint("loss_mode"))
         self.assertTrue(should_inherit_from_checkpoint("val_sequences"))
+        defaults = parse_args([])
+        self.assertTrue(should_inherit_from_checkpoint("split_mode", defaults))
+        self.assertTrue(
+            should_inherit_from_checkpoint("include_bus_as_target", defaults)
+        )
+        explicit = parse_args([
+            "--split-mode", "sequence",
+            "--max-detections", "9",
+        ])
+        self.assertFalse(
+            should_inherit_from_checkpoint("split_mode", explicit)
+        )
+        with self.assertRaisesRegex(ValueError, "max_detections"):
+            should_inherit_from_checkpoint("max_detections", explicit)
         with self.assertRaisesRegex(ValueError, "not_configured"):
             should_inherit_from_checkpoint("not_configured")
         with self.assertRaisesRegex(ValueError, "box_coordinate_mode"):

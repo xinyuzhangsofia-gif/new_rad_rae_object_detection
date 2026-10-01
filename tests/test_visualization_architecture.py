@@ -39,7 +39,7 @@ from visualization.paths import (
     get_lidar_path,
 )
 from visualization.video import VideoWriter
-from visualize_cfg import VISUALIZE_CONFIG
+from configs.visualization import VISUALIZE_CONFIG
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]

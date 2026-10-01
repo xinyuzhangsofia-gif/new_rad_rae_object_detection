@@ -3,6 +3,7 @@
 import numpy as np
 import torch
 from collections import defaultdict
+import csv
 import glob
 import os
 
@@ -13,6 +14,164 @@ CARTESIAN_GT_COLUMNS = (
     "frame_idx", "object_label", "x", "y", "z", "x_width", "y_width",
     "z_width", "yaw_deg", "class",
 )
+CARTESIAN_GT_MANIFEST_REQUIRED_COLUMNS = (
+    "dataset_idx", "frame_name", "status",
+)
+CARTESIAN_GT_MANIFEST_STATUSES = frozenset({
+    "matched_with_objects",
+    "matched_empty",
+    "missing_gt_file",
+})
+
+
+def read_cartesian_gt_frame_manifest(manifest_path):
+    """Read and validate frame identities and annotation status metadata."""
+    manifest_path = os.fspath(manifest_path)
+    if not os.path.isfile(manifest_path):
+        raise FileNotFoundError(
+            f"Cartesian GT frame manifest not found: {manifest_path}"
+        )
+
+    with open(manifest_path, "r", newline="") as manifest_file:
+        reader = csv.DictReader(manifest_file)
+        columns = set(reader.fieldnames or ())
+        missing_columns = [
+            column
+            for column in CARTESIAN_GT_MANIFEST_REQUIRED_COLUMNS
+            if column not in columns
+        ]
+        if missing_columns:
+            raise ValueError(
+                "Cartesian GT frame manifest is missing required columns "
+                f"{missing_columns}: {manifest_path}"
+            )
+
+        rows = []
+        seen_dataset_indices = set()
+        seen_frame_names = set()
+        for line_number, row in enumerate(reader, start=2):
+            try:
+                dataset_idx = int(row["dataset_idx"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "Invalid dataset_idx in Cartesian GT frame manifest at "
+                    f"line {line_number}: {row.get('dataset_idx')!r}"
+                ) from exc
+            if dataset_idx < 0:
+                raise ValueError(
+                    "Cartesian GT frame manifest dataset_idx must be "
+                    f"non-negative at line {line_number}: {dataset_idx}"
+                )
+
+            frame_name = str(row["frame_name"] or "").strip()
+            if not frame_name:
+                raise ValueError(
+                    "Empty frame_name in Cartesian GT frame manifest at "
+                    f"line {line_number}: {manifest_path}"
+                )
+            status = str(row["status"] or "").strip()
+            if status not in CARTESIAN_GT_MANIFEST_STATUSES:
+                raise ValueError(
+                    "Unknown Cartesian GT frame manifest status at line "
+                    f"{line_number}: {status!r}; expected one of "
+                    f"{sorted(CARTESIAN_GT_MANIFEST_STATUSES)}"
+                )
+            if dataset_idx in seen_dataset_indices:
+                raise ValueError(
+                    "Duplicate dataset_idx in Cartesian GT frame manifest: "
+                    f"{dataset_idx}"
+                )
+            if frame_name in seen_frame_names:
+                raise ValueError(
+                    "Duplicate frame_name in Cartesian GT frame manifest: "
+                    f"{frame_name!r}"
+                )
+            seen_dataset_indices.add(dataset_idx)
+            seen_frame_names.add(frame_name)
+            rows.append({
+                "dataset_idx": dataset_idx,
+                "frame_name": frame_name,
+                "status": status,
+            })
+
+    return tuple(rows)
+
+
+def validate_cartesian_gt_frame_manifest(
+        sequence,
+        cartesian_gt_root,
+        frame_names,
+        selected_indices=None,
+    ):
+    """Require complete GT metadata matching the current RAD/RAE ordering."""
+    sequence_root = os.path.dirname(os.path.dirname(
+        get_cartesian_gt_path(sequence, cartesian_gt_root)
+    ))
+    manifest_path = os.path.join(sequence_root, "frame_manifest.csv")
+    rows = read_cartesian_gt_frame_manifest(manifest_path)
+    current_frame_names = tuple(str(name) for name in frame_names)
+
+    if len(rows) != len(current_frame_names):
+        raise ValueError(
+            "Cartesian GT frame manifest does not match current RAD/RAE "
+            f"frames for sequence {sequence}: manifest has {len(rows)} rows, "
+            f"dataset has {len(current_frame_names)} frames."
+        )
+
+    for expected_idx, (row, expected_frame_name) in enumerate(
+            zip(rows, current_frame_names)
+        ):
+        if row["dataset_idx"] != expected_idx:
+            raise ValueError(
+                "Stale Cartesian GT frame manifest for sequence "
+                f"{sequence}: row {expected_idx} has dataset_idx "
+                f"{row['dataset_idx']}, expected {expected_idx}."
+            )
+        if row["frame_name"] != expected_frame_name:
+            raise ValueError(
+                "Stale Cartesian GT frame manifest for sequence "
+                f"{sequence} at dataset_idx {expected_idx}: manifest frame "
+                f"{row['frame_name']!r}, current RAD/RAE frame "
+                f"{expected_frame_name!r}."
+            )
+    validate_cartesian_gt_manifest_completeness(
+        sequence,
+        rows,
+        selected_indices=selected_indices,
+    )
+    return rows
+
+
+def validate_cartesian_gt_manifest_completeness(
+        sequence,
+        manifest_rows,
+        selected_indices=None,
+    ):
+    """Reject selected RAD/RAE frames whose annotation file is missing."""
+    if selected_indices is None:
+        selected_indices = range(len(manifest_rows))
+
+    missing_frames = []
+    for dataset_idx in selected_indices:
+        dataset_idx = int(dataset_idx)
+        if dataset_idx < 0 or dataset_idx >= len(manifest_rows):
+            raise IndexError(
+                f"dataset_idx {dataset_idx} out of range for Cartesian GT "
+                f"manifest with {len(manifest_rows)} rows in sequence {sequence}"
+            )
+        row = manifest_rows[dataset_idx]
+        if row["status"] == "missing_gt_file":
+            missing_frames.append(row["frame_name"])
+
+    if missing_frames:
+        preview = ", ".join(missing_frames[:10])
+        if len(missing_frames) > 10:
+            preview += ", ..."
+        raise ValueError(
+            f"Cartesian GT is incomplete for sequence {sequence}: "
+            f"{len(missing_frames)} RAD/RAE frames have missing GT label "
+            f"files. First missing frames: {preview}"
+        )
 
 
 def read_info_label(label_path):

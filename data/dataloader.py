@@ -86,6 +86,7 @@ def build_detection_dataset_for_sequence(
         ignore_object_label_minus_one=False,
         ignore_out_of_scope_gt=True,
         strict_object_ignore_override=False,
+        manifest_selected_indices=None,
     ):
     box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     radar_dataset = KRadarRADRAEDataset(
@@ -107,6 +108,7 @@ def build_detection_dataset_for_sequence(
         ignore_object_label_minus_one=ignore_object_label_minus_one,
         ignore_out_of_scope_gt=ignore_out_of_scope_gt,
         strict_object_ignore_override=strict_object_ignore_override,
+        manifest_selected_indices=manifest_selected_indices,
     )
     override_summary = getattr(dataset, "object_ignore_override_summary", None)
     if override_summary and override_summary.get("override_path"):
@@ -156,6 +158,7 @@ def _build_multisequence_detection_dataset(
             ignore_object_label_minus_one=ignore_object_label_minus_one,
             ignore_out_of_scope_gt=ignore_out_of_scope_gt,
             strict_object_ignore_override=strict_object_ignore_override,
+            manifest_selected_indices=(),
         )
         for sequence in sequences
     ]
@@ -261,6 +264,10 @@ def build_train_val_dataloaders(
             train_indices=train_indices,
             control_split_dir=train_control_split_dir,
         )
+
+    full_dataset.validate_cartesian_gt_completeness(
+        list(train_indices) + list(val_indices)
+    )
 
     if len(train_indices) == 0:
         raise ValueError("Training split is empty. Increase --limit-samples.")
@@ -374,6 +381,7 @@ def build_evaluation_dataloader(
         val_indices = val_indices[:int(limit_samples)]
     if not val_indices:
         raise ValueError("Controlled evaluation split is empty.")
+    full_dataset.validate_cartesian_gt_completeness(val_indices)
     if gt_object_ignore_override_path is not None:
         selected_indices = set(int(index) for index in val_indices)
         missing_override_frames = []

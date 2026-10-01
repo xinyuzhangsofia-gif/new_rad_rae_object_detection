@@ -93,6 +93,7 @@ def yolox_detection_loss(
             full_rae_shape=full_rae_shapes[batch_idx],
         )
         obj_targets = torch.zeros((num_preds,), device=pred_boxes.device)
+        obj_valid_mask = obj_valid_masks[batch_idx].clone()
 
         matched_pred_idx, matched_gt_idx, matched_labels, matched_ious = simota_assign(
             pred_boxes=pred_boxes[batch_idx],
@@ -111,7 +112,7 @@ def yolox_detection_loss(
         if num_fg > 0:
             total_fg += num_fg
             obj_targets[matched_pred_idx] = 1.0
-            obj_valid_masks[batch_idx, matched_pred_idx] = 1.0
+            obj_valid_mask[matched_pred_idx] = 1.0
 
             matched_gt_boxes = gt_boxes[matched_gt_idx]
             pred_pos_boxes = pred_boxes[batch_idx, matched_pred_idx]
@@ -135,7 +136,7 @@ def yolox_detection_loss(
         obj_loss = F.binary_cross_entropy_with_logits(
             objectness_logits[batch_idx], obj_targets, reduction="none"
         )
-        total_obj_loss = total_obj_loss + (obj_loss * obj_valid_masks[batch_idx]).sum()
+        total_obj_loss = total_obj_loss + (obj_loss * obj_valid_mask).sum()
 
     normalizer = max(total_fg, 1)
     box_loss = total_box_loss / normalizer

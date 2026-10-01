@@ -1,6 +1,7 @@
 """Cartesian-only data contract, including input rejection and batch semantics."""
 
 from contextlib import redirect_stderr
+import csv
 import io
 import json
 import math
@@ -28,9 +29,13 @@ from eval.checkpoints import (
     apply_checkpoint_config_defaults,
     infer_checkpoint_box_coordinate_mode,
 )
+from eval import runner as evaluation_runner
 from tests.checkpoint_fixtures import current_checkpoint
 from eval.configuration import parse_args as parse_evaluation_args
-from training.configuration import apply_training_coordinate_mode
+from training.configuration import (
+    apply_task_configuration,
+    apply_training_coordinate_mode,
+)
 from visualization.workflow import parse_args as parse_visualization_args
 
 
@@ -60,6 +65,34 @@ class CartesianDataTests(unittest.TestCase):
             for offset, name in enumerate(("00033", "00035")):
                 array = np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + offset
                 np.save(directory / (name + ".npy"), array)
+        self.manifest_path = self.gt_root / "1" / "frame_manifest.csv"
+        self.write_manifest([
+            (0, "00033", "matched_with_objects"),
+            (1, "00035", "matched_with_objects"),
+        ])
+
+    def write_manifest(self, rows):
+        with self.manifest_path.open("w", newline="") as manifest_file:
+            writer = csv.writer(manifest_file, lineterminator="\n")
+            writer.writerow([
+                "dataset_idx",
+                "frame_name",
+                "rad_file",
+                "rae_file",
+                "label_file",
+                "status",
+                "radar_visible_object_count",
+            ])
+            for dataset_idx, frame_name, status in rows:
+                writer.writerow([
+                    dataset_idx,
+                    frame_name,
+                    f"rad/{frame_name}.npy",
+                    f"rae/{frame_name}.npy",
+                    f"{frame_name}_label.txt",
+                    status,
+                    1,
+                ])
 
     def dataset(self, **kwargs):
         return KRadarGTDetectionDataset(
@@ -119,6 +152,125 @@ class CartesianDataTests(unittest.TestCase):
         self.assertEqual(second["gt_metric_boxes"][0, 0].item(), 11)
         filtered = self.dataset(ignore_object_label_minus_one=True)[0]
         self.assertEqual(filtered["gt_labels"].tolist(), [0])
+
+    def test_matched_empty_manifest_frame_remains_valid_background(self):
+        first_frame_rows = "\n".join(
+            row for row in ROWS.splitlines() if row.startswith("1,")
+        )
+        self.gt_path.write_text(HEADER + first_frame_rows + "\n")
+        self.write_manifest([
+            (0, "00033", "matched_with_objects"),
+            (1, "00035", "matched_empty"),
+        ])
+
+        second = self.dataset()[1]
+
+        self.assertEqual(second["frame_name"], "00035")
+        self.assertEqual(tuple(second["gt_metric_boxes"].shape), (0, 7))
+        self.assertEqual(second["gt_labels"].numel(), 0)
+
+    def test_missing_gt_manifest_frame_is_rejected(self):
+        self.write_manifest([
+            (0, "00033", "matched_with_objects"),
+            (1, "00035", "missing_gt_file"),
+        ])
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"Cartesian GT is incomplete for sequence 1: 1 RAD/RAE frames.*00035",
+        ):
+            self.dataset()
+
+    def test_stale_manifest_frame_order_is_rejected(self):
+        self.write_manifest([
+            (0, "00035", "matched_with_objects"),
+            (1, "00033", "matched_with_objects"),
+        ])
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"Stale Cartesian GT frame manifest.*dataset_idx 0.*00035.*00033",
+        ):
+            self.dataset()
+
+    def test_duplicate_manifest_identities_are_rejected(self):
+        duplicate_cases = (
+            (
+                [(0, "00033", "matched_with_objects"),
+                 (0, "00035", "matched_with_objects")],
+                "Duplicate dataset_idx",
+            ),
+            (
+                [(0, "00033", "matched_with_objects"),
+                 (1, "00033", "matched_with_objects")],
+                "Duplicate frame_name",
+            ),
+        )
+        for rows, message in duplicate_cases:
+            with self.subTest(message=message):
+                self.write_manifest(rows)
+                with self.assertRaisesRegex(ValueError, message):
+                    labels.read_cartesian_gt_frame_manifest(self.manifest_path)
+
+    def test_runtime_dataset_requires_canonical_frame_manifest(self):
+        self.manifest_path.unlink()
+        with self.assertRaisesRegex(
+            FileNotFoundError,
+            "Cartesian GT frame manifest not found",
+        ):
+            self.dataset()
+
+    def test_file_split_validates_only_selected_manifest_frames(self):
+        for kind, shape in (("rad", (4, 5, 2)), ("rae", (4, 5, 3))):
+            array = np.zeros(shape, dtype=np.float32)
+            np.save(self.radar_root / "1" / kind / "00036.npy", array)
+        self.write_manifest([
+            (0, "00033", "matched_with_objects"),
+            (1, "00035", "matched_with_objects"),
+            (2, "00036", "missing_gt_file"),
+        ])
+        split = self.root / "selected-split"
+        split.mkdir()
+        (split / "train.txt").write_text("1,00033.txt\n")
+        (split / "test.txt").write_text("1,00035.txt\n")
+
+        with mock.patch.object(
+            dataloader,
+            "RADAR_NPY_ROOT",
+            str(self.radar_root),
+        ):
+            train, val, _, _ = dataloader.build_train_val_dataloaders(
+                1,
+                42,
+                0,
+                None,
+                default_sequences=(1,),
+                split_mode="kradar_file",
+                split_dir=str(split),
+                cartesian_gt_root=self.gt_root,
+            )
+        self.assertEqual(train[0]["frame_name"], "00033")
+        self.assertEqual(val[0]["frame_name"], "00035")
+
+        (split / "test.txt").write_text("1,00036.txt\n")
+        with mock.patch.object(
+            dataloader,
+            "RADAR_NPY_ROOT",
+            str(self.radar_root),
+        ), self.assertRaisesRegex(
+            ValueError,
+            r"Cartesian GT is incomplete for sequence 1: 1 RAD/RAE frames.*00036",
+        ):
+            dataloader.build_train_val_dataloaders(
+                1,
+                42,
+                0,
+                None,
+                default_sequences=(1,),
+                split_mode="kradar_file",
+                split_dir=str(split),
+                cartesian_gt_root=self.gt_root,
+            )
 
     def test_polar_mode_is_rejected_before_accessing_any_data(self):
         with self.assertRaisesRegex(ValueError, "Only Cartesian"):
@@ -320,7 +472,91 @@ class CartesianDataTests(unittest.TestCase):
         self.assertEqual(args.train_sequences, (1,))
         self.assertEqual(args.val_sequences, (2,))
         self.assertTrue(args.include_bus_as_target)
+        apply_task_configuration(args)
+        self.assertEqual(args.num_classes, 2)
+        self.assertEqual(
+            args.class_names,
+            {0: "Sedan", 1: "Bus or Truck"},
+        )
         self.assertEqual(args.score_thresh, 0.21)
+
+    def test_default_evaluation_inherits_sedan_only_checkpoint_identity(self):
+        args = parse_evaluation_args([])
+        checkpoint = current_checkpoint(
+            include_bus_as_target=False,
+            num_classes=1,
+            split_mode="kradar_file",
+            split_dir="/checkpoint/split",
+            train_sequences=(10,),
+            val_sequences=(11,),
+            train_control_split_enabled=True,
+            train_control_split_dir="/checkpoint/control",
+            seed=7,
+            cartesian_gt_root="/checkpoint/gt",
+            max_detections=23,
+            ignore_class_names=("Pedestrian",),
+            custom_iou_range_eval_enabled=True,
+            custom_iou_thresholds=(0.1,),
+            nuscenes_style_eval_enabled=True,
+            ap_score_thresh=0.9,
+            score_thresh=0.8,
+            official_eval_iou_mode="all",
+            official_eval_iou_backend="cpu",
+            heatmap_nms_kernel=1,
+            heatmap_score_mode="peak_only",
+            yolox_nms_iou=0.2,
+        )
+        with mock.patch(
+            "eval.checkpoints.load_torch_checkpoint",
+            return_value=checkpoint,
+        ):
+            apply_checkpoint_config_defaults(args, [(1, "unused.pth")])
+        apply_task_configuration(args)
+
+        self.assertFalse(args.include_bus_as_target)
+        self.assertEqual(args.num_classes, 1)
+        self.assertEqual(args.class_names, {0: "Sedan"})
+        self.assertEqual(args.split_mode, "kradar_file")
+        self.assertEqual(args.split_dir, "/checkpoint/split")
+        self.assertEqual(args.train_sequences, (10,))
+        self.assertEqual(args.val_sequences, (11,))
+        self.assertTrue(args.train_control_split_enabled)
+        self.assertEqual(args.train_control_split_dir, "/checkpoint/control")
+        self.assertEqual(args.seed, 7)
+        self.assertEqual(args.cartesian_gt_root, "/checkpoint/gt")
+        self.assertEqual(args.max_detections, 64)
+        self.assertEqual(args.ap_score_thresh, 0.01)
+        self.assertEqual(args.score_thresh, 0.3)
+        self.assertEqual(args.official_eval_iou_mode, "easy")
+        self.assertEqual(args.official_eval_iou_backend, "gpu")
+        self.assertFalse(args.custom_iou_range_eval_enabled)
+        self.assertFalse(args.nuscenes_style_eval_enabled)
+        self.assertEqual(args.heatmap_nms_kernel, 3)
+        self.assertEqual(args.heatmap_score_mode, "peak_times_local_mean")
+        self.assertEqual(args.yolox_nms_iou, 0.65)
+
+    def test_explicit_cli_and_standalone_test_controls_override_checkpoint(self):
+        args = parse_evaluation_args([
+            "--split-mode", "sequence",
+            "--max-detections", "9",
+            "--val-sequences", "8",
+            "--eval-val-sequences", "12,13",
+        ])
+        checkpoint = current_checkpoint(
+            split_mode="kradar_file",
+            val_sequences=(11,),
+            max_detections=23,
+        )
+        with mock.patch(
+            "eval.checkpoints.load_torch_checkpoint",
+            return_value=checkpoint,
+        ):
+            apply_checkpoint_config_defaults(args, [(1, "unused.pth")])
+        evaluation_runner._apply_standalone_evaluation_controls(args)
+
+        self.assertEqual(args.split_mode, "sequence")
+        self.assertEqual(args.max_detections, 9)
+        self.assertEqual(args.val_sequences, (12, 13))
 
     def test_training_cartesian_contract_keeps_the_selected_loss(self):
         args = SimpleNamespace(

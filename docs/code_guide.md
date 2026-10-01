@@ -24,7 +24,7 @@ eval/workflow.py → 独立评估命令入口
     ├─ tensorboard_reporting.py → writer、config text 和 scalar tags
     ├─ domain_shift_summaries.py → source/target 配对、TD、天气及总汇总
     └─ result_metadata.py → 数据划分框数量 metadata
-visualize_cfg.py → visualize.py
+configs/visualization.py → visualize.py
 training/experiments/queue.py → training/experiments/
     ├─ schema.py → 实验/任务数据结构与身份版本
     ├─ tables.py → 表发现、解析、校验、结果写回及 TXT/XLSX 同步接口
@@ -77,7 +77,7 @@ scripts/{analysis,figures,maintenance}/ → 独立统计、论文图和维护工
 - `data.labels.load_cartesian_gt` 只读取上述平铺文件；文件不存在时报告预期的 `gt.txt` 路径。`read_kradar_revised_label_dir` 仍保留给逐帧标签工具使用。
 - 数据根目录的 `README.txt` 记录来源为官方 K-Radar revised v2.1 visibility 标签；生成脚本将 LiDAR 坐标转换到雷达坐标，平铺训练标签仅保留 `R` / `LR` 可见目标。
 - 同根目录逐帧 TXT 保留传感器对应信息，供当前多传感器可视化使用。可视化的 `info_label_root=CURRENT_GT_ROOT` 是独立设置，并非动态跟随训练配置。
-- `visualize_cfg.py::VISUALIZE_CONFIG["info_label_root"]` 只选择可视化读取的逐帧标签根目录，不决定上述训练 GT。
+- `configs/visualization.py::VISUALIZE_CONFIG["info_label_root"]` 只选择可视化读取的逐帧标签根目录，不决定上述训练 GT。
 - Polar GT 读取函数、路径参数及 Dataset 分支已移除。`sequence_information.csv` 仍只是序列元数据/统计，不是逐目标监督标签。
 
 ### 一帧如何变成模型输入
@@ -147,7 +147,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 - 合并重复的结构说明；保留实验表生成规则、数据划分和控制清单。
 - 数据输入改为 Cartesian-only，删除 Polar GT 专用分支/工具、集中路径、增加拒绝错误输入和数值回归测试。
 - 按单一职责精简 `dataset.py`；移动几何、标签选择、ignore 校验和 collate。
-- 可视化统一由 `visualize.py` + `visualize_cfg.py` 驱动；四种模式共享 RAD/RAE、checkpoint、RA renderer、多传感器和视频模块，旧 MAT/ARR 与独立脚本已删除。
+- 可视化统一由 `visualize.py` + `configs/visualization.py` 驱动；四种模式共享 RAD/RAE、checkpoint、RA renderer、多传感器和视频模块，旧 MAT/ARR 与独立脚本已删除。
 - 将域偏移实验队列按职责拆为 `schema`、`tables`、`state`、`scheduling` 和 `execution`；`training/experiments/queue.py` 只保留按 seed 的两阶段编排：当前 seed 全部训练完成后才并行评估，评估全部完成后才进入下一 seed。已删除串行和训练/评估交错执行模式及 `experiment_queue_execution_mode`；任务身份、表顺序、恢复、GPU、worker 命令和结果写回规则未改变。
 - 距离四分位实验入口共享完成检查点发现、命令公共段、CUDA/subprocess 队列、锁/原子状态及报告 metadata 校验；GT 四分位和相对 TD 仍由该脚本定义。固定距离与 Source Drop 执行入口均已删除。
 - 评估报告的路径、TXT/YAML、最佳结果、绘图、TensorBoard、天气/总汇总和 split metadata 分别有唯一实现；`eval/workflow.py` 是命令入口。序列/天气元数据位于 `data/sequence_metadata.py`；域注册、模型配置身份、三张比较表和记录更新位于 `eval/domain_shift_tables.py`。
@@ -193,7 +193,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 已完成（分析脚本） | `scripts/experiments/evaluate_quartile_experiments.py` 与 `scripts/experiments/analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；保留四分位 CLI 的科学定义、输出 state schema 与表聚合。Source Drop 执行逻辑已删除。 |
 | 已完成（报告） | `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | 输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
 | 已完成（实验目录） | `experiments/{target_drop,distance_quartiles}/` | 两个活动实验族使用唯一语义路径；`distance_ranges` 与 `source_drop` 只保留历史归档资产。 |
-| 已完成（可视化） | `visualize.py`、`visualize_cfg.py`、`visualization/` | 单帧/视频和 RA/多传感器模式统一分派；Camera+Radar 与 Camera+LiDAR+Radar 都复用 Polar/Cartesian RA renderer，GT 绿色、预测红色。 |
+| 已完成（可视化） | `visualize.py`、`configs/visualization.py`、`visualization/` | 单帧/视频和 RA/多传感器模式统一分派；Camera+Radar 与 Camera+LiDAR+Radar 都复用 Polar/Cartesian RA renderer，GT 绿色、预测红色。 |
 | 已完成（损失） | `training/losses/` | `__init__.py` 提供公开 API，通用数学、目标、GWD、SimOTA 和三个 loss family 分责，配置模式解析仍由 `training.configuration` 唯一负责。 |
 | 已完成（数据划分） | `data/split/` | `ordinary.py` 分派普通模式，`manifests.py`、`sequences.py` 和 `controlled/` 分责实现；精确成员、seed 和生成文件保持不变，无兼容 facade。 |
 | 已完成（检查点） | `training/checkpoints.py`、`eval/checkpoints.py`、`training/resume.py` | 只接受当前保存器生成、包含规范配置元数据的字典检查点；不支持历史 schema、字段别名、marker 推断或相邻目录修复。 |
@@ -211,8 +211,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [evaluation.py](../evaluation.py) | 独立评估命令入口；评估工作流在 eval/workflow.py。 | 保留主要入口；不继续复制工作流。 |
 | [train.py](../train.py) | 普通训练的薄入口，委托给 `training.runner.main`。 | 保留主要入口；实验 worker 属于实验基础设施。 |
 | [train_resume.py](../train_resume.py) | 断点续训入口；转发到 `training/resume.py` 与共享 runner。 | 保留现有命令和公开辅助函数。 |
-| [visualize.py](../visualize.py) | 唯一用户可视化入口，只调用统一 workflow。 | 用户编辑 `visualize_cfg.py` 后运行 `python visualize.py`。 |
-| [visualize_cfg.py](../visualize_cfg.py) | 四种输出模式、RA 表示、checkpoint、帧、传感器路径和输出的唯一配置。 | 默认 `ra_map` + `polar`；GT 绿色、预测红色由代码语义固定。 |
+| [visualize.py](../visualize.py) | 唯一用户可视化入口，只调用统一 workflow。 | 用户编辑 `configs/visualization.py` 后运行 `python visualize.py`。 |
 
 ### configs
 
@@ -227,6 +226,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [configs/resume.py](../configs/resume.py) | 断点续训的中性覆盖项；checkpoint 与日志目录由用户显式选择。 | `training/resume.py` 需要续训时将这些覆盖项与 `TRAIN_CONFIG` 合并。 |
 | [configs/runtime.py](../configs/runtime.py) | 训练、评估和实验队列的 GPU、worker、内存与轮询设置。 | 机器运行参数的统一入口。 |
 | [configs/training.py](../configs/training.py) | 稳定训练/模型默认值；分别包含训练时 `training_eval_*` 与训练后 `post_training_eval_*` 区段。 | 只公开 `TRAIN_CONFIG`；不混入续训覆盖项或独立评估配置。 |
+| [configs/visualization.py](../configs/visualization.py) | 四种输出模式、RA 表示、checkpoint、帧、传感器路径和输出的唯一配置。 | 默认 `ra_map` + `polar`；GT 绿色、预测红色由代码语义固定。 |
 
 ### data
 
@@ -365,7 +365,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | 文件 | 功能 |
 | --- | --- |
 | `config.py` | 校验唯一四种模式、Polar/Cartesian RA 表示和 Camera+Radar / Camera+LiDAR+Radar 布局，构造共享运行配置并固定 GT 绿色、Prediction 红色。 |
-| `workflow.py` | 解析 `visualize_cfg.py`/CLI 并分派 RA 或多传感器工作流。 |
+| `workflow.py` | 解析 `configs/visualization.py`/CLI 并分派 RA 或多传感器工作流。 |
 | `radar_data.py` | 通过当前 `KRadarRADRAEDataset` 读取成对 RAD/RAE `.npy` 并重建物理坐标轴和 RA power map。 |
 | `radar.py` | Polar/Cartesian RA 的唯一帧 renderer，负责 RA overlay、标题和图像转换。 |
 | `colors.py` | 为 OpenCV、Open3D 和 Matplotlib 统一解析绿色 GT / 红色 Prediction。 |

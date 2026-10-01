@@ -22,7 +22,11 @@ from .ignore_overrides import (
     load_object_ignore_override_map,
     validate_object_ignore_overrides,
 )
-from .labels import load_cartesian_gt
+from .labels import (
+    load_cartesian_gt,
+    validate_cartesian_gt_frame_manifest,
+    validate_cartesian_gt_manifest_completeness,
+)
 
 
 CLASS_NAMES = {0: "Sedan", 1: "Bus or Truck"}
@@ -111,6 +115,7 @@ class KRadarGTDetectionDataset(Dataset):
             ignore_object_label_minus_one=False,
             ignore_out_of_scope_gt=True,
             strict_object_ignore_override=False,
+            manifest_selected_indices=None,
         ):
         super().__init__()
         self.radar_dataset = radar_dataset
@@ -128,6 +133,12 @@ class KRadarGTDetectionDataset(Dataset):
         # Kept because this name is present in existing checkpoints and logs.
         self.num_invalid_cartesian_object_labels_ignored = 0
 
+        self.gt_frame_manifest = validate_cartesian_gt_frame_manifest(
+            self.sequence,
+            cartesian_gt_root,
+            self.radar_dataset.frame_names,
+            selected_indices=manifest_selected_indices,
+        )
         key_mode, gt_mapping = load_cartesian_gt(
             self.sequence, cartesian_gt_root
         )
@@ -163,6 +174,13 @@ class KRadarGTDetectionDataset(Dataset):
 
     def __len__(self):
         return len(self.radar_dataset)
+
+    def validate_cartesian_gt_completeness(self, selected_indices=None):
+        validate_cartesian_gt_manifest_completeness(
+            self.sequence,
+            self.gt_frame_manifest,
+            selected_indices=selected_indices,
+        )
 
     def _raw_objects_for_file_idx(self, file_idx, frame_name=None):
         if self.gt_by_file_idx is not None:
@@ -335,6 +353,21 @@ class KRadarMultiSequenceGTDetectionDataset(Dataset):
     def __getitem__(self, index):
         dataset_idx, sample_idx = self._resolve_index(index)
         return self.sequence_datasets[dataset_idx][sample_idx]
+
+    def validate_cartesian_gt_completeness(self, selected_indices=None):
+        if selected_indices is None:
+            selected_indices = range(len(self))
+        local_indices_by_dataset = [
+            [] for _ in self.sequence_datasets
+        ]
+        for index in selected_indices:
+            dataset_idx, sample_idx = self._resolve_index(int(index))
+            local_indices_by_dataset[dataset_idx].append(sample_idx)
+        for dataset, local_indices in zip(
+                self.sequence_datasets,
+                local_indices_by_dataset,
+            ):
+            dataset.validate_cartesian_gt_completeness(local_indices)
 
     def get_sequence_ranges(self):
         ranges = []

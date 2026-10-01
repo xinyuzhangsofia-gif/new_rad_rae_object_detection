@@ -2,6 +2,7 @@
 
 import argparse
 
+from configs.visualization import VISUALIZE_CONFIG
 from visualization.config import (
     MODE_MULTISENSOR,
     MODE_MULTISENSOR_VIDEO,
@@ -12,14 +13,13 @@ from visualization.config import (
     VISUALIZATION_MODES,
     validate_visualization_config,
 )
-from visualize_cfg import VISUALIZE_CONFIG
 
 
 HEATMAP_SCORE_MODES = ("peak_times_local_mean", "peak_only")
 
 
 def parse_args(argv=None):
-    """Apply optional CLI overrides to the canonical root configuration."""
+    """Apply optional CLI overrides to the canonical visualization configuration."""
     defaults = dict(VISUALIZE_CONFIG)
     parser = argparse.ArgumentParser(
         description="Render RA-map or configured multi-sensor visualizations."

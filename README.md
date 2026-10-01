@@ -12,7 +12,7 @@ Run commands from the repository root after configuring local data and checkpoin
 | Train a detector | Stable defaults in `configs/training.py` | `python train.py` |
 | Resume training | Strictly restores model and optimizer state, plus scheduler state when the current setup uses one, then continues from the saved epoch | `python train_resume.py` |
 | Evaluate checkpoints | `configs/evaluation.py` and CLI options | `python evaluation.py` |
-| Visualize predictions | `visualize_cfg.py` and CLI options | `python visualize.py` |
+| Visualize predictions | `configs/visualization.py` and CLI options | `python visualize.py` |
 
 Training and resume are configuration-driven: do not use `--help` as a dry run.
 Check the configured queue, GPU, sequences, and output locations before starting.
@@ -112,9 +112,8 @@ train.py → training.runner.main            Training entrypoint
 train_resume.py → training.resume.main     Resume entrypoint
 evaluation.py → eval.workflow.main         Standalone evaluation entrypoint
 visualize.py                 Visualization entry point
-visualize_cfg.py             Canonical visualization configuration
 visualization/               RA, prediction, sensor projection, and video implementation
-configs/                     Editable configuration
+configs/                     Editable training, evaluation, and visualization configuration
 data/                        Data pipeline
 models/                      Model1–16 and model factory
 training/                    Training implementation
@@ -192,7 +191,7 @@ active multi-sensor checkpoint predictor only convert them for drawing.
 
 `python visualize.py` is the only normal visualization command. Select
 `ra_map`, `ra_map_video`, `multisensor`, or `multisensor_video` in
-`visualize_cfg.py`; `ra_map_coordinate` independently selects `polar` or
+`configs/visualization.py`; `ra_map_coordinate` independently selects `polar` or
 `cartesian`. Multi-sensor modes use `sensor_layout=camera_radar` or
 `camera_lidar_radar`; both layouts reuse the same Polar/Cartesian RA renderer
 as the standalone modes. The defaults are `ra_map`, `polar`, and

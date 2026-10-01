@@ -196,6 +196,27 @@ class Model14CartesianYOLOXTests(unittest.TestCase):
         for output in perturbed.values():
             self.assertTrue(torch.isfinite(output.grad).all())
 
+    def test_multi_sample_backward_is_finite(self):
+        outputs = {
+            key: value.detach().repeat(2, 1, 1, 1).requires_grad_()
+            for key, value in model14_style_outputs().items()
+        }
+        loss, parts = yolox_detection_loss(
+            outputs=outputs,
+            gt_metric_boxes_list=[METRIC_GT, METRIC_GT],
+            gt_boxes_raw_list=[RAW_GT, RAW_GT],
+            gt_labels_list=[torch.tensor([0]), torch.tensor([0])],
+            scope_modes=[SCOPE, SCOPE],
+            full_rae_shapes=[RAE_SHAPE, RAE_SHAPE],
+            num_classes=1,
+        )
+        self.assertEqual(parts["num_center_targets"], 2)
+        self.assertTrue(torch.isfinite(loss))
+        loss.backward()
+        for output in outputs.values():
+            self.assertIsNotNone(output.grad)
+            self.assertTrue(torch.isfinite(output.grad).all())
+
     def test_train_and_validation_loops_use_metric_boxes(self):
         batch = {
             "rad": torch.zeros((1, 3, 3, 1)),

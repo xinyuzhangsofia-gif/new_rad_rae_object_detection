@@ -78,8 +78,8 @@ def validate_visualization_config(config):
 
 
 def load_visualization_config(**overrides):
-    """Load the canonical root configuration with optional test overrides."""
-    from visualize_cfg import VISUALIZE_CONFIG
+    """Load the canonical visualization configuration with optional test overrides."""
+    from configs.visualization import VISUALIZE_CONFIG
 
     values = dict(VISUALIZE_CONFIG)
     values.update(overrides)
@@ -93,7 +93,7 @@ def build_render_config(args):
     checkpoint_path = str(args.checkpoint_path or "")
     if args.show_prediction and not checkpoint_path:
         raise ValueError(
-            "show_prediction=True requires checkpoint_path in visualize_cfg.py"
+            "show_prediction=True requires checkpoint_path in configs/visualization.py"
         )
 
     return SimpleNamespace(

@@ -90,6 +90,9 @@ class ExactManifestTests(unittest.TestCase):
             def __len__(self):
                 return 2
 
+            def validate_cartesian_gt_completeness(self, selected_indices=None):
+                return None
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             manifest_path = os.path.join(tmp_dir, "manifest.txt")
             override_path = os.path.join(tmp_dir, "ignore.json")
