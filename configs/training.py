@@ -2,6 +2,10 @@
 
 from configs.data import CARTESIAN_GT_ROOT, CHECKPOINT_BASE_DIR, LOG_BASE_DIR
 from configs.domain_shift import DOMAIN_SHIFT_CONFIG, EXPERIMENT_QUEUE_CONFIG
+# Select the detector preset here.
+from configs.models.model7_centerpoint_128 import (
+    MODEL_CONFIG as SELECTED_MODEL_CONFIG,
+)
 from configs.runtime import (
     EXPERIMENT_QUEUE_RUNTIME_CONFIG,
     TRAIN_RUNTIME_CONFIG,
@@ -15,9 +19,10 @@ from data.coordinates import SCOPE_FULL, SCOPE_NARROW
 TRAIN_CONFIG = {
     # Cartesian GT only. RAD/RAE radar tensors remain the model inputs.
     "box_coordinate_mode": "cartesian",
-    # radenet, centerpoint, or auto (model-compatible selection).
-    "loss_mode": "centerpoint",
     "cartesian_gt_root": CARTESIAN_GT_ROOT,
+    # Required runtime/checkpoint metadata; only Model7 consumes this width.
+    "model7_decoder_hidden_channels": "auto",
+    **SELECTED_MODEL_CONFIG,
 
     # Model and optimization.
     "epochs": 30,
@@ -75,9 +80,6 @@ TRAIN_CONFIG = {
     "checkpoint_epoch_step": 1,
     "checkpoint_base_dir": CHECKPOINT_BASE_DIR,
     "log_base_dir": LOG_BASE_DIR,
-    "model_type": "model7",
-    "model7_decoder_hidden_channels": "128",
-
     # Composed training, experiment, and runtime settings.
     **DOMAIN_SHIFT_CONFIG,
     **EXPERIMENT_QUEUE_CONFIG,

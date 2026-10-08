@@ -10,6 +10,7 @@ from unittest import mock
 from configs import data
 from configs.domain_shift import DOMAIN_SHIFT_CONFIG, EXPERIMENT_QUEUE_CONFIG
 from configs.evaluation import EVAL_CONFIG
+from configs.models import MODEL_PRESETS
 from eval.configuration import (
     build_evaluation_parser,
     parse_args,
@@ -34,6 +35,42 @@ from training.configuration import LOSS_MODE_CHOICES, resolve_loss_mode
 
 
 class ConfigContractTests(unittest.TestCase):
+    def test_model_presets_match_current_cartesian_support(self):
+        expected_modes = {
+            "model7-centerpoint-64": ("model7", "centerpoint", "64"),
+            "model7-centerpoint-128": ("model7", "centerpoint", "128"),
+            "model7-radenet-64": ("model7", "radenet", "64"),
+            "model8-centerpoint": ("model8", "centerpoint", None),
+            "model8-radenet": ("model8", "radenet", None),
+            "model12-centerpoint": ("model12", "centerpoint", None),
+            "model12-radenet": ("model12", "radenet", None),
+            "model13-centerpoint": ("model13", "centerpoint", None),
+            "model13-radenet": ("model13", "radenet", None),
+            "model14-yolox": ("model14", "yolox", None),
+            "model15-centerpoint": ("model15", "centerpoint", None),
+            "model15-radenet": ("model15", "radenet", None),
+            "model16-radenet": ("model16", "radenet", None),
+        }
+        self.assertEqual(set(MODEL_PRESETS), set(expected_modes))
+        for name, (model_type, loss_mode, width) in expected_modes.items():
+            with self.subTest(name=name):
+                preset = MODEL_PRESETS[name]
+                self.assertEqual(preset["model_type"], model_type)
+                self.assertEqual(preset["loss_mode"], loss_mode)
+                self.assertEqual(
+                    preset.get("model7_decoder_hidden_channels"),
+                    width,
+                )
+                self.assertEqual(
+                    resolve_loss_mode(model_type, "cartesian", loss_mode),
+                    loss_mode,
+                )
+                self.assertEqual(
+                    set(preset),
+                    {"model_type", "loss_mode"}
+                    | ({"model7_decoder_hidden_channels"} if width else set()),
+                )
+
     def test_evaluation_parser_and_post_parse_contracts(self):
         parser_defaults = build_evaluation_parser().parse_args([])
         self.assertEqual(

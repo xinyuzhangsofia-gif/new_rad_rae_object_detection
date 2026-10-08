@@ -89,11 +89,19 @@ class ExperimentQueueTests(unittest.TestCase):
                 if item.name == "第二组"
             )
 
+        base_config = {
+            "experiment_queue_enabled": True,
+            "post_training_eval_enabled": False,
+            "model_type": "model8",
+            "loss_mode": "centerpoint",
+        }
+        source_config = build_experiment_training_config(
+            base_config,
+            experiment,
+            "source",
+        )
         target_config = build_experiment_training_config(
-            {
-                "experiment_queue_enabled": True,
-                "post_training_eval_enabled": False,
-            },
+            base_config,
             experiment,
             "target",
         )
@@ -106,6 +114,9 @@ class ExperimentQueueTests(unittest.TestCase):
             {12: "first"},
         )
         self.assertTrue(target_config["post_training_eval_enabled"])
+        for config in (source_config, target_config):
+            self.assertEqual(config["model_type"], "model8")
+            self.assertEqual(config["loss_mode"], "centerpoint")
 
     def test_control_is_source_only_and_keeps_sequence_pair_order(self):
         with tempfile.TemporaryDirectory() as temporary_dir:

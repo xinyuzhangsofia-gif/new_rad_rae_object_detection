@@ -23,23 +23,27 @@ This repository provides comparable 4D radar detector implementations, metric Ca
 
 The table below was rebuilt from local checkpoint payloads. For every retained run, all available epoch checkpoints were inspected. The selected epoch maximizes **official revised K-Radar BEV mAP at IoU 0.3**, and the 3D mAP comes from that same epoch. Every listed checkpoint also passes current metadata validation and strict state-dict loading.
 
-| Model | Backbone / Encoder | Head | Hidden Ch. | Best Epoch | BEV mAP @ 0.3 | 3D mAP @ 0.3 | Checkpoint |
-|---|---|---|---:|---:|---:|---:|---|
-| Model7-CP-64 | Separate Swin-FPN RAD/RAE encoders + fusion | CenterPoint | 64 | 27 | 39.6604 | 32.9594 | Local only |
-| Model7-CP-128 | Separate Swin-FPN RAD/RAE encoders + fusion | CenterPoint | 128 | 20 | 40.2879 | 33.2583 | Local only |
-| Model7-RADE-64 | Separate Swin-FPN RAD/RAE encoders + fusion | RADE-Net | 64 | 21 | 37.8140 | 29.8504 | Local only |
-| Model8-CP | CFE-enhanced deformable FPN + fusion | CenterPoint | 128 | 24 | 50.1911 | 42.1128 | Local only |
-| Model8-RADE | CFE-enhanced deformable FPN + fusion | RADE-Net | 128 | 27 | 38.4476 | 29.8391 | Local only |
-| Model12-CP | Deformable FPN + fusion | CenterPoint | 128 | 29 | 47.1138 | 39.7660 | Local only |
-| Model12-RADE | Deformable FPN + fusion | RADE-Net | 128 | 11 | 39.1329 | 31.6759 | Local only |
-| Model13-CP | CBAM U-Net + dilated residual neck | CenterPoint | 128 | 8 | 50.6806 | **44.7438** | Local only |
-| Model13-RADE | CBAM U-Net + dilated residual neck | RADE-Net | 128 | 13 | **51.1765** | 43.6554 | Local only |
-| Model14-YOLOX | Lightweight Swin-FPN + fusion | YOLOX | 96 | 26 | 35.6606 | 32.0466 | Local only |
-| Model16-RADE | Separate Swin-FPN RAD/RAE encoders + fusion | Official-style RADE-Net | 128 | 29 | 43.4143 | 36.1090 | Local only |
+**Common input:** `RAD [B, 64, R, A]` and `RAE [B, 37, R, A]`
+
+**Common final detection output:** Cartesian 3D boxes `[x, y, z, length, width, height, yaw]`
+
+| Model | Backbone / Encoder | Head | Params | Best Epoch | BEV mAP @ 0.3 | 3D mAP @ 0.3 | Config | Checkpoint |
+|---|---|---|---:|---:|---:|---:|---|---|
+| Model7-CP-64 | Separate Swin-FPN RAD/RAE encoders + fusion | CenterPoint | 6.62 M | 27 | 39.6604 | 32.9594 | [config](configs/models/model7_centerpoint_64.py) | Local only |
+| Model7-CP-128 | Separate Swin-FPN RAD/RAE encoders + fusion | CenterPoint | 6.88 M | 20 | 40.2879 | 33.2583 | [config](configs/models/model7_centerpoint_128.py) | Local only |
+| Model7-RADE-64 | Separate Swin-FPN RAD/RAE encoders + fusion | RADE-Net | 6.73 M | 21 | 37.8140 | 29.8504 | [config](configs/models/model7_radenet_64.py) | Local only |
+| Model8-CP | CFE-enhanced deformable FPN + fusion | CenterPoint | 6.44 M | 24 | 50.1911 | 42.1128 | [config](configs/models/model8_centerpoint.py) | Local only |
+| Model8-RADE | CFE-enhanced deformable FPN + fusion | RADE-Net | 6.88 M | 27 | 38.4476 | 29.8391 | [config](configs/models/model8_radenet.py) | Local only |
+| Model12-CP | Deformable FPN + fusion | CenterPoint | 4.91 M | 29 | 47.1138 | 39.7660 | [config](configs/models/model12_centerpoint.py) | Local only |
+| Model12-RADE | Deformable FPN + fusion | RADE-Net | 5.35 M | 11 | 39.1329 | 31.6759 | [config](configs/models/model12_radenet.py) | Local only |
+| Model13-CP | CBAM U-Net + dilated residual neck | CenterPoint | 27.89 M | 8 | 50.6806 | **44.7438** | [config](configs/models/model13_centerpoint.py) | Local only |
+| Model13-RADE | CBAM U-Net + dilated residual neck | RADE-Net | 28.34 M | 13 | **51.1765** | 43.6554 | [config](configs/models/model13_radenet.py) | Local only |
+| Model14-YOLOX | Lightweight Swin-FPN + fusion | YOLOX | 3.14 M | 26 | 35.6606 | 32.0466 | [config](configs/models/model14_yolox.py) | Local only |
+| Model16-RADE | Separate Swin-FPN RAD/RAE encoders + fusion | Official-style RADE-Net | 7.32 M | 29 | 43.4143 | 36.1090 | [config](configs/models/model16_radenet.py) | Local only |
 
 AP values are shown in **percentage points**. These are two-class Cartesian runs (`Sedan` and `Bus or Truck`), seed 42, evaluated during training on the fixed K-Radar test manifest. Checkpoint binaries are ignored by Git and are not distributed yet; the final column is ready for future release links.
 
-Model15 remains supported by current source code, but its available local checkpoint is historical: it passes metadata validation yet fails strict loading into the current Model15 because the saved architecture marker changed. It is therefore excluded from the verified Model Zoo results. An earlier Model7 run using the superseded `split_mode="file"` contract is also excluded. Models 1–6 and 9–11 remain historical/reference implementations and are outside the current Cartesian training contract.
+Model15 remains supported through its [CenterPoint](configs/models/model15_centerpoint.py) and [RADE-Net](configs/models/model15_radenet.py) presets, but its available local checkpoint is historical: it passes metadata validation yet fails strict loading into the current Model15 because the saved architecture marker changed. It is therefore excluded from the verified Model Zoo results. An earlier Model7 run using the superseded `split_mode="file"` contract is also excluded. Models 1–6 and 9–11 remain historical/reference implementations and are outside the current Cartesian training contract.
 
 ### Supported detector heads
 
@@ -56,6 +60,21 @@ This matrix is derived from `training/configuration.py` and `models/factory.py` 
 | Model16 | — | ✓ | — |
 
 See [model descriptions](models/model_description.md) for architecture details and [the experiment matrix](models/model_experiment_matrix.md) for implementation and run status.
+
+## CenterPoint vs RADE-Net heads
+
+CenterPoint and RADE-Net use the same RAD/RAE input and, for a fixed model family, the same backbone and fused feature. They regress the same Cartesian box semantics and decode to the same final 3D box format, but their dense head representation, classification output, loss, and scoring details differ.
+
+| Property | CenterPoint | RADE-Net |
+|---|---|---|
+| Backbone input | Same RAD/RAE features | Same RAD/RAE features |
+| Backbone | Same for a given model family | Same for a given model family |
+| Classification output | Logit heatmap | Sigmoid probability heatmap |
+| Regression representation | Split branches plus combined `box_reg` | Unified 8-channel `regression` map |
+| Regression semantics | `dx, dy, z, l, w, h, sin(yaw), cos(yaw)` | `dx, dy, z, l, w, h, sin(yaw), cos(yaw)` |
+| Final decoded box | `[x, y, z, l, w, h, yaw]` | `[x, y, z, l, w, h, yaw]` |
+| Training loss | CenterPoint focal + component SmoothL1 + GWD | RADE focal + SmoothL1 + GWD with RADE normalization |
+| Default candidate score | Heatmap peak with local-mean rescoring | Heatmap peak |
 
 ## Architecture overview
 
@@ -79,6 +98,7 @@ The range–azimuth grid locates feature cells and ignore regions. Box regressio
 | Model12 | Deformable FPN with RAD/RAE fusion |
 | Model13 | CBAM U-Net backbone with a dilated residual neck |
 | Model14 | Lightweight Swin-FPN with a decoupled YOLOX head |
+| Model15 | Official-style CBAM U-Net and dilated residual neck |
 | Model16 | Swin-FPN fusion with an official-style RADE-Net head |
 
 ## Quick start
@@ -128,17 +148,16 @@ The radar root contains paired `<sequence>/rad/<frame>.npy` and `<sequence>/rae/
 
 ### 4. Select and train a model
 
-Training is configuration-driven. Edit `TRAIN_CONFIG` in [configs/training.py](configs/training.py):
+Training is configuration-driven. Select one detector preset near the top of [configs/training.py](configs/training.py):
 
 ```python
-"model_type": "model7",
-"loss_mode": "centerpoint",
-"model7_decoder_hidden_channels": "128",
-"epochs": 30,
-"batch_size": 8,
-"lr": 5e-5,
-"split_mode": "kradar_file",
+# Select the detector preset here.
+from configs.models.model7_centerpoint_128 import (
+    MODEL_CONFIG as SELECTED_MODEL_CONFIG,
+)
 ```
+
+`TRAIN_CONFIG` merges this small model/head dictionary with the shared epochs, batch size, learning rate, data, split, domain-shift, and runtime settings. Each Model Zoo row links to its exact preset; no model-specific keys need to be copied by hand.
 
 Then run:
 
@@ -201,6 +220,18 @@ TD = AP_target - AP_source
 ```
 
 Keeping `test_seq` identical makes the Target Drop attributable to the training-domain change instead of a test-set change. Sequence groups must be disjoint, and target-test sequences stay held out from both training branches.
+
+The queue starts from the same complete `TRAIN_CONFIG` used by ordinary training. Both branches therefore inherit the selected model preset automatically:
+
+```text
+selected model preset
+        ↓
+base TRAIN_CONFIG
+        ├── Source: same architecture, head, and optimization + source data
+        └── Target: same architecture, head, and optimization + target data
+```
+
+Experiment tables define domains, seeds, and results. They do not duplicate model architecture settings.
 
 ### Experiment-table fields
 
