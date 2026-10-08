@@ -465,6 +465,14 @@ Run the CPU-safe suite with:
 CUDA_VISIBLE_DEVICES= python -B -m unittest discover -s tests -q
 ```
 
+Audit all locally available Model Zoo checkpoints against one real held-out
+K-Radar frame with:
+
+```bash
+CUDA_VISIBLE_DEVICES= python scripts/maintenance/audit_model_zoo_checkpoints.py \
+  --real-sample --device cpu
+```
+
 Some tests skip when CUDA extensions, datasets, or optional local resources are unavailable. Training and full evaluation require the configured K-Radar data.
 
 ## Acknowledgements
