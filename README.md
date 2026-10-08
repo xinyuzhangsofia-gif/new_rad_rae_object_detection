@@ -1,293 +1,248 @@
 # 4D Radar Object Detection Model Zoo
 
-<p align="center">
-  <strong>RAD/RAE-based 4D radar object detectors and a reproducible domain-shift experiment pipeline on K-Radar</strong>
-</p>
+> RAD/RAE-based 4D radar object detectors and a reproducible domain-shift experiment framework on K-Radar
+
+This repository provides comparable 4D radar detector implementations, metric Cartesian 3D detection, official K-Radar evaluation, and an automated Source/Target experiment workflow for weather-domain studies.
 
 <p align="center">
-  <img src="docs/assets/readme/weather_domain_examples.png" width="100%" alt="Qualitative 4D radar detections across heavy snow, light snow, overcast, rain, and sleet">
+  <img src="docs/assets/readme/weather_domain_examples.png" width="100%" alt="4D radar detections across heavy snow, light snow, overcast, rain, and sleet">
 </p>
 
-<p align="center">
-  <sub>Qualitative detections across five weather domains. Camera views are shown above Cartesian radar views; ground truth is green and predictions are red.</sub>
-</p>
+<p align="center"><sub>Camera and Cartesian radar detections across five K-Radar weather domains. Ground truth is green; predictions are red.</sub></p>
 
-This repository serves two purposes:
+## What is included
 
-1. **Model Zoo** — compare several RAD/RAE 4D radar object-detection architectures under one common Cartesian detection/evaluation pipeline.
-2. **Domain Shift Protocol** — reproduce source-to-target experiments with controlled train/test definitions, automatic source/target training, evaluation, result-table updates, and distance-based analysis.
-
-The intended workflow is:
-
-~~~text
-K-Radar RAD + RAE
-        |
-        v
-choose detector from the model zoo
-        |
-        v
-define source / target / shared / held-out target sequences
-        |
-        v
-train SOURCE branch -------- train TARGET branch
-(shared + source)            (shared + target)
-        |                           |
-        +------------+--------------+
-                     v
-          same held-out target test
-                     |
-                     v
-             BEV AP / 3D AP
-                     |
-                     v
-       Target Drop / distance analysis
-~~~
-
-> **Branch note:** the README below describes the
-> **domain-shift-in-4d-radar-object-detection** branch. Clone that branch
-> explicitly unless these changes have already been merged into the default branch.
+- **Model Zoo:** Model7/8/12/13/14/15/16 with CenterPoint, RADE-Net, or YOLOX heads.
+- **Paired radar input:** RAD and RAE tensors aligned on a range–azimuth feature grid.
+- **Cartesian detection:** metric boxes in `[x, y, z, length, width, height, yaw]` format.
+- **Reproducible evaluation:** official revised K-Radar BEV and 3D AP at IoU 0.3.
+- **Domain-shift framework:** table-driven Source/Target training, fixed target tests, result writeback, and weather summaries.
+- **Analysis tools:** controlled source splits, equal-count distance quartiles, checkpoint evaluation, and multi-sensor visualization.
 
 ## Model Zoo
 
-All rows below use paired RAD/RAE input and metric Cartesian 3D boxes. The reported
-checkpoints were validated against the current model implementation and evaluated
-with the revised K-Radar metric at IoU 0.3.
+The table below was rebuilt from local checkpoint payloads. For every retained run, all available epoch checkpoints were inspected. The selected epoch maximizes **official revised K-Radar BEV mAP at IoU 0.3**, and the 3D mAP comes from that same epoch. Every listed checkpoint also passes current metadata validation and strict state-dict loading.
 
-| Model | Backbone / encoder | Detection head | Hidden channels | Best epoch | BEV mAP @ 0.3 | 3D mAP @ 0.3 | Weights |
+| Model | Backbone / Encoder | Head | Hidden Ch. | Best Epoch | BEV mAP @ 0.3 | 3D mAP @ 0.3 | Checkpoint |
 |---|---|---|---:|---:|---:|---:|---|
-| **Model7-CP-64** | Separate Swin-FPN RAD/RAE encoders | CenterPoint | 64 | 27 | 39.6604 | 32.9594 | Not included |
-| **Model7-CP-128** | Separate Swin-FPN RAD/RAE encoders | CenterPoint | 128 | 20 | 40.2879 | 33.2583 | Not included |
-| **Model7-RADE** | Separate Swin-FPN RAD/RAE encoders | RADE-Net | 64 | 21 | 37.8140 | 29.8504 | Not included |
-| **Model8-CP** | CFE-enhanced deformable FPN | CenterPoint | 128 | 24 | 50.1911 | 42.1128 | Not included |
-| **Model8-RADE** | CFE-enhanced deformable FPN | RADE-Net | 128 | 27 | 38.4476 | 29.8391 | Not included |
-| **Model12-CP** | Deformable FPN + RAD/RAE fusion | CenterPoint | 128 | 29 | 47.1138 | 39.7660 | Not included |
-| **Model12-RADE** | Deformable FPN + RAD/RAE fusion | RADE-Net | 128 | 11 | 39.1329 | 31.6759 | Not included |
-| **Model13-CP** | CBAM U-Net + dilated residual neck | CenterPoint | 128 | 8 | 50.6806 | **44.7438** | Not included |
-| **Model13-RADE** | CBAM U-Net + dilated residual neck | RADE-Net | 128 | 13 | **51.1765** | 43.6554 | Not included |
-| **Model14-YOLOX** | Lightweight Swin-FPN | YOLOX | 96 | 26 | 35.6606 | 32.0466 | Not included |
-| **Model16-RADE** | Separate Swin-FPN RAD/RAE encoders | Official-style RADE-Net | 128 | 29 | 43.4143 | 36.1090 | Not included |
+| Model7-CP-64 | Separate Swin-FPN RAD/RAE encoders + fusion | CenterPoint | 64 | 27 | 39.6604 | 32.9594 | Local only |
+| Model7-CP-128 | Separate Swin-FPN RAD/RAE encoders + fusion | CenterPoint | 128 | 20 | 40.2879 | 33.2583 | Local only |
+| Model7-RADE-64 | Separate Swin-FPN RAD/RAE encoders + fusion | RADE-Net | 64 | 21 | 37.8140 | 29.8504 | Local only |
+| Model8-CP | CFE-enhanced deformable FPN + fusion | CenterPoint | 128 | 24 | 50.1911 | 42.1128 | Local only |
+| Model8-RADE | CFE-enhanced deformable FPN + fusion | RADE-Net | 128 | 27 | 38.4476 | 29.8391 | Local only |
+| Model12-CP | Deformable FPN + fusion | CenterPoint | 128 | 29 | 47.1138 | 39.7660 | Local only |
+| Model12-RADE | Deformable FPN + fusion | RADE-Net | 128 | 11 | 39.1329 | 31.6759 | Local only |
+| Model13-CP | CBAM U-Net + dilated residual neck | CenterPoint | 128 | 8 | 50.6806 | **44.7438** | Local only |
+| Model13-RADE | CBAM U-Net + dilated residual neck | RADE-Net | 128 | 13 | **51.1765** | 43.6554 | Local only |
+| Model14-YOLOX | Lightweight Swin-FPN + fusion | YOLOX | 96 | 26 | 35.6606 | 32.0466 | Local only |
+| Model16-RADE | Separate Swin-FPN RAD/RAE encoders + fusion | Official-style RADE-Net | 128 | 29 | 43.4143 | 36.1090 | Local only |
 
-Checkpoint binaries are currently local artifacts and are not stored in this
-repository. The table therefore documents verified model configurations and
-results rather than downloadable weights. New users can reproduce the same model
-families through the training configuration described below.
+AP values are shown in **percentage points**. These are two-class Cartesian runs (`Sedan` and `Bus or Truck`), seed 42, evaluated during training on the fixed K-Radar test manifest. Checkpoint binaries are ignored by Git and are not distributed yet; the final column is ready for future release links.
 
-### Supported model/head combinations
+Model15 remains supported by current source code, but its available local checkpoint is historical: it passes metadata validation yet fails strict loading into the current Model15 because the saved architecture marker changed. It is therefore excluded from the verified Model Zoo results. An earlier Model7 run using the superseded `split_mode="file"` contract is also excluded. Models 1–6 and 9–11 remain historical/reference implementations and are outside the current Cartesian training contract.
 
-| Model | CenterPoint | RADE-Net | YOLOX | Current role |
-|---|:---:|:---:|:---:|---|
-| Model7 | ✓ | ✓ | — | Swin-FPN baseline |
-| Model8 | ✓ | ✓ | — | CFE + deformable FPN |
-| Model12 | ✓ | ✓ | — | Deformable FPN |
-| Model13 | ✓ | ✓ | — | CBAM U-Net family |
-| Model14 | — | — | ✓ | Lightweight Swin-FPN YOLOX |
-| Model15 | ✓ | ✓ | — | CBAM U-Net family; no current verified checkpoint listed above |
-| Model16 | — | ✓ | — | Swin-FPN RADE-Net |
+### Supported detector heads
 
-Models 1–6 and 9–11 remain in the repository as historical/reference
-implementations. The current Cartesian model-zoo workflow focuses on the models
-listed above.
+This matrix is derived from `training/configuration.py` and `models/factory.py` on this branch.
 
-For detailed layer-level descriptions, see
-[Model Description](models/model_description.md). For implementation support and
-historical run status, see
-[Model Experiment Matrix](models/model_experiment_matrix.md).
+| Model | CenterPoint | RADE-Net | YOLOX |
+|---|:---:|:---:|:---:|
+| Model7 | ✓ | ✓ | — |
+| Model8 | ✓ | ✓ | — |
+| Model12 | ✓ | ✓ | — |
+| Model13 | ✓ | ✓ | — |
+| Model14 | — | — | ✓ |
+| Model15 | ✓ | ✓ | — |
+| Model16 | — | ✓ | — |
+
+See [model descriptions](models/model_description.md) for architecture details and [the experiment matrix](models/model_experiment_matrix.md) for implementation and run status.
 
 ## Architecture overview
 
-All current model-zoo detectors consume two radar tensors:
-
-~~~text
-RAD: [B, 64, R, A]    range × azimuth × Doppler
-RAE: [B, 37, R, A]    range × azimuth × elevation
-~~~
-
-A common high-level pipeline is:
-
-~~~mermaid
+```mermaid
 flowchart LR
-    RAD["RAD tensor"] --> ENC["Model-specific encoder"]
-    RAE["RAE tensor"] --> ENC
-    ENC --> FUSE["RAD/RAE fusion"]
-    FUSE --> HEAD["CenterPoint / RADE-Net / YOLOX"]
-    HEAD --> BOX["Cartesian 3D boxes"]
-    BOX --> EVAL["BEV + 3D evaluation"]
-~~~
+    RAD["RAD<br/>B × 64 × R × A"] --> RADENC["Model-specific<br/>RAD encoder"]
+    RAE["RAE<br/>B × 37 × R × A"] --> RAEENC["Model-specific<br/>RAE encoder"]
+    RADENC --> FUSE["RAD/RAE fusion<br/>on the R-A grid"]
+    RAEENC --> FUSE
+    FUSE --> HEAD["CenterPoint /<br/>RADE-Net / YOLOX"]
+    HEAD --> BOX["Cartesian boxes<br/>x, y, z, l, w, h, yaw"]
+    BOX --> METRIC["Rotated BEV +<br/>3D evaluation"]
+```
 
-The canonical output geometry is:
+The range–azimuth grid locates feature cells and ignore regions. Box regression, matching, decoding, and evaluation use exact metric Cartesian geometry.
 
-~~~text
-[x, y, z, length, width, height, yaw]
-~~~
-
-The natural range-azimuth radar grid is retained for feature extraction and
-candidate localization, while box geometry and evaluation are performed in
-metric Cartesian space.
+| Family | High-level design |
+|---|---|
+| Model7 | Swin-FPN RAD/RAE encoders with feature fusion |
+| Model8 | Convolutional feature enhancement with deformable FPN |
+| Model12 | Deformable FPN with RAD/RAE fusion |
+| Model13 | CBAM U-Net backbone with a dilated residual neck |
+| Model14 | Lightweight Swin-FPN with a decoupled YOLOX head |
+| Model16 | Swin-FPN fusion with an official-style RADE-Net head |
 
 ## Quick start
 
-### 1. Clone the matching branch
+### 1. Clone this branch
 
-~~~bash
+```bash
 git clone --branch domain-shift-in-4d-radar-object-detection \
   https://github.com/xinyuzhangsofia-gif/new_rad_rae_object_detection.git
-
 cd new_rad_rae_object_detection
-~~~
+```
 
-### 2. Create the environment
+### 2. Install dependencies
 
-Python 3.10 is the current development target. Install a PyTorch build that
-matches your CUDA runtime, then install the remaining dependencies:
+Python 3.10 is the current development target. Install a PyTorch build suitable for your CPU/CUDA runtime, then install the reference dependencies:
 
-~~~bash
+```bash
 conda create -n radar-domain-shift python=3.10 -y
 conda activate radar-domain-shift
 pip install -r requirements.txt
-~~~
+```
 
-The development environment has used PyTorch 2.9 with CUDA 12.8 builds.
-GPU execution is recommended for the revised rotated-IoU evaluation path.
+`requirements.txt` records the existing Python 3.10 / PyTorch 2.9 environment. It is a reference environment, not a freshly verified cross-platform lockfile. The rotated GPU evaluator requires a compatible CUDA setup; use the CPU backend for lightweight validation.
 
-### 3. Configure the dataset
+### 3. Configure the data
 
-The main paths are defined in [configs/data.py](configs/data.py). They can also
-be supplied with environment variables:
+Paths are centralized in [configs/data.py](configs/data.py).
 
-~~~bash
-export MVRSS_RADAR_ROOT=/path/to/paired_rad_rae_npy
-export MVRSS_CARTESIAN_GT_ROOT=/path/to/cartesian_info_labels
+Required for normal training and evaluation:
 
-# Only required by raw-data integration or multi-sensor visualization:
-export MVRSS_RAW_KRADAR_ROOT=/path/to/raw_kradar
-export MVRSS_KRADAR_TOOLS_ROOT=/path/to/kradar_tools
-export MVRSS_OFFICIAL_KRADAR_GT_ROOT=/path/to/official_info_labels
-export MVRSS_CAMERA_RGB_ROOT=/path/to/camera_images
-export MVRSS_LIDAR2RADAR_CALIB_PATH=/path/to/lidar_to_radar_calibration.txt
-~~~
+```bash
+export MVRSS_RADAR_ROOT=/data/K-Radar-RAD
+export MVRSS_CARTESIAN_GT_ROOT=/data/K-Radar-GT-cartesian-radar-v2
+```
 
-Each sequence is expected to provide paired RAD/RAE arrays and Cartesian labels
-for the selected frames. Fixed ordinary K-Radar manifests live under
-[data/manifests/kradar](data/manifests/kradar).
+Required only by raw-data utilities or multi-sensor visualization:
+
+```bash
+export MVRSS_RAW_KRADAR_ROOT=/data/KRadar
+export MVRSS_OFFICIAL_KRADAR_GT_ROOT=/data/KRadar_revised_visibility
+export MVRSS_CAMERA_RGB_ROOT=/data/K-Radar-RGB
+export MVRSS_LIDAR2RADAR_CALIB_PATH=/data/calibration/lidar2radar_calib.yml
+export MVRSS_KRADAR_TOOLS_ROOT=/opt/K-Radar
+```
+
+The radar root contains paired `<sequence>/rad/<frame>.npy` and `<sequence>/rae/<frame>.npy` files. The Cartesian GT root contains the radar-aligned labels and manifests used by the fixed split in `data/manifests/kradar/`.
 
 ### 4. Select and train a model
 
-Edit [configs/training.py](configs/training.py):
+Training is configuration-driven. Edit `TRAIN_CONFIG` in [configs/training.py](configs/training.py):
 
-~~~python
+```python
 "model_type": "model7",
 "loss_mode": "centerpoint",
+"model7_decoder_hidden_channels": "128",
 "epochs": 30,
 "batch_size": 8,
 "lr": 5e-5,
-~~~
-
-For an ordinary train/validation run, keep:
-
-~~~python
 "split_mode": "kradar_file",
-"experiment_queue_enabled": False,
-"domain_shift_train_branch": None,
-~~~
+```
 
 Then run:
 
-~~~bash
+```bash
 python train.py
-~~~
+```
 
-### 5. Evaluate a checkpoint
+`kradar_file` is the ordinary fixed-manifest split. Training and resume read configuration files rather than command-line arguments. To resume, configure [configs/resume.py](configs/resume.py) and run `python train_resume.py`.
 
-Configure [configs/evaluation.py](configs/evaluation.py), or use the standalone
-entry point:
+### 5. Evaluate checkpoints
 
-~~~bash
+Set persistent defaults in [configs/evaluation.py](configs/evaluation.py), or use its CLI overrides:
+
+```bash
 python evaluation.py \
-  --checkpoint-root checkpoints/<run> \
+  --checkpoint-root checkpoints/object_detection/your_run \
   --start-epoch 1 \
   --end-epoch 30 \
   --official-eval-iou-backend auto
-~~~
+```
+
+The evaluator reconstructs model identity from the checkpoint, loads the state dict strictly, decodes canonical Cartesian boxes, and evaluates the selected split.
 
 ### 6. Visualize predictions
 
-~~~bash
-# Cartesian range-azimuth radar view
-python visualize.py --mode ra_map --ra-map-coordinate cartesian
+Configure sensor roots in [configs/visualization.py](configs/visualization.py), then run one of the supported modes:
+
+```bash
+export CHECKPOINT_PATH=checkpoints/object_detection/your_run/checkpoint.pth
+
+# Cartesian radar view
+python visualize.py \
+  --mode ra_map \
+  --ra-map-coordinate cartesian \
+  --checkpoint-path "$CHECKPOINT_PATH"
 
 # Camera + LiDAR + radar
 python visualize.py \
   --mode multisensor \
   --sensor-layout camera_lidar_radar \
-  --ra-map-coordinate cartesian
-~~~
+  --ra-map-coordinate cartesian \
+  --checkpoint-path "$CHECKPOINT_PATH"
+```
+
+Set `CHECKPOINT_PATH` to an actual `.pth` file from the chosen run. Checkpoints are not distributed in this repository.
 
 ## Reproducing the Domain Shift Protocol
 
-The central idea is to compare two models that differ only in the
-domain-specific part of their training data and are evaluated on exactly the
-same held-out target-domain test set.
+The repository implements a paired experiment rather than comparing unrelated runs:
 
-For one experiment:
+```text
+SOURCE model: shared data + source-domain data
+TARGET model: shared data + target-domain data
 
-~~~text
-SOURCE model training = shared sequences + source-domain sequences
-TARGET model training = shared sequences + target-domain sequences
+SOURCE evaluation ─┐
+                   ├─> the exact same held-out target-domain test data
+TARGET evaluation ─┘
 
-SOURCE evaluation = held-out target-domain test sequences
-TARGET evaluation = the same held-out target-domain test sequences
-~~~
+TD = AP_target - AP_source
+```
 
-This isolates the performance gap associated with training-domain mismatch while
-keeping the evaluation domain fixed.
+Keeping `test_seq` identical makes the Target Drop attributable to the training-domain change instead of a test-set change. Sequence groups must be disjoint, and target-test sequences stay held out from both training branches.
 
-### Step 1 — Define the four sequence groups
+### Experiment-table fields
 
-Each experiment row contains:
+| Field | Used by source branch | Used by target branch | Meaning |
+|---|:---:|:---:|---|
+| `shared_seq` | ✓ | ✓ | Training data common to both models |
+| `source_seq` | ✓ | — | Additional source-domain training data |
+| `target_seq` | — | ✓ | Additional target-domain training data |
+| `test_seq` | validation | validation | Identical held-out target-domain evaluation data |
 
-| Field | Meaning |
-|---|---|
-| **shared_seq** | auxiliary/shared training sequences used by both branches |
-| **source_seq** | domain-specific sequences used only by the source branch |
-| **target_seq** | domain-specific sequences used only by the target branch |
-| **test_seq** | held-out target-domain sequences used by both evaluations |
+Training sequence tokens may use `_first` or `_last`, for example `12_first` or `10_first,10_last`. The parser selects the chronological first or last half using `train_sequence_half_ratio` (0.5 by default). Both halves of the same sequence can be listed when the ratio is 0.5. Half-selection suffixes are rejected for `test_seq` because the test set must remain explicit and stable.
 
-These groups must be disjoint. Training sequence entries may additionally use
-the suffixes **_first** or **_last** to select a chronological half. Test
-sequences must remain full held-out sequences.
+### Experiment-table format
 
-The resulting comparison is:
+The queue reads whitespace-aligned TXT or CSV files. Existing templates live in [experiments/target_drop](experiments/target_drop) for heavy snow, light snow, overcast, rain, and sleet.
 
-~~~text
-source branch: shared_seq + source_seq  ---> test_seq
-target branch: shared_seq + target_seq  ---> test_seq
-~~~
-
-### Step 2 — Create or edit an experiment table
-
-The queue is table-driven. Existing examples are stored in
-[experiments/target_drop](experiments/target_drop).
-
-A minimal TXT row follows this structure:
-
-~~~text
+```text
 group   seed  shared_seq  source_seq  target_seq  test_seq  BEV_src  3D_src  BEV_tgt  3D_tgt  TD_BEV  TD_3D
 group1  42    9           15,5        24,25       23        -        -       -        -       -       -
-~~~
+```
 
-Comma-separated sequence IDs are supported. A dash in a metric cell means that
-the branch has not yet produced a completed result. The queue can skip branches
-whose source or target metric columns are already filled.
+Metric cells may begin as `-`. A branch is complete only when both of its BEV and 3D cells contain results. A row with all four sequence fields set to `-` is treated as an unused template row. After both branches finish, the writer fills:
 
-The tracked weather tables currently include heavy snow, light snow, overcast,
-rain, and sleet. To apply the same method to a different domain definition,
-create a table with the same columns and replace only the sequence assignments.
+```text
+TD_BEV = BEV_tgt - BEV_src
+TD_3D  = 3D_tgt  - 3D_src
+```
 
-### Step 3 — Register the experiment table(s)
+These are absolute AP-point differences. Positive values mean target-domain training performed better.
 
-[configs/domain_shift.py](configs/domain_shift.py) defines the table list:
+### Run the table-driven queue
 
-~~~python
+Domain-shift training has one critical difference from ordinary training. Set this in `configs/training.py`:
+
+```python
+"split_mode": "sequence",  # required; kradar_file will raise an error
+```
+
+Then enable the queue in [configs/domain_shift.py](configs/domain_shift.py):
+
+```python
+"experiment_queue_enabled": True,
 "experiment_sheet_paths": (
     "experiments/target_drop/heavy_snow_experiments.txt",
     "experiments/target_drop/light_snow_experiments.txt",
@@ -295,271 +250,192 @@ create a table with the same columns and replace only the sequence assignments.
     "experiments/target_drop/rain_experiments.txt",
     "experiments/target_drop/sleet_experiments.txt",
 ),
-~~~
+"experiment_queue_seed_order": (42, 43, 44),
+"experiment_queue_branches": ("source", "target"),
+"experiment_queue_skip_completed_branches": True,
+"experiment_queue_update_sheet_results": True,
+```
 
-You may keep all tables or point the queue to only the table(s) you want to run.
+Start the normal entrypoint:
 
-### Step 4 — Switch training to sequence-based domain-shift mode
-
-This step is required.
-
-In [configs/training.py](configs/training.py), set:
-
-~~~python
-"split_mode": "sequence",
-~~~
-
-The source/target domain-shift branches intentionally reject
-**split_mode="kradar_file"** because their train and test sequence definitions
-come from the experiment table.
-
-Then enable the queue in [configs/domain_shift.py](configs/domain_shift.py):
-
-~~~python
-"experiment_queue_enabled": True,
-~~~
-
-Choose the detector in [configs/training.py](configs/training.py), for example:
-
-~~~python
-"model_type": "model7",
-"loss_mode": "centerpoint",
-~~~
-
-The queue will override the per-row source/target/shared/test sequences and seed
-automatically.
-
-### Step 5 — Match the runtime to your hardware
-
-The checked-in defaults in [configs/runtime.py](configs/runtime.py) are designed
-for a multi-GPU machine and currently reference GPU slots 0, 1, and 2.
-
-If you have one GPU, reduce the queue to one training worker and one evaluation
-worker, for example:
-
-~~~python
-EXPERIMENT_QUEUE_RUNTIME_CONFIG = {
-    "experiment_queue_train_workers": 1,
-    "experiment_queue_gpu_strategy": "isolated",
-    "experiment_queue_train_gpu_slots": ("0",),
-    "experiment_queue_eval_workers": 1,
-    "experiment_queue_eval_gpu_pool": "0",
-    "experiment_queue_eval_max_per_gpu": 1,
-    "experiment_queue_eval_batch_size": 8,
-    "experiment_queue_eval_min_free_memory_mb": 1500,
-    "experiment_queue_eval_reservation_memory_mb": 2500,
-    "experiment_queue_poll_seconds": 1.0,
-}
-~~~
-
-Increase worker counts and evaluation batch size only when the available GPU
-memory supports them.
-
-### Step 6 — Run the complete experiment queue
-
-~~~bash
+```bash
 python train.py
-~~~
+```
 
-With **experiment_queue_enabled=True**, the normal training entry point becomes
-the experiment launcher. For each unfinished row it:
+For each seed, the current queue performs two phases:
 
-~~~text
-read experiment row
-      |
-      +--> train source branch
-      |
-      +--> train target branch
-      |
-      v
-evaluate both checkpoint sets on the same target test set
-      |
-      v
-write BEV / 3D metrics back to the experiment table
-      |
-      v
-refresh weather/domain-shift summaries
-~~~
+```text
+read pending rows across weather tables
+        ↓
+train source/target tasks in the configured worker pool
+        ↓  (evaluation waits for every training task in this seed)
+evaluate completed checkpoints on their common target test
+        ↓
+write BEV/3D results and absolute TD back to each table
+        ↓
+refresh per-weather and combined summaries
+        ↓
+continue with the next seed
+```
 
-The configured seed order is 42, 43, and 44. Completed branches can be skipped
-when their result columns are already present.
+Source and target jobs for a seed are independent tasks and may train concurrently. Completed branches are skipped when their two metric cells are already populated. Queue state and fresh evaluation-report metadata are used to associate results with the correct seed, sequence groups, half selections, and branch.
 
-Queue logs and state are kept with the experiment workflow so interrupted runs
-can be inspected without redefining the scientific split.
+### Hardware configuration
 
-### Step 7 — Interpret Target Drop
+The checked-in queue runtime in [configs/runtime.py](configs/runtime.py) targets three GPUs:
 
-For a fixed target test domain:
+```text
+3 isolated training workers on GPUs 0, 1, 2
+9 evaluation workers across GPUs 0, 1, 2
+up to 3 evaluations per GPU
+evaluation batch size 32
+```
 
-~~~text
-AP_source = AP of the source-trained model on the target test set
-AP_target = AP of the target-trained model on the same target test set
+Review these values before enabling the queue. Ordinary single-GPU training can use:
 
-TD = AP_target - AP_source
-~~~
+```python
+TRAIN_RUNTIME_CONFIG = {
+    "num_workers": 0,
+    "gpu_ids": "0,",
+    "post_training_eval_min_free_memory_mb": 4096,
+}
+```
 
-A larger positive TD indicates a larger performance penalty when the detector is
-trained on the source domain instead of target-domain data.
+and a smaller training `batch_size`. The full experiment queue intentionally requires parallel workers, so it has no universally safe serial single-GPU preset. On a one-GPU machine, use the single-pair workflow below. Standalone evaluation should also change `EVALUATION_RUNTIME_CONFIG["gpu_ids"]` and `cuda` from the checked-in multi-GPU values.
 
-The repository reports the same comparison for both BEV AP and 3D AP.
+### Debug one Source/Target pair
 
-### Optional — Controlled source-domain matching
+To validate a new domain definition before launching the queue, disable the queue and configure one source run:
 
-The repository also supports an optional controlled split:
-
-~~~python
-"train_control_split_enabled": True,
-~~~
-
-When enabled, the **source branch** is filtered to match the paired target
-reference distribution according to the controlled-split configuration. The
-target branch is not filtered.
-
-Controlled-split assets are stored under
-[experiments/controlled_splits](experiments/controlled_splits).
-
-Use this option when you want the source/target comparison to reduce differences
-in sample/distribution composition beyond the domain variable itself.
-
-### Optional — Run one source/target pair without the queue
-
-For debugging, you can bypass the table queue and run a single branch directly.
-
-Keep:
-
-~~~python
-"experiment_queue_enabled": False,
+```python
+# configs/training.py
 "split_mode": "sequence",
-~~~
 
-Then configure [configs/domain_shift.py](configs/domain_shift.py):
+# configs/domain_shift.py
+"experiment_queue_enabled": False,
+"domain_shift_train_branch": "source",
+"shared_train_sequences": (9,),
+"source_train_sequences": (15, 5),
+"target_train_sequences": (24, 25),
+"target_test_sequences": (23,),
+```
 
-~~~python
-"domain_shift_train_branch": "source",   # or "target"
-"shared_train_sequences": (...,),
-"source_train_sequences": (...,),
-"target_train_sequences": (...,),
-"target_test_sequences": (...,),
-~~~
+Run `python train.py`. Then change only:
 
-Run **python train.py**, then switch the branch from **source** to **target**.
-Both runs will use the same held-out target test sequences.
+```python
+"domain_shift_train_branch": "target",
+```
 
-### Optional — Distance-quartile analysis
+and run it again. Both runs automatically derive `val_sequences=(23,)`. Keep the model, seed, test sequences, metric settings, and all non-domain training settings identical. This workflow is suitable for debugging; the table queue is the reproducible path for multi-weather, multi-seed result writeback.
 
-After the canonical source/target experiments are trained and evaluated, the
-same checkpoints can be re-evaluated by ground-truth object-distance quartile:
+### Optional controlled source split
 
-~~~bash
-python scripts/experiments/evaluate_quartile_experiments.py
-~~~
+Set `train_control_split_enabled=True` to reduce selected source/target differences in object-count and distance-bin composition. The code pairs source sequences (`controlled_sequences`) with target references (`reference_sequences`), generates or reuses artifacts under `experiments/controlled_splits/`, and filters the **source branch only**. The target branch always uses its original unfiltered data and rejects controlled-split activation.
 
-Use:
+The generated directory contains `train.txt`, `test.txt`, `object_ignore_override.json`, configuration, statistics, and a comparison report. This mechanism controls selected composition variables; it does not make the two domains identical.
 
-~~~bash
-python scripts/experiments/evaluate_quartile_experiments.py --help
-~~~
+### Distance-quartile evaluation
 
-for output and runtime options.
+After the canonical rain/sleet Source/Target checkpoints exist, re-evaluate them by equal-count GT distance rank:
 
-The quartile workflow discovers completed source/target checkpoints from the
-upstream experiment state, divides target ground-truth boxes into equal-count
-distance quartiles, and reports the source/target gap from near to far range.
-It does not retrain the detectors.
+```bash
+# Validate discovery without launching evaluation
+python scripts/experiments/evaluate_quartile_experiments.py \
+  --gpus 0 \
+  --max-workers 1 \
+  --max-per-gpu 1 \
+  --batch-size 8 \
+  --dry-run
 
-Do not delete the upstream queue-state manifests if you plan to reproduce
-quartile analysis: they contain the completed checkpoint locations used for
-discovery.
+# Run the checkpoint-only analysis
+python scripts/experiments/evaluate_quartile_experiments.py \
+  --gpus 0 \
+  --max-workers 1 \
+  --max-per-gpu 1 \
+  --batch-size 8
+```
 
-## Example recorded domain-shift results
+This tool does **not** retrain. It discovers completed source/target checkpoints through the original target-drop queue state, evaluates the same held-out target data, derives Q1–Q4 from GT radar-center distance rank, and compares both branches inside the same quartile bounds.
 
-The following values are a recorded Model7 Sedan-only study and are shown here
-as an example of the protocol output. They are separate from the two-class
-Model Zoo checkpoint table above.
+The distance report uses two related quantities:
 
-| Target weather | Source BEV | Target BEV | BEV TD | Source 3D | Target 3D | 3D TD |
+- overall `TD`: absolute AP points, `AP_target - AP_source`;
+- Q1–Q4 relative drop: `100 × (AP_target - AP_source) / AP_target` percent.
+
+A positive relative value means the source-trained model lost performance relative to the target-trained model. Current quartiles are equal-count GT groups, not fixed metric-distance bins. See the [distance-quartile output contract](experiments/distance_quartiles/README.txt) for the recorded format.
+
+### Recorded weather-domain example
+
+The local recorded summary below belongs to a historical **Model7 Sedan-only** experiment series. It averages official AP over epochs 5–24 for complete Source/Target pairs and is separate from the two-class Model Zoo ranking.
+
+| Target weather | Source BEV | Target BEV | TD BEV | Source 3D | Target 3D | TD 3D |
 |---|---:|---:|---:|---:|---:|---:|
-| Heavy snow | 39.9754 | 45.5840 | +5.6086 | 36.0194 | 40.3157 | +4.2963 |
-| Light snow | 32.4615 | 35.5336 | +3.0721 | 27.3992 | 29.5986 | +2.1994 |
-| Overcast | 18.5279 | 17.8341 | -0.6938 | 15.3616 | 13.7946 | -1.5671 |
-| Rain | 37.7035 | 58.0472 | +20.3437 | 23.5772 | 39.5075 | +15.9303 |
-| Sleet | 37.4580 | 49.2034 | +11.7455 | 17.8303 | 29.8514 | +12.0210 |
+| Heavy snow | 39.9754 | 45.5840 | +5.6086 ± 4.7930 | 36.0194 | 40.3157 | +4.2963 ± 4.9431 |
+| Light snow | 32.4615 | 35.5336 | +3.0721 ± 8.5934 | 27.3992 | 29.5986 | +2.1994 ± 9.0871 |
+| Overcast | 18.5279 | 17.8341 | −0.6938 ± 2.6995 | 15.3616 | 13.7946 | −1.5671 ± 2.9820 |
+| Rain | 37.7035 | 58.0472 | +20.3437 ± 8.3027 | 23.5772 | 39.5075 | +15.9303 ± 4.9101 |
+| Sleet | 37.4580 | 49.2034 | +11.7455 ± 6.0154 | 17.8303 | 29.8514 | +12.0210 ± 1.8350 |
 
-For exact experiment rows and sequence assignments, use the tracked tables under
-[experiments/target_drop](experiments/target_drop). Table-generation and result
-selection rules are documented in
-[Domain-shift Tables](docs/domain_shift_tables.md).
+See [domain-shift table documentation](docs/domain_shift_tables.md) for report matching and aggregation rules.
 
 ## Qualitative results
 
 | Camera + Cartesian radar | Camera + LiDAR + radar |
 |---|---|
-| <img src="docs/assets/readme/camera_radar_cartesian_detection.png" alt="Camera and Cartesian radar detection visualization" width="100%"> | <img src="docs/assets/readme/camera_lidar_radar_detection.png" alt="Camera, LiDAR, and radar visualization" width="100%"> |
+| <img src="docs/assets/readme/camera_radar_cartesian_detection.png" alt="Camera and Cartesian radar detection" width="100%"> | <img src="docs/assets/readme/camera_lidar_radar_detection.png" alt="Camera, LiDAR, and radar visualization" width="100%"> |
 
 <p align="center">
-  <img src="docs/assets/readme/cartesian_ra_detection.png" width="68%" alt="Predictions on a Cartesian range-azimuth radar map">
+  <img src="docs/assets/readme/cartesian_ra_detection.png" width="68%" alt="Detections on a Cartesian range-azimuth radar view">
 </p>
-
-<p align="center"><sub>Predictions on a Cartesian range-azimuth map.</sub></p>
 
 ## Evaluation protocol
 
-The current model-zoo workflow uses:
+- **Primary Model Zoo metric:** official revised K-Radar BEV and 3D AP at IoU 0.3.
+- **Current Model Zoo targets:** Sedan and Bus or Truck.
+- **Geometry:** metric Cartesian 3D boxes and rotated BEV overlap.
+- **AP score threshold:** 0.01 by default; `score_thresh=0.3` affects TP/FP/FN summaries, not AP ranking.
+- **Ignored regions:** configured pedestrian, bicycle, and motorcycle categories can suppress regions without becoming training targets.
+- **Optional metrics:** custom-IoU, COCO-style, nuScenes-style, and distance-quartile results are kept separate from the primary Model Zoo columns.
 
-- **Input:** paired RAD and RAE tensors.
-- **Geometry:** metric Cartesian 3D boxes with rotated BEV overlap.
-- **Current checkpoint targets:** Sedan and Bus or Truck.
-- **Primary metric:** revised K-Radar BEV AP and 3D AP at IoU 0.3.
-- **AP ranking threshold:** 0.01 by default.
-- **Ignored regions:** configured pedestrian, bicycle, and motorcycle classes can
-  suppress spatial regions without becoming detector targets.
-- **Optional analyses:** custom IoU sweeps, COCO-style metrics,
-  nuScenes-style metrics, and distance quartiles.
+## Repository structure
 
-Do not mix optional metric families into the primary BEV/3D AP columns when
-comparing Model Zoo entries.
+```text
+configs/                 Data, training, runtime, evaluation, and experiment settings
+data/                    Dataset, Cartesian labels, geometry, manifests, controlled splits
+models/                  Model implementations, factory, and architecture documentation
+training/                Shared loops, losses, checkpointing, resume, experiment queue
+eval/                    Decoding, inference, official metrics, reports, domain summaries
+experiments/target_drop/ Source/Target experiment tables
+experiments/distance_quartiles/
+                         Recorded equal-count distance analysis
+experiments/controlled_splits/
+                         Generated distribution-control artifacts
+scripts/experiments/     Experiment and post-training analysis entrypoints
+visualization/           Radar, camera, LiDAR, and video workflows
+tests/                   Contract, numerical, queue, evaluation, and visualization tests
+docs/                    Detailed code and reporting guides
+```
 
-## Repository map
-
-~~~text
-configs/         Model, training, evaluation, data and domain-shift settings
-data/            Dataset, geometry, labels, loaders, manifests and controlled splits
-models/          Model implementations, shared Cartesian heads and model factory
-training/        Training loop, losses, checkpoints and experiment-queue engine
-eval/            Inference, decoding, metrics and domain-shift summaries
-visualization/   Radar and multi-sensor rendering workflows
-experiments/     Experiment tables, controlled splits and recorded outputs
-scripts/         Data preparation and experiment/analysis entry points
-tests/           Regression tests for model, geometry and workflow contracts
-docs/            Detailed code and result-table documentation
-~~~
-
-For implementation-level details, see the [Code Guide](docs/code_guide.md).
+For implementation-level orientation, see the [code guide](docs/code_guide.md).
 
 ## Reproducibility notes
 
-- Keep source, target, shared, and target-test sequence groups disjoint.
-- Source and target models must be evaluated on the same held-out target test set.
-- Keep model configuration, optimization settings, target classes, metric
-  configuration, and random seed paired between source and target branches.
-- Use **split_mode="sequence"** for the domain-shift protocol.
-- The queue's checked-in runtime assumes multiple GPUs; adapt it before running on
-  different hardware.
-- Checkpoint binaries are not currently distributed in this repository.
-- Historical Polar/reference models and current Cartesian Model Zoo results should
-  not be mixed in one ranking table.
+- Model Zoo metrics come from current-compatible local checkpoints and their stored official validation metrics, not filenames or historical tables.
+- Every retained run was checked across all available epochs; `global_best` matched the maximum official BEV mAP@0.3 in each case.
+- Model Zoo and historical domain-shift results use different experiment populations and are intentionally presented separately.
+- Fixed manifests, table rows, seed, half selections, branch identity, checkpoint metadata, and evaluation reports together define one reproducible run.
+- Checkpoints, runtime queue state, TensorBoard logs, and generated evaluation outputs are local artifacts unless explicitly tracked under `experiments/`.
 
 ## Tests
 
-~~~bash
-python -B -m unittest discover -s tests -q
-~~~
+Run the CPU-safe suite with:
 
-Some visualization/data tests may be skipped when optional dependencies or local
-datasets are unavailable.
+```bash
+CUDA_VISIBLE_DEVICES= python -B -m unittest discover -s tests -q
+```
+
+Some tests skip when CUDA extensions, datasets, or optional local resources are unavailable. Training and full evaluation require the configured K-Radar data.
 
 ## Acknowledgements
 
-This project builds on the K-Radar dataset and its evaluation conventions.
-Please follow the dataset owners' terms and citation guidance when using K-Radar
-data.
+This project builds on the K-Radar dataset and its official evaluation conventions. Follow the dataset authors' license, terms, and citation guidance when using K-Radar data.
