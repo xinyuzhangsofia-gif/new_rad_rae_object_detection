@@ -1,4 +1,7 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from data.split.controlled.matching import (
     _build_population,
@@ -8,6 +11,8 @@ from data.split.controlled.matching import (
     _category_keys,
 )
 from data.split.controlled.reporting import _request_signature
+from data.split.controlled.generation import _select_output_dir
+from data.split.controlled.reporting import REQUIRED_CONTROL_OUTPUT_FILENAMES
 from data.split.sequences import _select_sequence_part
 
 
@@ -37,6 +42,52 @@ def frame_info(file_idx, labels_by_category, outside=()):
 
 
 class ControlledSequenceTests(unittest.TestCase):
+    def test_new_controlled_split_uses_corrected_prefix(self):
+        request = {
+            "schema_version": 10,
+            "pairs": [{"source": [1, "full"], "reference": [22, "full"]}],
+            "box_coordinate_mode": "cartesian",
+            "control_class_names": ["Sedan"],
+            "range_m_bins": [[0.0, 20.0]],
+            "half_ratio": 0.5,
+            "window_position": "last",
+            "seed": 42,
+            "num_trials": 300,
+            "total_bbox_tolerance_ratio": 0.0,
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir, should_generate = _select_output_dir(temp_dir, request)
+            self.assertTrue(should_generate)
+            self.assertTrue(output_dir.name.startswith("controlled_"))
+
+    def test_legacy_misspelled_directory_is_reused_by_signature(self):
+        request = {
+            "schema_version": 10,
+            "pairs": [{"source": [1, "full"], "reference": [22, "full"]}],
+            "box_coordinate_mode": "cartesian",
+            "control_class_names": ["Sedan"],
+            "range_m_bins": [[0.0, 20.0]],
+            "half_ratio": 0.5,
+            "window_position": "last",
+            "seed": 42,
+            "num_trials": 300,
+            "total_bbox_tolerance_ratio": 0.0,
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            legacy_dir = Path(temp_dir) / "controled_seq1_ref22"
+            legacy_dir.mkdir()
+            (legacy_dir / "control_config.json").write_text(
+                json.dumps(request),
+                encoding="utf-8",
+            )
+            for filename in REQUIRED_CONTROL_OUTPUT_FILENAMES:
+                (legacy_dir / filename).write_text("", encoding="utf-8")
+
+            output_dir, should_generate = _select_output_dir(temp_dir, request)
+
+            self.assertFalse(should_generate)
+            self.assertEqual(output_dir, legacy_dir)
+
     def test_default_control_categories_are_sedan_only(self):
         keys = _category_keys(((0.0, 20.0), (20.0, 40.0)))
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the weather experiment data-composition table.
 
-The table follows the experiment sheets in ``experiments/``.  Dataset
+The table follows the experiment sheets in ``experiments/target_drop/``. Dataset
 partitions do not depend on the random seed, so the first seed (42) is used
 once per group instead of repeating identical statistics for seeds 43/44.
 
@@ -24,14 +24,14 @@ from data.split.controlled.matching import (
     _summarize_frames,
 )
 from data.split.sequences import _select_sequence_part
+from configs.experiment_paths import TARGET_DROP_EXPERIMENT_DIR
 from configs.training import TRAIN_CONFIG
 from training.experiments.tables import load_domain_shift_experiments
 
 
 ROOT = Path(__file__).resolve().parents[2]
-EXPERIMENT_DIR = ROOT / "experiments"
 RUN_DIR = ROOT / "runs" / "experiment_queue"
-OUTPUT_PATH = EXPERIMENT_DIR / "weather_experiment_data_summary.txt"
+OUTPUT_PATH = TARGET_DROP_EXPERIMENT_DIR / "weather_experiment_data_summary.txt"
 CONTROL_CLASSES = ("Sedan",)
 HALF_RATIO = 0.5
 
@@ -166,7 +166,9 @@ def render_table(rows: list[list[str]]) -> str:
 def main() -> None:
     rows: list[list[str]] = []
     for weather_name, table_name, weather_slug in WEATHER_TABLES:
-        experiments = load_domain_shift_experiments(EXPERIMENT_DIR / table_name)
+        experiments = load_domain_shift_experiments(
+            TARGET_DROP_EXPERIMENT_DIR / table_name
+        )
         seed = min(experiment.seed for experiment in experiments)
         experiments = [experiment for experiment in experiments if experiment.seed == seed]
 

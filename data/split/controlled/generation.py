@@ -137,7 +137,7 @@ def _select_output_dir(base_dir, request):
         for pair in request["pairs"]
     )
     base_dir = Path(base_dir)
-    desired = base_dir / f"controled_{pairs_text}"
+    desired = base_dir / f"controlled_{pairs_text}"
     candidate = desired
     suffix = 1
     while candidate.exists():

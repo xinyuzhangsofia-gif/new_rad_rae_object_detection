@@ -13,6 +13,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from configs.experiment_paths import DISTANCE_QUARTILE_EXPERIMENT_DIR
+
 
 plt.rcParams.update(
     {
@@ -29,7 +31,7 @@ plt.rcParams.update(
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_EXPERIMENT_DIR = PROJECT_ROOT / "experiments" / "distance_quartiles"
+DEFAULT_EXPERIMENT_DIR = DISTANCE_QUARTILE_EXPERIMENT_DIR
 DEFAULT_OUTPUT_DIR = DEFAULT_EXPERIMENT_DIR / "target_drop_plots"
 DEFAULT_TEST_SEQUENCES = (24, 25, 50, 51, 52)
 QUARTILES = ("q1", "q2", "q3", "q4")
