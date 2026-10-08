@@ -413,16 +413,26 @@ class CartesianDataTests(unittest.TestCase):
         self.assertEqual(TRAIN_CONFIG["cartesian_gt_root"], data_config.CARTESIAN_GT_ROOT)
         self.assertEqual(EVAL_CONFIG["cartesian_gt_root"], data_config.CARTESIAN_GT_ROOT)
         self.assertEqual(dataloader.RADAR_NPY_ROOT, data_config.RADAR_NPY_ROOT)
-        self.assertEqual(get_cartesian_gt_path(1), str(Path(data_config.CARTESIAN_GT_ROOT) / "1/gt/gt.txt"))
+        if data_config.CARTESIAN_GT_ROOT is None:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "KRADAR_CARTESIAN_GT_ROOT is not configured",
+            ):
+                get_cartesian_gt_path(1)
+        else:
+            self.assertEqual(
+                get_cartesian_gt_path(1),
+                str(Path(data_config.CARTESIAN_GT_ROOT) / "1/gt/gt.txt"),
+            )
         self.assertFalse(hasattr(labels, "read_gt_txt"))
 
     def test_data_roots_can_be_overridden_without_source_edits(self):
-        env = dict(os.environ, MVRSS_RADAR_ROOT=str(self.radar_root), MVRSS_CARTESIAN_GT_ROOT=str(self.gt_root))
+        env = dict(os.environ, KRADAR_RADAR_ROOT=str(self.radar_root), KRADAR_CARTESIAN_GT_ROOT=str(self.gt_root))
         result = subprocess.run(
             [sys.executable, "-B", "-c",
              "import os; from configs.data import RADAR_NPY_ROOT, CARTESIAN_GT_ROOT; "
-             "assert RADAR_NPY_ROOT == os.environ['MVRSS_RADAR_ROOT']; "
-             "assert CARTESIAN_GT_ROOT == os.environ['MVRSS_CARTESIAN_GT_ROOT']"],
+             "assert RADAR_NPY_ROOT == os.environ['KRADAR_RADAR_ROOT']; "
+             "assert CARTESIAN_GT_ROOT == os.environ['KRADAR_CARTESIAN_GT_ROOT']"],
             env=env, cwd=data_config.PROJECT_ROOT, capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)

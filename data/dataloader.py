@@ -9,7 +9,7 @@ from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
     require_cartesian_data,
 )
-from configs.data import RADAR_NPY_ROOT
+from configs.data import RADAR_NPY_ROOT, require_data_path
 from .coordinates import SCOPE_FULL
 from .dataset import (
     KRadarGTDetectionDataset,
@@ -90,7 +90,7 @@ def build_detection_dataset_for_sequence(
     ):
     box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     radar_dataset = KRadarRADRAEDataset(
-        RADAR_NPY_ROOT,
+        require_data_path(RADAR_NPY_ROOT, "KRADAR_RADAR_ROOT"),
         sequence,
         scope_mode=scope_mode,
     )

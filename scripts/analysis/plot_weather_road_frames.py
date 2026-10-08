@@ -15,7 +15,7 @@ from configs.data import RADAR_NPY_ROOT
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SEQUENCE_CSV = PROJECT_ROOT / "sequence_information.csv"
-DEFAULT_RADAR_ROOT = Path(RADAR_NPY_ROOT)
+DEFAULT_RADAR_ROOT = None if RADAR_NPY_ROOT is None else Path(RADAR_NPY_ROOT)
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "analysis_plots/weather_road_frame_distribution"
 
 WEATHER_ORDER = (
@@ -403,6 +403,11 @@ def plot_category_pie(output_path, summary, colors, dpi):
 
 def main():
     args = parse_args()
+    if args.radar_root is None:
+        raise RuntimeError(
+            "KRADAR_RADAR_ROOT is not configured. "
+            "Set environment variable KRADAR_RADAR_ROOT."
+        )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     weather_order, joint_counts, audit_rows = load_and_count(
         sequence_csv=args.sequence_csv,

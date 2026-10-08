@@ -10,12 +10,16 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from data.coordinates import AZIMUTH_AXIS, ELEVATION_AXIS, RANGE_AXIS, cartesian_to_rae, is_rae_center_in_gt_scope
-from configs.data import CARTESIAN_GT_ROOT, KRADAR_TOOLS_ROOT
+from configs.data import (
+    CARTESIAN_GT_ROOT,
+    KRADAR_TOOLS_ROOT,
+    require_data_path,
+)
 from data.labels import read_cartesian_gt_txt
 
 
-OFFICIAL_TAG_PATH = Path(KRADAR_TOOLS_ROOT) / "tools/tag_generator/tag_generation.py"
-GT_ROOT = Path(CARTESIAN_GT_ROOT)
+OFFICIAL_TAG_PATH = None
+GT_ROOT = None
 OUTPUT_DIR = Path("analysis_plots/road_type_stats")
 
 SEDAN_CLASS = "Sedan"
@@ -376,6 +380,15 @@ def plot_road_stats(stats: dict, output_path: Path) -> None:
 
 
 def main() -> None:
+    global OFFICIAL_TAG_PATH, GT_ROOT
+    OFFICIAL_TAG_PATH = Path(require_data_path(
+        KRADAR_TOOLS_ROOT,
+        "KRADAR_TOOLS_ROOT",
+    )) / "tools/tag_generator/tag_generation.py"
+    GT_ROOT = Path(require_data_path(
+        CARTESIAN_GT_ROOT,
+        "KRADAR_CARTESIAN_GT_ROOT",
+    ))
     parser = argparse.ArgumentParser()
     parser.add_argument("--road-type", default="highway")
     args = parser.parse_args()

@@ -18,6 +18,8 @@ from visualization.paths import get_label_dir
 class VisualizationRadarNpyReaderTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if RADAR_NPY_ROOT is None or CARTESIAN_GT_ROOT is None:
+            raise unittest.SkipTest("K-Radar data roots are not configured")
         root = Path(RADAR_NPY_ROOT)
         if not (root / "11" / "rad" / "00034.npy").is_file():
             raise unittest.SkipTest("Local training RAD/RAE npy files are unavailable")

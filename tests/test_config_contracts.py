@@ -319,35 +319,29 @@ class ConfigContractTests(unittest.TestCase):
 
     def test_all_machine_dependent_roots_support_environment_overrides(self):
         names = (
-            "MVRSS_RADAR_ROOT",
-            "MVRSS_CARTESIAN_GT_ROOT",
-            "MVRSS_RAW_KRADAR_ROOT",
-            "MVRSS_OFFICIAL_KRADAR_GT_ROOT",
-            "MVRSS_CAMERA_RGB_ROOT",
-            "MVRSS_KRADAR_TOOLS_ROOT",
-            "MVRSS_LIDAR2RADAR_CALIB_PATH",
+            ("KRADAR_RADAR_ROOT", "MVRSS_RADAR_ROOT", "RADAR_NPY_ROOT"),
+            ("KRADAR_CARTESIAN_GT_ROOT", "MVRSS_CARTESIAN_GT_ROOT", "CARTESIAN_GT_ROOT"),
+            ("KRADAR_RAW_ROOT", "MVRSS_RAW_KRADAR_ROOT", "RAW_KRADAR_ROOT"),
+            ("KRADAR_OFFICIAL_GT_ROOT", "MVRSS_OFFICIAL_KRADAR_GT_ROOT", "OFFICIAL_KRADAR_GT_ROOT"),
+            ("KRADAR_CAMERA_RGB_ROOT", "MVRSS_CAMERA_RGB_ROOT", "CAMERA_RGB_ROOT"),
+            ("KRADAR_TOOLS_ROOT", "MVRSS_KRADAR_TOOLS_ROOT", "KRADAR_TOOLS_ROOT"),
+            ("KRADAR_LIDAR2RADAR_CALIB_PATH", "MVRSS_LIDAR2RADAR_CALIB_PATH", "LIDAR2RADAR_CALIB_PATH"),
         )
         environment = dict(os.environ)
-        expected = {name: f"/configured/{name.lower()}" for name in names}
-        environment.update(expected)
+        for primary, legacy, _attribute in names:
+            environment[primary] = f"/primary/{primary.lower()}"
+            environment[legacy] = f"/legacy/{legacy.lower()}"
+        checks = "; ".join(
+            f"assert d.{attribute} == os.environ[{primary!r}]"
+            for primary, _legacy, attribute in names
+        )
         result = subprocess.run(
             [
                 sys.executable,
                 "-B",
                 "-c",
                 (
-                    "import os; import configs.data as d; "
-                    "pairs={'MVRSS_RADAR_ROOT':d.RADAR_NPY_ROOT,"
-                    "'MVRSS_CARTESIAN_GT_ROOT':d.CARTESIAN_GT_ROOT,"
-                    "'MVRSS_RAW_KRADAR_ROOT':d.RAW_KRADAR_ROOT,"
-                    "'MVRSS_OFFICIAL_KRADAR_GT_ROOT':d.OFFICIAL_KRADAR_GT_ROOT,"
-                    "'MVRSS_CAMERA_RGB_ROOT':d.CAMERA_RGB_ROOT,"
-                    "'MVRSS_KRADAR_TOOLS_ROOT':d.KRADAR_TOOLS_ROOT,"
-                    "'MVRSS_LIDAR2RADAR_CALIB_PATH':d.LIDAR2RADAR_CALIB_PATH}; "
-                    "assert all(value == os.environ[name] "
-                    "for name, value in pairs.items()); "
-                    "assert d.LIDAR2RADAR_CALIB_PATH == "
-                    "os.environ['MVRSS_LIDAR2RADAR_CALIB_PATH']"
+                    "import os; import configs.data as d; " + checks
                 ),
             ],
             cwd=Path(data.PROJECT_ROOT),
@@ -356,6 +350,41 @@ class ConfigContractTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_deprecated_data_root_aliases_remain_fallbacks(self):
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("KRADAR_") and not key.startswith("MVRSS_")
+        }
+        environment.update({
+            "MVRSS_RADAR_ROOT": "/legacy/radar",
+            "MVRSS_CARTESIAN_GT_ROOT": "/legacy/cartesian",
+        })
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "-c",
+                (
+                    "import configs.data as d; "
+                    "assert d.RADAR_NPY_ROOT == '/legacy/radar'; "
+                    "assert d.CARTESIAN_GT_ROOT == '/legacy/cartesian'"
+                ),
+            ],
+            cwd=Path(data.PROJECT_ROOT),
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unconfigured_data_path_fails_only_when_required(self):
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "KRADAR_RADAR_ROOT is not configured",
+        ):
+            data.require_data_path(None, "KRADAR_RADAR_ROOT")
 
 
 if __name__ == "__main__":

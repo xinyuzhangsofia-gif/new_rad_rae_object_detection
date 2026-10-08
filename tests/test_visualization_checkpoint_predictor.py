@@ -209,7 +209,7 @@ class VisualizationCheckpointPredictorTest(unittest.TestCase):
                 display=False,
             )
             image = np.zeros((30, 40, 3), dtype=np.uint8)
-            label_dir = get_label_dir(cfg)
+            label_dir = str(Path(temp_dir) / "11")
             label_files = ["00034_00001.txt"]
 
             with (
@@ -233,6 +233,11 @@ class VisualizationCheckpointPredictorTest(unittest.TestCase):
                     "get_camera_frame",
                     return_value=image.copy(),
                 ) as camera_mock,
+                mock.patch.object(
+                    multisensor,
+                    "read_info_label",
+                    return_value={"tesseract_idx": "00034"},
+                ),
             ):
                 multisensor.visualize_all_sensors(
                     cfg=cfg,
@@ -276,7 +281,7 @@ class VisualizationCheckpointPredictorTest(unittest.TestCase):
                 display=False,
             )
             image = np.zeros((30, 40, 3), dtype=np.uint8)
-            label_dir = get_label_dir(cfg)
+            label_dir = str(Path(temp_dir) / "11")
             label_files = ["00034_00001.txt"]
 
             with (

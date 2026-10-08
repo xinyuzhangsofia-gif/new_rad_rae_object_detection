@@ -30,7 +30,7 @@ from configs.data import RADAR_NPY_ROOT
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUT_DIR = ROOT / "figures"
-DEFAULT_RADAR_ROOT = Path(RADAR_NPY_ROOT)
+DEFAULT_RADAR_ROOT = None if RADAR_NPY_ROOT is None else Path(RADAR_NPY_ROOT)
 STEM = "model7_swin_fpn_centerpoint_architecture"
 OVERVIEW_STEM = "model7_swin_fpn_centerpoint_overview"
 
@@ -303,6 +303,11 @@ def first_project_radar_pair(root: Path) -> tuple[Path, Path] | None:
 def load_input_tensors(
     radar_root: Path,
 ) -> tuple[np.ndarray, np.ndarray, str]:
+    if radar_root is None:
+        raise RuntimeError(
+            "KRADAR_RADAR_ROOT is not configured. "
+            "Set environment variable KRADAR_RADAR_ROOT."
+        )
     pair = first_project_radar_pair(radar_root) if radar_root.is_dir() else None
     if pair is None:
         raise FileNotFoundError(

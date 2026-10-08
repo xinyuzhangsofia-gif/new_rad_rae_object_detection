@@ -73,7 +73,7 @@ scripts/{analysis,figures,maintenance}/ → 独立统计、论文图和维护工
 
 检测 GT 与解码结果仅使用米制 Cartesian `[x,y,z,l,w,h,yaw]`。RAD/RAE 张量及 R-A 特征网格仍属于雷达坐标表示；R-A 几何只用于候选单元、锚点和 ignore mask 的空间定位，框匹配与回归直接使用精确 Cartesian GT。当前保留模型的检测头为 Model7/8/12/13/15 的 Cartesian CenterPoint 或 RADE-Net、Model14 的 Cartesian YOLOX，以及 Model16 的 Cartesian RADE-Net。
 
-- `box_coordinate_mode="cartesian"`，训练读取 `/home/local/xinyu/K-Radar-GT-cartesian-radar-v2/<sequence>/gt/gt.txt`。已检查 1–58 序列的平铺文件均存在。
+- `box_coordinate_mode="cartesian"`，训练从 `KRADAR_CARTESIAN_GT_ROOT/<sequence>/gt/gt.txt` 读取标签。当前科学验证覆盖 K-Radar 1–58 序列。
 - `data.labels.load_cartesian_gt` 只读取上述平铺文件；文件不存在时报告预期的 `gt.txt` 路径。`read_kradar_revised_label_dir` 仍保留给逐帧标签工具使用。
 - 数据根目录的 `README.txt` 记录来源为官方 K-Radar revised v2.1 visibility 标签；生成脚本将 LiDAR 坐标转换到雷达坐标，平铺训练标签仅保留 `R` / `LR` 可见目标。
 - 同根目录逐帧 TXT 保留传感器对应信息，供当前多传感器可视化使用。可视化的 `info_label_root=CURRENT_GT_ROOT` 是独立设置，并非动态跟随训练配置。
@@ -127,7 +127,7 @@ Cartesian 行格式是 `frame_idx, object_label, x, y, z, x_width, y_width, z_wi
 
 ### 共享路径和格式约束
 
-在启动命令前设置 `MVRSS_RADAR_ROOT` 和 `MVRSS_CARTESIAN_GT_ROOT`，或编辑 `configs/data.py` 的 `RADAR_NPY_ROOT` / `CARTESIAN_GT_ROOT`。训练/评估配置、数据路径、当前 GT 可视化及相关统计工具共享这些默认值；仍可通过已有参数指定其他 Cartesian 根目录。
+在启动命令前设置 `KRADAR_RADAR_ROOT` 和 `KRADAR_CARTESIAN_GT_ROOT`。原始传感器、官方 GT、相机、K-Radar 工具和自定义标定分别使用 `KRADAR_RAW_ROOT`、`KRADAR_OFFICIAL_GT_ROOT`、`KRADAR_CAMERA_RGB_ROOT`、`KRADAR_TOOLS_ROOT` 和 `KRADAR_LIDAR2RADAR_CALIB_PATH`。旧 `MVRSS_*` 变量仅作为弃用兼容别名，且同一资源同时设置新旧名称时以 `KRADAR_*` 为准。训练/评估配置、数据路径、当前 GT 可视化及相关统计工具共享这些设置；未安装数据时导入配置不会立即失败。
 
 平铺文件必须以 `# frame_idx,object_label,x,y,z,x_width,y_width,z_width,yaw_deg,class` 开头；表头中的空格可以不同。没有类型表头或带 Polar 列名的文件会报错，而不是把相同数量的字段静默当作米制框。训练和评估要求每个序列存在该平铺文件；缺少文件时会直接报出预期的 `gt.txt` 路径，不再自动读取逐帧格式。
 
@@ -177,9 +177,9 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 
 ### 实验状态的边界
 
-实验定义表与 `experiments/controlled_splits/` 是复现输入，保留版本管理。`experiments/source_drop/control_specs/` 仅作为不可替代的历史归档保留，不再被运行时代码读取。队列状态/锁是运行状态，不随源代码提交；锁只应在 worker 已停止时删除。若本机存在与表同目录的未跟踪 state/lock，迁移仓库时也须随对应表移动。
+实验定义表与 `experiments/controlled_splits/` 是复现输入，保留版本管理。Controlled Split 只保留其请求签名与当前 Target Drop Source 请求匹配的完整目录；帧清单、请求配置、对象忽略、统计和比较报告必须作为整体保留。已有 `controled_*` 目录继续通过请求签名复用，新生成目录使用 `controlled_*`。队列状态/锁是运行状态，不随源代码提交；锁只应在 worker 已停止时删除。若本机存在与表同目录的未跟踪 state/lock，迁移仓库时也须随对应表移动。
 
-实验族统一位于语义目录：`experiments/target_drop/` 保存主天气 Target Drop 表，`experiments/distance_quartiles/` 保存等数量 GT 距离四分位/相对 TD；`experiments/distance_ranges/` 与 `experiments/source_drop/` 仅保存已归档历史结果（执行功能已删除）。仍受支持的旧四分位 state 路径只在读取时映射，不保留旧目录副本。
+实验族统一位于语义目录：`experiments/target_drop/` 保存主天气 Target Drop 表，`experiments/distance_quartiles/` 保存等数量 GT 距离四分位/相对 TD。已删除的固定距离和 Source Drop 资产可从 Git 历史恢复；当前工作树不再保留无执行入口的归档副本。仍受支持的旧四分位 state 路径只在读取时映射，不保留旧目录副本。
 
 已删除状态不会让磁盘检查点自动重新登记为完成。四分位评估脚本仍依赖上游状态中的检查点记录，重评历史实验前需要恢复或准备正确状态清单；不要为了生成状态而盲目重跑训练。单元测试现在自行创建状态，不需要私人运行记录。
 
@@ -187,12 +187,12 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 
 | 优先级 | 涉及文件 | 建议与不变条件 |
 | --- | --- | --- |
-| 已完成（路径） | `configs/data.py`、`data/paths.py`、`visualization/paths.py` | 数据根路径由 `configs/data.py` 配置；`data/paths.py` 解析共享雷达 NPY 与 Cartesian GT，`visualization/paths.py` 解析可视化传感器、标签、标定和输出路径。换机器前需设置环境变量或参数。 |
+| 已完成（路径） | `configs/data.py`、`data/paths.py`、`visualization/paths.py` | 数据根路径由 `KRADAR_*` 环境变量配置；旧 `MVRSS_*` 名称只作为弃用别名。未配置数据时可导入配置，实际使用资源时给出明确错误。 |
 | 已完成 | `visualize.py`、`visualization/`、`eval/checkpoints.py`、`eval/inference.py`、`eval/decoding.py` | 检查点解释/模型重建、前向与解码/NMS 继续复用 `eval/`；`visualization/` 只负责渲染适配、传感器投影、布局和输出，不保留旧转发。 |
 | 已完成（队列） | `training/experiments/queue.py` 与 `training/experiments/` | 队列内部职责已分离，唯一执行路径是 seed 两阶段屏障；`queue.py` 是唯一高层编排入口，四分位独立重评脚本不与队列合并。 |
 | 已完成（分析脚本） | `scripts/experiments/evaluate_quartile_experiments.py` 与 `scripts/experiments/analysis/` | 共享检查点/报告发现、命令、进程、GPU 环境和状态 I/O；保留四分位 CLI 的科学定义、输出 state schema 与表聚合。Source Drop 执行逻辑已删除。 |
 | 已完成（报告） | `eval/report_*.py`、`eval/result_*.py`、`eval/domain_shift_summaries.py` | 输出路径、序列化、选择、绘图、TensorBoard 和汇总分责，字段、文件名、TD 与 tie-break 不变。 |
-| 已完成（实验目录） | `experiments/{target_drop,distance_quartiles}/` | 两个活动实验族使用唯一语义路径；`distance_ranges` 与 `source_drop` 只保留历史归档资产。 |
+| 已完成（实验目录） | `experiments/{target_drop,distance_quartiles}/` | 两个活动实验族使用唯一语义路径；已移除的历史实验资产由 Git 历史保存。 |
 | 已完成（可视化） | `visualize.py`、`configs/visualization.py`、`visualization/` | 单帧/视频和 RA/多传感器模式统一分派；Camera+Radar 与 Camera+LiDAR+Radar 都复用 Polar/Cartesian RA renderer，GT 绿色、预测红色。 |
 | 已完成（损失） | `training/losses/` | `__init__.py` 提供公开 API，通用数学、目标、GWD、SimOTA 和三个 loss family 分责，配置模式解析仍由 `training.configuration` 唯一负责。 |
 | 已完成（数据划分） | `data/split/` | `ordinary.py` 分派普通模式，`manifests.py`、`sequences.py` 和 `controlled/` 分责实现；精确成员、seed 和生成文件保持不变，无兼容 facade。 |
@@ -440,10 +440,8 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | `lidar2radar_calib.yml` | 训练数据转换和统一可视化共同使用的 LiDAR-to-Radar 标定输入。 |
 | `sequence_information.csv` | 58 个序列的统计与天气/道路等元数据；帧/目标数来自当前 Cartesian-radar 标签，环境标签保留原注释。 |
 | `experiments/{target_drop,distance_quartiles}/` 中实验 TXT/XLSX、README | 活动实验定义/汇总格式与说明，是调度和论文复现上下文。 |
-| `experiments/{distance_ranges,source_drop}/` | 历史归档结果；对应执行入口已删除，不参与活动配置。 |
 | `experiments/controlled_splits/**/{train,test,discard}.txt` | 精确帧划分；合并或重生成会影响样本归属，保留。 |
 | `experiments/controlled_splits/**/{control_config,object_ignore_override,stats}.json` 等 | 控制划分、对象忽略与复用统计，保留；可能需要和实验定义一起发布。 |
-| `experiments/source_drop/control_specs/**` | 已归档正常天气控制测试集及索引/统计，保留。这些不是可随意删除的缓存，运行时代码不再读取。 |
 | `evaluation_plots/`、`evaluation_results/`、`figures/`、`analysis_plots/` 的结果 | 生成产物；本地保留，不跟踪。历史结果分析需要自行准备相应结果文件。 |
 | `checkpoints/`、`runs*/`、TensorBoard、缓存、编译产物 | 运行生成或本机内容；不纳入源码。第三方 CUDA 扩展需按当前环境构建。 |
 | `README.md`、`requirements.txt`、`.gitignore`、`docs/` | 分别负责上手、依赖、仓库边界与详细规则；不再维护多份重复目录指南。 |

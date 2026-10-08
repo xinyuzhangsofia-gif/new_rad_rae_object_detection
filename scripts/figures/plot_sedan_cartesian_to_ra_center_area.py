@@ -24,7 +24,9 @@ from data.labels import read_kradar_revised_label_dir
 from configs.data import CARTESIAN_GT_ROOT, PROJECT_ROOT
 
 
-DEFAULT_CARTESIAN_ROOT = Path(CARTESIAN_GT_ROOT)
+DEFAULT_CARTESIAN_ROOT = (
+    None if CARTESIAN_GT_ROOT is None else Path(CARTESIAN_GT_ROOT)
+)
 DEFAULT_OUTPUT_ROOT = (
     PROJECT_ROOT / "visualization_results/cartesian_to_polar_center_range_area"
 )
@@ -170,6 +172,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.gt_root is None:
+        raise RuntimeError(
+            "KRADAR_CARTESIAN_GT_ROOT is not configured. "
+            "Set environment variable KRADAR_CARTESIAN_GT_ROOT."
+        )
     output_path = make_plot(
         sequence=args.sequence,
         gt_root=args.gt_root,

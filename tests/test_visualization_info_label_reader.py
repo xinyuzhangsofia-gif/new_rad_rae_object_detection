@@ -32,6 +32,8 @@ from visualization.paths import (
 
 class VisualizationInfoLabelReaderTest(unittest.TestCase):
     def test_config_root_selects_the_expected_reader(self):
+        if OFFICIAL_KRADAR_GT_ROOT is None or CARTESIAN_GT_ROOT is None:
+            self.skipTest("K-Radar label roots are not configured")
         self.assertEqual(
             resolve_info_label_kind(OFFICIAL_KRADAR_GT_ROOT),
             GT_KIND_OFFICIAL_KRADAR,
@@ -50,6 +52,8 @@ class VisualizationInfoLabelReaderTest(unittest.TestCase):
         )
 
     def test_real_training_box_is_converted_back_to_revised_lidar_box(self):
+        if OFFICIAL_KRADAR_GT_ROOT is None or CARTESIAN_GT_ROOT is None:
+            self.skipTest("K-Radar label roots are not configured")
         revised_path = (
             Path(OFFICIAL_KRADAR_GT_ROOT) / "11" / "00034_00001.txt"
         )

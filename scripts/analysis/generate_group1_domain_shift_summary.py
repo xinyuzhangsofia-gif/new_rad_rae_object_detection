@@ -15,13 +15,14 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from configs.data import RADAR_NPY_ROOT
+from configs.data import RADAR_NPY_ROOT, require_data_path
 from data.dataset import KRadarRADRAEDataset
 from data.paths import get_cartesian_gt_path
 from data.labels import read_cartesian_gt_txt
 
 
-RAD_ROOT = RADAR_NPY_ROOT
+def _radar_root():
+    return require_data_path(RADAR_NPY_ROOT, "KRADAR_RADAR_ROOT")
 OUTPUT_DIR = Path("analysis_plots/domain_shift_stats")
 
 
@@ -49,7 +50,7 @@ def format_sequence_slug(sequences: tuple[int, ...]) -> str:
 
 
 def sequence_stats(sequence: int) -> dict[str, int]:
-    dataset = KRadarRADRAEDataset(RAD_ROOT, sequence)
+    dataset = KRadarRADRAEDataset(_radar_root(), sequence)
     gt = read_cartesian_gt_txt(get_cartesian_gt_path(sequence))
 
     frames = len(dataset.frame_names)
@@ -129,7 +130,7 @@ def aggregate_group_from_split(split_dir: str | Path, split_name: str = "train.t
 
     total = {"frames": 0, "empty": 0, "sedan": 0, "bus": 0, "bbox": 0}
     for sequence, frame_name_candidates_list in sorted(entries_by_sequence.items()):
-        dataset = KRadarRADRAEDataset(RAD_ROOT, sequence)
+        dataset = KRadarRADRAEDataset(_radar_root(), sequence)
         gt = read_cartesian_gt_txt(get_cartesian_gt_path(sequence))
         frame_name_to_local_idx = {
             frame_name: local_idx

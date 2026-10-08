@@ -5,7 +5,11 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from configs.data import CARTESIAN_GT_ROOT, OFFICIAL_KRADAR_GT_ROOT
+from configs.data import (
+    CARTESIAN_GT_ROOT,
+    OFFICIAL_KRADAR_GT_ROOT,
+    require_data_path,
+)
 from visualization.config import (
     FRAME_OUTPUT_MODES,
     GT_KIND_CURRENT,
@@ -14,8 +18,12 @@ from visualization.config import (
 
 
 INFO_LABEL_KIND_BY_ROOT = {
-    OFFICIAL_KRADAR_GT_ROOT: GT_KIND_OFFICIAL_KRADAR,
-    CARTESIAN_GT_ROOT: GT_KIND_CURRENT,
+    root: label_kind
+    for root, label_kind in (
+        (OFFICIAL_KRADAR_GT_ROOT, GT_KIND_OFFICIAL_KRADAR),
+        (CARTESIAN_GT_ROOT, GT_KIND_CURRENT),
+    )
+    if root not in (None, "")
 }
 
 
@@ -25,6 +33,7 @@ def _resolved(path):
 
 def resolve_info_label_kind(path):
     """Resolve the correct label reader from a configured root or label path."""
+    path = require_data_path(path, "KRADAR_OFFICIAL_GT_ROOT")
     resolved_path = _resolved(path)
     for root, label_kind in INFO_LABEL_KIND_BY_ROOT.items():
         resolved_root = _resolved(root)

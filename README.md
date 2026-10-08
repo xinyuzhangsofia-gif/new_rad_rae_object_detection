@@ -130,21 +130,26 @@ Paths are centralized in [configs/data.py](configs/data.py).
 Required for normal training and evaluation:
 
 ```bash
-export MVRSS_RADAR_ROOT=/data/K-Radar-RAD
-export MVRSS_CARTESIAN_GT_ROOT=/data/K-Radar-GT-cartesian-radar-v2
+export KRADAR_RADAR_ROOT=/data/K-Radar-RAD
+export KRADAR_CARTESIAN_GT_ROOT=/data/K-Radar-GT-cartesian-radar-v2
 ```
 
 Required only by raw-data utilities or multi-sensor visualization:
 
 ```bash
-export MVRSS_RAW_KRADAR_ROOT=/data/KRadar
-export MVRSS_OFFICIAL_KRADAR_GT_ROOT=/data/KRadar_revised_visibility
-export MVRSS_CAMERA_RGB_ROOT=/data/K-Radar-RGB
-export MVRSS_LIDAR2RADAR_CALIB_PATH=/data/calibration/lidar2radar_calib.yml
-export MVRSS_KRADAR_TOOLS_ROOT=/opt/K-Radar
+export KRADAR_RAW_ROOT=/data/KRadar
+export KRADAR_OFFICIAL_GT_ROOT=/data/KRadar_revised_visibility
+export KRADAR_CAMERA_RGB_ROOT=/data/K-Radar-RGB
+export KRADAR_LIDAR2RADAR_CALIB_PATH=/data/calibration/lidar2radar_calib.yml
+export KRADAR_TOOLS_ROOT=/opt/K-Radar
 ```
 
 The radar root contains paired `<sequence>/rad/<frame>.npy` and `<sequence>/rae/<frame>.npy` files. The Cartesian GT root contains the radar-aligned labels and manifests used by the fixed split in `data/manifests/kradar/`.
+
+The repository's `lidar2radar_calib.yml` remains the default calibration. Set
+`KRADAR_LIDAR2RADAR_CALIB_PATH` when your sensor preparation requires a
+different calibration. Legacy `MVRSS_*` environment variables remain accepted
+as deprecated aliases; the corresponding `KRADAR_*` variable takes precedence.
 
 ### 4. Select and train a model
 

@@ -389,10 +389,6 @@ def apply_training_coordinate_mode(args):
     )
     args.configured_model_type = configured_model_type
 
-    if args.cartesian_gt_root is None:
-        raise ValueError(
-            "box_coordinate_mode='cartesian' requires cartesian_gt_root."
-        )
     if configured_model_type not in CARTESIAN_TRAINING_MODELS:
         raise ValueError(
             "Cartesian training supports dual-mode models 7, 8, 12, 13, "

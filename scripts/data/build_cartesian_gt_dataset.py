@@ -346,17 +346,23 @@ def parse_args():
     parser.add_argument(
         "--source-root",
         type=Path,
-        default=Path(OFFICIAL_KRADAR_GT_ROOT),
+        default=(
+            None
+            if OFFICIAL_KRADAR_GT_ROOT is None
+            else Path(OFFICIAL_KRADAR_GT_ROOT)
+        ),
     )
     parser.add_argument(
         "--radar-root",
         type=Path,
-        default=Path(RADAR_NPY_ROOT),
+        default=None if RADAR_NPY_ROOT is None else Path(RADAR_NPY_ROOT),
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path(CARTESIAN_GT_ROOT),
+        default=(
+            None if CARTESIAN_GT_ROOT is None else Path(CARTESIAN_GT_ROOT)
+        ),
     )
     parser.add_argument(
         "--lidar2radar-calib",
@@ -371,6 +377,21 @@ def parse_args():
 
 def main():
     args = parse_args()
+    missing = [
+        name
+        for name, value in (
+            ("KRADAR_OFFICIAL_GT_ROOT", args.source_root),
+            ("KRADAR_RADAR_ROOT", args.radar_root),
+            ("KRADAR_CARTESIAN_GT_ROOT", args.output_root),
+        )
+        if value is None
+    ]
+    if missing:
+        names = ", ".join(missing)
+        raise RuntimeError(
+            f"Required K-Radar paths are not configured: {names}. "
+            "Set the corresponding environment variables or CLI options."
+        )
     if args.output_root.exists():
         if not args.overwrite:
             raise FileExistsError(

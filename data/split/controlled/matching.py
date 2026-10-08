@@ -6,7 +6,7 @@ import random
 from collections import Counter
 
 from configs.coordinates import require_cartesian_data
-from configs.data import RADAR_NPY_ROOT
+from configs.data import RADAR_NPY_ROOT, require_data_path
 from ...coordinates import cartesian_to_rae
 from ...dataset import KRadarRADRAEDataset
 from ...labels import load_cartesian_gt
@@ -138,7 +138,8 @@ def _build_frame_infos(
     ):
     require_cartesian_data(box_coordinate_mode)
     radar_dataset = KRadarRADRAEDataset(
-        RADAR_NPY_ROOT, int(sequence)
+        require_data_path(RADAR_NPY_ROOT, "KRADAR_RADAR_ROOT"),
+        int(sequence),
     )
     cartesian_gt = _load_cartesian_control_gt(
         sequence=sequence, cartesian_gt_root=cartesian_gt_root

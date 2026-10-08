@@ -1,36 +1,51 @@
-"""Shared data, output, and raw-sensor locations.
-
-Dataset locations have environment-variable overrides so source files do not
-need machine-specific edits.  Relative output defaults intentionally preserve
-the repository's existing command behavior.
-"""
+"""Shared data, output, and raw-sensor locations."""
 
 import os
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-RADAR_NPY_ROOT = os.environ.get(
-    "MVRSS_RADAR_ROOT", "/home/local/xinyu/K-Radar-RAD"
+
+
+def _environment_path(primary_name, legacy_name, default=None):
+    """Read a public path setting, with one deprecated alias."""
+    return (
+        os.environ.get(primary_name)
+        or os.environ.get(legacy_name)
+        or default
+    )
+
+
+def require_data_path(value, environment_name):
+    """Fail clearly when code actually needs an unconfigured data resource."""
+    if value in (None, ""):
+        raise RuntimeError(
+            f"{environment_name} is not configured. "
+            f"Set environment variable {environment_name}."
+        )
+    return str(value)
+
+
+RADAR_NPY_ROOT = _environment_path(
+    "KRADAR_RADAR_ROOT", "MVRSS_RADAR_ROOT"
 )
-CARTESIAN_GT_ROOT = os.environ.get(
-    "MVRSS_CARTESIAN_GT_ROOT", "/home/local/xinyu/K-Radar-GT-cartesian-radar-v2"
+CARTESIAN_GT_ROOT = _environment_path(
+    "KRADAR_CARTESIAN_GT_ROOT", "MVRSS_CARTESIAN_GT_ROOT"
 )
-RAW_KRADAR_ROOT = os.environ.get(
-    "MVRSS_RAW_KRADAR_ROOT", "/home/local/xinyu/KRadar"
+RAW_KRADAR_ROOT = _environment_path(
+    "KRADAR_RAW_ROOT", "MVRSS_RAW_KRADAR_ROOT"
 )
-KRADAR_TOOLS_ROOT = os.environ.get(
-    "MVRSS_KRADAR_TOOLS_ROOT", "/home/local/xinyu/K-Radar"
+KRADAR_TOOLS_ROOT = _environment_path(
+    "KRADAR_TOOLS_ROOT", "MVRSS_KRADAR_TOOLS_ROOT"
 )
-OFFICIAL_KRADAR_GT_ROOT = os.environ.get(
-    "MVRSS_OFFICIAL_KRADAR_GT_ROOT",
-    "/home/local/xinyu/kradar_revised_label_v2_1/KRadar_revised_visibility",
+OFFICIAL_KRADAR_GT_ROOT = _environment_path(
+    "KRADAR_OFFICIAL_GT_ROOT", "MVRSS_OFFICIAL_KRADAR_GT_ROOT"
 )
-CAMERA_RGB_ROOT = os.environ.get(
-    "MVRSS_CAMERA_RGB_ROOT",
-    "smb://192.168.189.30/elab-share/Datasets/K-Radar-RGB",
+CAMERA_RGB_ROOT = _environment_path(
+    "KRADAR_CAMERA_RGB_ROOT", "MVRSS_CAMERA_RGB_ROOT"
 )
-LIDAR2RADAR_CALIB_PATH = os.environ.get(
+LIDAR2RADAR_CALIB_PATH = _environment_path(
+    "KRADAR_LIDAR2RADAR_CALIB_PATH",
     "MVRSS_LIDAR2RADAR_CALIB_PATH",
     str(PROJECT_ROOT / "lidar2radar_calib.yml"),
 )
