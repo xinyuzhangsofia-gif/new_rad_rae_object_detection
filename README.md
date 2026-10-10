@@ -21,7 +21,7 @@ This repository provides comparable 4D radar detectors, metric Cartesian 3D dete
 
 ## Model Zoo
 
-The selected epoch maximizes **official revised K-Radar BEV mAP at IoU 0.3**; 3D mAP is reported from that same epoch. Retained checkpoints pass current metadata validation and strict state-dict loading.
+The selected epoch maximizes **official revised K-Radar BEV mAP at IoU 0.3**; 3D mAP is reported from that same epoch. **All Model Zoo runs were trained for a maximum of 30 epochs, so “Best Epoch” refers to the best checkpoint observed within epochs 1–30.** Retained checkpoints pass current metadata validation and strict state-dict loading.
 
 **Common input:** `RAD [B, 64, R, A]` and `RAE [B, 37, R, A]`
 
