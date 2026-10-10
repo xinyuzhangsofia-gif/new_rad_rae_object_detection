@@ -238,6 +238,27 @@ def build_training_data(args, distributed_context=None):
     return result
 
 
+def build_rank_zero_train_eval_loader(
+    args,
+    train_dataset,
+    train_loader,
+    distributed_context,
+):
+    """Build the optional full training-set evaluator at the local batch size."""
+    if not (
+        distributed_context.is_main_process
+        and distributed_context.enabled
+        and args.training_eval_enabled
+        and args.training_eval_train_set_enabled
+    ):
+        return None
+    return build_full_detection_dataloader(
+        train_dataset,
+        batch_size=train_loader.batch_size,
+        num_workers=args.num_workers,
+    )
+
+
 def build_training_components(
     args,
     device,
@@ -577,18 +598,12 @@ def run_training(
         train_dataset, val_dataset, train_loader, val_loader = (
             build_training_data(args, distributed_context)
         )
-        train_eval_loader = None
-        if (
-            is_main_process
-            and distributed_context.enabled
-            and args.training_eval_enabled
-            and args.training_eval_train_set_enabled
-        ):
-            train_eval_loader = build_full_detection_dataloader(
-                train_dataset,
-                batch_size=args.batch_size,
-                num_workers=args.num_workers,
-            )
+        train_eval_loader = build_rank_zero_train_eval_loader(
+            args,
+            train_dataset,
+            train_loader,
+            distributed_context,
+        )
         model, optimizer, scheduler = build_training_components(
             args=args,
             device=device,

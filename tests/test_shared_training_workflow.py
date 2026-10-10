@@ -576,6 +576,39 @@ class ResumeRestorationTests(unittest.TestCase):
 
 
 class SharedEpochWorkflowTests(unittest.TestCase):
+    def test_rank_zero_train_evaluation_uses_local_loader_batch_size(self):
+        args = SimpleNamespace(
+            training_eval_enabled=True,
+            training_eval_train_set_enabled=True,
+            num_workers=0,
+        )
+        context = DistributedTrainingContext(
+            device=torch.device("cpu"),
+            gpu_ids=(),
+            rank=0,
+            local_rank=0,
+            world_size=3,
+        )
+        train_dataset = object()
+        train_loader = SimpleNamespace(batch_size=4)
+        with mock.patch.object(
+            runner,
+            "build_full_detection_dataloader",
+            return_value=object(),
+        ) as build_loader:
+            runner.build_rank_zero_train_eval_loader(
+                args,
+                train_dataset,
+                train_loader,
+                context,
+            )
+
+        build_loader.assert_called_once_with(
+            train_dataset,
+            batch_size=4,
+            num_workers=0,
+        )
+
     def test_train_set_evaluation_uses_the_same_evaluator_before_validation(self):
         train_loader = object()
         val_loader = object()
@@ -785,6 +818,7 @@ class SharedEpochWorkflowTests(unittest.TestCase):
                 runner,
                 "save_epoch_and_update_best_checkpoint",
             ) as save,
+            mock.patch.object(runner, "write_tensorboard_metrics") as tensorboard,
             mock.patch.object(runner, "distributed_barrier") as barrier,
         ):
             runner.run_training_epochs(
@@ -808,6 +842,7 @@ class SharedEpochWorkflowTests(unittest.TestCase):
         validate.assert_not_called()
         evaluate.assert_not_called()
         save.assert_not_called()
+        tensorboard.assert_not_called()
         barrier.assert_called_once_with(context)
 
     def test_checkpoint_payload_top_level_contract_is_unchanged(self):

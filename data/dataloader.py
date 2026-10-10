@@ -78,6 +78,68 @@ def resolve_distributed_batch_size(batch_size, world_size):
     return batch_size // world_size
 
 
+def build_train_val_loaders_from_datasets(
+        train_dataset,
+        val_dataset,
+        *,
+        batch_size,
+        seed,
+        num_workers,
+        distributed_rank=0,
+        distributed_world_size=1,
+    ):
+    """Build training and rank-zero validation loaders from resolved datasets.
+
+    ``batch_size`` is the global training batch. Both loaders use the resolved
+    per-rank batch so rank-zero validation has the same memory envelope as one
+    DDP training process.
+    """
+    distributed_world_size = int(distributed_world_size)
+    distributed_rank = int(distributed_rank)
+    local_batch_size = resolve_distributed_batch_size(
+        batch_size,
+        distributed_world_size,
+    )
+    if distributed_rank < 0 or distributed_rank >= distributed_world_size:
+        raise ValueError(
+            f"distributed_rank {distributed_rank} is outside "
+            f"distributed_world_size {distributed_world_size}."
+        )
+
+    train_sampler = None
+    if distributed_world_size > 1:
+        train_sampler = DistributedSampler(
+            train_dataset,
+            num_replicas=distributed_world_size,
+            rank=distributed_rank,
+            shuffle=True,
+            seed=seed,
+            drop_last=False,
+        )
+
+    loader_generator = torch.Generator()
+    loader_generator.manual_seed(seed + distributed_rank)
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=local_batch_size,
+        shuffle=train_sampler is None,
+        sampler=train_sampler,
+        collate_fn=detection_collate,
+        num_workers=num_workers,
+        generator=loader_generator,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=local_batch_size,
+        shuffle=False,
+        collate_fn=detection_collate,
+        num_workers=num_workers,
+    )
+    return train_loader, val_loader
+
+
 def detection_collate(batch):
     """Stack dense radar inputs and keep variable-length annotations in lists."""
     collated = {
@@ -296,47 +358,14 @@ def build_train_val_dataloaders(
     train_dataset = Subset(train_source_dataset, train_indices)
     val_dataset = Subset(eval_source_dataset, val_indices)
 
-    distributed_world_size = int(distributed_world_size)
-    distributed_rank = int(distributed_rank)
-    train_batch_size = resolve_distributed_batch_size(
-        batch_size,
-        distributed_world_size,
-    )
-    if distributed_rank < 0 or distributed_rank >= distributed_world_size:
-        raise ValueError(
-            f"distributed_rank {distributed_rank} is outside "
-            f"distributed_world_size {distributed_world_size}."
-        )
-    train_sampler = None
-    if distributed_world_size > 1:
-        train_sampler = DistributedSampler(
-            train_dataset,
-            num_replicas=distributed_world_size,
-            rank=distributed_rank,
-            shuffle=True,
-            seed=seed,
-            drop_last=False,
-        )
-
-    loader_generator = torch.Generator()
-    loader_generator.manual_seed(seed + distributed_rank)
-
-    train_loader = DataLoader(
+    train_loader, val_loader = build_train_val_loaders_from_datasets(
         train_dataset,
-        batch_size=train_batch_size,
-        shuffle=train_sampler is None,
-        sampler=train_sampler,
-        collate_fn=detection_collate,
-        num_workers=num_workers,
-        generator=loader_generator,
-    )
-
-    val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
-        shuffle=False,
-        collate_fn=detection_collate,
+        seed=seed,
         num_workers=num_workers,
+        distributed_rank=distributed_rank,
+        distributed_world_size=distributed_world_size,
     )
 
     return train_dataset, val_dataset, train_loader, val_loader

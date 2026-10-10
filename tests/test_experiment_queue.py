@@ -611,6 +611,29 @@ class ExperimentQueueTests(unittest.TestCase):
         self.assertFalse(observed["config"]["post_training_eval_enabled"])
         self.assertTrue(observed["child"])
 
+    def test_non_main_ddp_worker_does_not_write_training_result(self):
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            temporary_path = Path(temporary_dir)
+            config_path = temporary_path / "config.pkl"
+            result_path = temporary_path / "result.json"
+            with config_path.open("wb") as output_file:
+                pickle.dump({"post_training_eval_enabled": False}, output_file)
+
+            with (
+                mock.patch(
+                    "training.runner.main",
+                    return_value=temporary_path / "checkpoint",
+                ),
+                mock.patch(
+                    "training.runtime.is_main_process",
+                    return_value=False,
+                ),
+            ):
+                return_code = run_training_job(config_path, result_path)
+
+            self.assertEqual(return_code, 0)
+            self.assertFalse(result_path.exists())
+
     def test_multi_weather_queue_runs_all_weather_for_each_seed(self):
         def write_seeded_sheet(directory, weather_name):
             path = Path(directory) / f"{weather_name}_experiments.csv"

@@ -365,9 +365,56 @@ torchrun --standalone --nproc_per_node=3 train.py
 Resume the same three-GPU run with
 `torchrun --standalone --nproc_per_node=3 train_resume.py`. Validation,
 TensorBoard logging, checkpoint saving, and post-training evaluation run only
-on rank zero. The experiment queue still assigns isolated GPU slots itself;
+on rank zero. Training-time validation and optional full training-set metrics
+use the local per-rank batch size (`global batch / world size`); standalone
+evaluation continues to use `EVALUATION_RUNTIME_CONFIG["batch_size"]`. The
+experiment queue still assigns isolated GPU slots itself;
 when a queue slot contains multiple GPUs, its worker is launched through DDP
 automatically.
+
+The current implementation seeds every rank from the same base seed before
+model construction. Rank-specific post-construction RNG streams have not been
+enabled, so stochastic-depth masks may follow the same RNG sequence across
+ranks. This is a reproducibility/performance refinement for a future change,
+not a DDP synchronization requirement.
+
+#### Future three-GPU hardware check
+
+The following is a short validation recipe for a machine that actually has
+three available CUDA devices. It has not been executed on the current machine:
+
+```python
+# configs/runtime.py
+"gpu_ids": "0,1,2",
+
+# configs/training.py
+"batch_size": 12,
+"epochs": 2,
+"limit_samples": 60,
+```
+
+```bash
+torchrun --standalone --nproc_per_node=3 train.py
+```
+
+Expected order:
+
+```text
+DDP/NCCL initialization
+epoch 1 distributed training
+rank-zero validation/evaluation and checkpoint
+epoch barrier
+epoch 2 distributed training
+rank-zero validation/evaluation and checkpoint
+clean process-group shutdown
+```
+
+CPU contributors can exercise real two-process gradient synchronization without
+K-Radar or CUDA:
+
+```bash
+CUDA_VISIBLE_DEVICES= python -m unittest tests.test_distributed_training -v
+```
 
 ### Debug one Source/Target pair
 
