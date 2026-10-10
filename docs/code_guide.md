@@ -283,7 +283,7 @@ Group1 与道路统计读取 Cartesian GT；两个预生成序列 9 控制清单
 | [training/resume.py](../training/resume.py) | 恢复模型、优化器/调度器、轮次、最佳指标及已有运行目录。 | 仅保留断点续训特有策略，不恢复 warm-start。 |
 | [training/logging_utils.py](../training/logging_utils.py) | 打印逐 epoch 摘要，并向 TensorBoard 写入配置和指标。 | 保留 scalar tag、`run/config` 和 resume 目录语义。 |
 | [training/post_training_evaluation.py](../training/post_training_evaluation.py) | 释放训练显存、选择评估 GPU，并在训练成功后启动独立评估。 | 不与训练期或手动独立评估合并。 |
-| [training/runtime.py](../training/runtime.py) | 设置随机种子，解析 GPU ID，并选择 CPU、单 GPU 或 DataParallel。 | 保留 seed 与 device 行为。 |
+| [training/runtime.py](../training/runtime.py) | 设置随机种子，解析 GPU ID，并初始化单 GPU 或 DistributedDataParallel 进程。 | 多 GPU 使用 `torchrun`；全局 batch size 必须能被进程数整除。 |
 | [training/torch_load.py](../training/torch_load.py) | 用当前 PyTorch 的 `weights_only=False` 加载可信任的项目检查点。 | 保留多调用方共享的加载入口。 |
 | [training/yolox_utils.py](../training/yolox_utils.py) | YOLOX R-A 网格锚点到 Cartesian 米制框的解码及候选分数。 | SimOTA 位于 `training/losses/matching.py`；旋转 BEV NMS 在最终预测路径执行一次。 |
 | [training/losses/__init__.py](../training/losses/__init__.py) | 损失的唯一公开 API，直接导出各 loss family 与共享操作。 | 没有并行 facade 或算法副本。 |

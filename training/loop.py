@@ -1,4 +1,5 @@
 import torch
+import torch.distributed as dist
 from tqdm import tqdm
 
 from configs.coordinates import (
@@ -11,6 +12,22 @@ from training.losses import (
     radenet_detection_loss,
     yolox_detection_loss,
 )
+from training.runtime import is_main_process
+
+
+def _reduce_training_totals(totals, num_batches, device):
+    """Sum per-rank epoch totals so rank zero reports global DDP metrics."""
+    if not (dist.is_available() and dist.is_initialized()):
+        return totals, num_batches
+    keys = tuple(totals)
+    values = [float(totals[key]) for key in keys] + [float(num_batches)]
+    tensor = torch.tensor(values, dtype=torch.float64, device=device)
+    dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+    reduced = {
+        key: tensor[index].item()
+        for index, key in enumerate(keys)
+    }
+    return reduced, int(tensor[-1].item())
 
 
 def _compute_detection_loss(
@@ -96,6 +113,10 @@ def train_one_epoch(
     box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     model.train()
 
+    sampler = getattr(dataloader, "sampler", None)
+    if epoch is not None and hasattr(sampler, "set_epoch"):
+        sampler.set_epoch(epoch)
+
     total_loss_sum = 0.0
     box_loss_sum = 0.0
     cls_loss_sum = 0.0
@@ -109,7 +130,12 @@ def train_one_epoch(
     num_batches = 0
 
     desc = f"Epoch {epoch + 1}/{num_epochs}" if epoch is not None else "Training"
-    pbar = tqdm(dataloader, desc=desc, ncols=120)
+    pbar = tqdm(
+        dataloader,
+        desc=desc,
+        ncols=120,
+        disable=not is_main_process(),
+    )
 
     for batch in pbar:
         rad, rae = prepare_model_inputs(batch, device)
@@ -168,19 +194,35 @@ def train_one_epoch(
             postfix["ign"] = f"{(ignore_pixels_sum / num_batches):.1f}"
         pbar.set_postfix(postfix)
 
+    totals, num_batches = _reduce_training_totals(
+        {
+            "total_loss": total_loss_sum,
+            "box_loss": box_loss_sum,
+            "cls_loss": cls_loss_sum,
+            "heatmap_loss": heatmap_loss_sum,
+            "quality_loss": quality_loss_sum,
+            "gwd_loss": gwd_loss_sum,
+            "obj_loss": obj_loss_sum,
+            "l1_loss": l1_loss_sum,
+            "ignore_pixels": ignore_pixels_sum,
+        },
+        num_batches,
+        device,
+    )
+    denominator = max(num_batches, 1)
     metrics = {
-        "train_loss": total_loss_sum / max(num_batches, 1),
-        "train_box_loss": box_loss_sum / max(num_batches, 1),
-        "train_cls_loss": cls_loss_sum / max(num_batches, 1),
-        "train_gwd_loss": gwd_loss_sum / max(num_batches, 1),
-        "train_obj_loss": obj_loss_sum / max(num_batches, 1),
-        "train_l1_loss": l1_loss_sum / max(num_batches, 1),
-        "train_ignore_pixels": ignore_pixels_sum / max(num_batches, 1),
+        "train_loss": totals["total_loss"] / denominator,
+        "train_box_loss": totals["box_loss"] / denominator,
+        "train_cls_loss": totals["cls_loss"] / denominator,
+        "train_gwd_loss": totals["gwd_loss"] / denominator,
+        "train_obj_loss": totals["obj_loss"] / denominator,
+        "train_l1_loss": totals["l1_loss"] / denominator,
+        "train_ignore_pixels": totals["ignore_pixels"] / denominator,
     }
     if loss_mode != "yolox":
-        metrics["train_heatmap_loss"] = heatmap_loss_sum / max(num_batches, 1)
+        metrics["train_heatmap_loss"] = totals["heatmap_loss"] / denominator
         if quality_loss_active:
-            metrics["train_quality_loss"] = quality_loss_sum / max(num_batches, 1)
+            metrics["train_quality_loss"] = totals["quality_loss"] / denominator
     return metrics
 
 

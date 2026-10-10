@@ -20,6 +20,7 @@ from training.experiments.tables import (
 from training.post_training_evaluation import (
     prepare_post_training_evaluation_launch,
 )
+from training.runtime import parse_gpu_ids
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -187,8 +188,7 @@ def _launch_parallel_training_task(
     log_file = log_path.open("w", encoding="utf-8", buffering=1)
     environment = os.environ.copy()
     environment["PYTHONUNBUFFERED"] = "1"
-    command = [
-        sys.executable,
+    worker_command = [
         "-m",
         "training.experiments.worker",
         "--config",
@@ -196,6 +196,18 @@ def _launch_parallel_training_task(
         "--result",
         str(result_path),
     ]
+    gpu_ids = parse_gpu_ids(str(gpu_slot))
+    if len(gpu_ids) > 1:
+        command = [
+            sys.executable,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            f"--nproc_per_node={len(gpu_ids)}",
+            *worker_command,
+        ]
+    else:
+        command = [sys.executable, *worker_command]
     try:
         process = subprocess.Popen(
             command,

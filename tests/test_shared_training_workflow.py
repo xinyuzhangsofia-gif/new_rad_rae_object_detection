@@ -18,6 +18,7 @@ from training.checkpoints import build_checkpoint_payload
 from training.configuration import SUPPORTED_TRAINING_SPLIT_MODES
 from training.logging_utils import write_tensorboard_run_config
 from training.checkpoints import BestCheckpointState
+from training.runtime import DistributedTrainingContext
 from tests.checkpoint_fixtures import current_checkpoint
 
 
@@ -212,8 +213,11 @@ class TrainingWriterLifecycleTests(unittest.TestCase):
         ))
         self.patch_stack.enter_context(mock.patch.object(
             runner,
-            "select_device_and_gpus",
-            return_value=(torch.device("cpu"), []),
+            "initialize_distributed_training",
+            return_value=DistributedTrainingContext(
+                device=torch.device("cpu"),
+                gpu_ids=(),
+            ),
         ))
         self.patch_stack.enter_context(mock.patch.object(
             runner,
@@ -745,6 +749,66 @@ class SharedEpochWorkflowTests(unittest.TestCase):
                 ("checkpoint", 8),
             ],
         )
+
+    def test_non_main_ddp_rank_only_trains_and_waits_for_rank_zero(self):
+        args = SimpleNamespace(
+            heatmap_radius=3,
+            centerpoint_gwd_loss_weight=2.0,
+            quality_loss_weight=0.25,
+            ignore_mask_margin=1.0,
+            ignore_mask_expand_ratio=1.5,
+            num_classes=2,
+            box_coordinate_mode="cartesian",
+            training_eval_enabled=True,
+            training_eval_best_metric_key="auto",
+            training_eval_official_enabled=True,
+            training_eval_iou_mode="easy",
+            checkpoint_epoch_step=1,
+        )
+        context = DistributedTrainingContext(
+            device=torch.device("cpu"),
+            gpu_ids=(),
+            rank=1,
+            local_rank=1,
+            world_size=2,
+        )
+        optimizer = SimpleNamespace(param_groups=[{"lr": 5e-5}])
+        with (
+            mock.patch.object(
+                runner,
+                "train_one_epoch",
+                return_value={"train_loss": 1.0},
+            ) as train,
+            mock.patch.object(runner, "validate_loss") as validate,
+            mock.patch.object(runner, "evaluate_train_val_iou") as evaluate,
+            mock.patch.object(
+                runner,
+                "save_epoch_and_update_best_checkpoint",
+            ) as save,
+            mock.patch.object(runner, "distributed_barrier") as barrier,
+        ):
+            runner.run_training_epochs(
+                args=args,
+                model=object(),
+                optimizer=optimizer,
+                scheduler=None,
+                train_loader=object(),
+                val_loader=object(),
+                device=torch.device("cpu"),
+                writer=None,
+                best_state=object(),
+                checkpoint_dir="unused",
+                start_epoch=1,
+                end_epoch=1,
+                loss_mode="centerpoint",
+                distributed_context=context,
+            )
+
+        train.assert_called_once()
+        validate.assert_not_called()
+        evaluate.assert_not_called()
+        save.assert_not_called()
+        barrier.assert_called_once_with(context)
 
     def test_checkpoint_payload_top_level_contract_is_unchanged(self):
         model = torch.nn.Linear(2, 1)

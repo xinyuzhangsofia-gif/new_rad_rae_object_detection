@@ -4,6 +4,7 @@ import json
 
 import torch
 from torch.utils.data import DataLoader, Subset
+from torch.utils.data.distributed import DistributedSampler
 
 from configs.coordinates import (
     BOX_COORDINATE_CARTESIAN,
@@ -59,6 +60,22 @@ _BATCH_LIST_FIELDS = (
     "num_override_ignored",
     "num_override_ignored_after_fov",
 )
+
+
+def resolve_distributed_batch_size(batch_size, world_size):
+    """Convert the configured global batch size to one process's batch size."""
+    batch_size = int(batch_size)
+    world_size = int(world_size)
+    if world_size < 1:
+        raise ValueError("distributed_world_size must be at least 1.")
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1.")
+    if batch_size % world_size != 0:
+        raise ValueError(
+            f"Global batch_size={batch_size} must be divisible by DDP "
+            f"world size {world_size}."
+        )
+    return batch_size // world_size
 
 
 def detection_collate(batch):
@@ -191,6 +208,8 @@ def build_train_val_dataloaders(
     ignore_object_label_minus_one=False,
     ignore_out_of_scope_gt=True,
     eval_gt_object_ignore_override_path=None,
+    distributed_rank=0,
+    distributed_world_size=1,
 ):
     box_coordinate_mode = require_cartesian_data(box_coordinate_mode)
     if train_sequence_half_selection and split_mode != "sequence":
@@ -277,13 +296,36 @@ def build_train_val_dataloaders(
     train_dataset = Subset(train_source_dataset, train_indices)
     val_dataset = Subset(eval_source_dataset, val_indices)
 
+    distributed_world_size = int(distributed_world_size)
+    distributed_rank = int(distributed_rank)
+    train_batch_size = resolve_distributed_batch_size(
+        batch_size,
+        distributed_world_size,
+    )
+    if distributed_rank < 0 or distributed_rank >= distributed_world_size:
+        raise ValueError(
+            f"distributed_rank {distributed_rank} is outside "
+            f"distributed_world_size {distributed_world_size}."
+        )
+    train_sampler = None
+    if distributed_world_size > 1:
+        train_sampler = DistributedSampler(
+            train_dataset,
+            num_replicas=distributed_world_size,
+            rank=distributed_rank,
+            shuffle=True,
+            seed=seed,
+            drop_last=False,
+        )
+
     loader_generator = torch.Generator()
-    loader_generator.manual_seed(seed)
+    loader_generator.manual_seed(seed + distributed_rank)
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
+        batch_size=train_batch_size,
+        shuffle=train_sampler is None,
+        sampler=train_sampler,
         collate_fn=detection_collate,
         num_workers=num_workers,
         generator=loader_generator,
@@ -298,6 +340,17 @@ def build_train_val_dataloaders(
     )
 
     return train_dataset, val_dataset, train_loader, val_loader
+
+
+def build_full_detection_dataloader(dataset, batch_size, num_workers):
+    """Build an ordered full-dataset loader for rank-zero evaluation."""
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=detection_collate,
+        num_workers=num_workers,
+    )
 
 
 def build_evaluation_dataloader(

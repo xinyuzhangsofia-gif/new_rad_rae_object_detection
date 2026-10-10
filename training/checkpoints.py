@@ -11,6 +11,7 @@ from training.configuration import (
     normalize_train_sequence_half_ratio,
     normalize_train_sequence_half_selection,
 )
+from training.runtime import unwrap_model
 
 
 EXPERIMENT_NAME = "object_detection"
@@ -352,7 +353,7 @@ def build_checkpoint_payload(
         is_best,
         clone_for_memory=False
     ):
-    model_for_state_dict = model.module if isinstance(model, torch.nn.DataParallel) else model
+    model_for_state_dict = unwrap_model(model)
     payload = {
         "epoch": epoch,
         "saved_at": saved_at,

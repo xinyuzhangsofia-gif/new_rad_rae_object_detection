@@ -19,6 +19,7 @@ from training.runner import (
     run_training,
     validate_training_args,
 )
+from training.runtime import is_main_process, unwrap_model
 from training.torch_load import load_torch_checkpoint
 
 
@@ -125,10 +126,7 @@ def load_resume_checkpoint(
             )
 
     state_dict = checkpoint["model_state_dict"]
-    model_for_state_dict = (
-        model.module if isinstance(model, torch.nn.DataParallel) else model
-    )
-    model_for_state_dict.load_state_dict(state_dict, strict=True)
+    unwrap_model(model).load_state_dict(state_dict, strict=True)
 
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     for state in optimizer.state.values():
@@ -166,7 +164,7 @@ def resolve_resume_start_epoch(configured_start_epoch, checkpoint_epoch):
 
 
 def restore_resume_training_state(*, args, model, optimizer, scheduler, device):
-    """Restore state after optimizer construction and DataParallel wrapping."""
+    """Restore state after optimizer construction and optional DDP wrapping."""
     (
         checkpoint_epoch,
         _checkpoint_model_type,
@@ -193,11 +191,13 @@ def restore_resume_training_state(*, args, model, optimizer, scheduler, device):
             f"start_epoch {args.start_epoch} is greater than "
             f"end_epoch {args.end_epoch}"
         )
-    print(
-        f"Loaded checkpoint epoch={checkpoint_epoch}, "
-        f"optimizer_loaded={optimizer_loaded}, scheduler_loaded={scheduler_loaded}"
-    )
-    print(f"Resume training epochs: {args.start_epoch}-{args.end_epoch}")
+    if is_main_process():
+        print(
+            f"Loaded checkpoint epoch={checkpoint_epoch}, "
+            f"optimizer_loaded={optimizer_loaded}, "
+            f"scheduler_loaded={scheduler_loaded}"
+        )
+        print(f"Resume training epochs: {args.start_epoch}-{args.end_epoch}")
     return args.start_epoch
 
 
@@ -269,11 +269,14 @@ def main(resume_config=None):
 
     args = build_resume_args(resume_config=resume_config)
     args.epochs = args.end_epoch
-    print(f"Resume checkpoint: {args.resume_checkpoint}")
-    if args.training_eval_enabled:
-        print(f"Initial best checkpoint: {args.initial_best_checkpoint}")
-    elif args.initial_best_checkpoint:
-        print("Initial best checkpoint: ignored because best selection is disabled")
+    if is_main_process():
+        print(f"Resume checkpoint: {args.resume_checkpoint}")
+        if args.training_eval_enabled:
+            print(f"Initial best checkpoint: {args.initial_best_checkpoint}")
+        elif args.initial_best_checkpoint:
+            print(
+                "Initial best checkpoint: ignored because best selection is disabled"
+            )
 
     def initialize_resume_best_state(best_state, checkpoint_dir):
         initial_best_path = initialize_best_state(

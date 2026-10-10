@@ -196,6 +196,10 @@ class ExperimentQueueModuleTests(unittest.TestCase):
             expected_command = [
                 sys.executable,
                 "-m",
+                "torch.distributed.run",
+                "--standalone",
+                "--nproc_per_node=2",
+                "-m",
                 "training.experiments.worker",
                 "--config",
                 str(session_dir / f"{runtime_slug}.config.pkl"),

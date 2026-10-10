@@ -8,11 +8,13 @@ import sys
 from types import SimpleNamespace
 
 import torch
+from torch.nn.parallel import DistributedDataParallel
 
 from configs.data import KRADAR_SEQUENCE_IDS
 from configs.training import TRAIN_CONFIG
 from data.coordinates import SCOPE_CHOICES
 from data.dataloader import (
+    build_full_detection_dataloader,
     build_train_val_dataloaders,
     get_dataset_sequences_for_split,
     prepare_model_inputs,
@@ -51,7 +53,15 @@ from training.logging_utils import (
     write_tensorboard_run_config,
 )
 from training.post_training_evaluation import run_post_training_evaluation
-from training.runtime import select_device_and_gpus, set_seed
+from training.runtime import (
+    broadcast_object,
+    cleanup_distributed_training,
+    distributed_barrier,
+    distributed_launch_requested,
+    initialize_distributed_training,
+    set_seed,
+    unwrap_model,
+)
 from training.loop import train_one_epoch, validate_loss
 
 
@@ -190,8 +200,14 @@ def print_training_configuration(args, loss_mode):
         print("Model15 LR mode: official RADE-Net CosineAnnealingLR")
 
 
-def build_training_data(args):
+def build_training_data(args, distributed_context=None):
     """Build the datasets and loaders used by both training workflows."""
+    distributed_rank = (
+        0 if distributed_context is None else distributed_context.rank
+    )
+    distributed_world_size = (
+        1 if distributed_context is None else distributed_context.world_size
+    )
     result = build_train_val_dataloaders(
         batch_size=args.batch_size,
         seed=args.seed,
@@ -214,6 +230,8 @@ def build_training_data(args):
         cartesian_gt_root=args.cartesian_gt_root,
         ignore_object_label_minus_one=args.ignore_object_label_minus_one,
         ignore_out_of_scope_gt=args.ignore_out_of_scope_gt,
+        distributed_rank=distributed_rank,
+        distributed_world_size=distributed_world_size,
     )
     if len(result[1]) == 0:
         raise ValueError("Validation split is empty.")
@@ -226,8 +244,9 @@ def build_training_components(
     gpu_ids,
     train_dataset,
     loss_mode,
+    distributed_context=None,
 ):
-    """Build model, DataParallel wrapper, optimizer, and scheduler in order."""
+    """Build model, optional DDP wrapper, optimizer, and scheduler in order."""
     model = build_model(
         model_type=args.model_type,
         device=device,
@@ -240,13 +259,25 @@ def build_training_components(
         box_coordinate_mode=args.box_coordinate_mode,
         loss_mode=loss_mode,
     )
-    if len(gpu_ids) > 1:
-        model = torch.nn.DataParallel(
-            model,
-            device_ids=gpu_ids,
-            output_device=gpu_ids[0],
+    if distributed_context is not None and distributed_context.enabled:
+        if device.type == "cuda":
+            model = DistributedDataParallel(
+                model,
+                device_ids=[device.index],
+                output_device=device.index,
+            )
+        else:
+            model = DistributedDataParallel(model)
+        if distributed_context.is_main_process:
+            print(
+                "Using DistributedDataParallel: "
+                f"world_size={distributed_context.world_size}, "
+                f"GPUs={list(gpu_ids)}"
+            )
+    elif len(gpu_ids) > 1:
+        raise RuntimeError(
+            "Multiple GPUs require an initialized DistributedDataParallel context."
         )
-        print(f"Using DataParallel on GPUs: {gpu_ids}")
     else:
         print(f"Using device: {device}")
 
@@ -388,10 +419,18 @@ def run_training_epochs(
     start_epoch,
     end_epoch,
     loss_mode,
+    distributed_context=None,
+    train_eval_loader=None,
     include_detection_metrics_setting=True,
     print_saved_checkpoints=False,
 ):
     """Run the common ordered train/validate/evaluate/save epoch sequence."""
+    is_main_process = (
+        distributed_context is None
+        or distributed_context.is_main_process
+    )
+    evaluation_model = unwrap_model(model)
+    train_eval_loader = train_loader if train_eval_loader is None else train_eval_loader
     for epoch_number in range(start_epoch, end_epoch + 1):
         train_metrics = train_one_epoch(
             model=model,
@@ -412,77 +451,80 @@ def run_training_epochs(
             num_classes=args.num_classes,
             box_coordinate_mode=args.box_coordinate_mode,
         )
-        val_loss_metrics = validate_loss(
-            model=model,
-            dataloader=val_loader,
-            device=device,
-            box_loss_weight=1.0,
-            cls_loss_weight=1.0,
-            heatmap_radius=args.heatmap_radius,
-            centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
-            quality_loss_weight=args.quality_loss_weight,
-            ignore_mask_margin=args.ignore_mask_margin,
-            ignore_mask_expand_ratio=args.ignore_mask_expand_ratio,
-            loss_mode=loss_mode,
-            num_classes=args.num_classes,
-            box_coordinate_mode=args.box_coordinate_mode,
-        )
-
-        eval_metrics = None
-        if args.training_eval_enabled:
-            evaluation_kwargs = _training_evaluation_kwargs(
-                args,
-                include_detection_metrics_setting,
-            )
-            eval_metrics = evaluate_train_val_iou(
-                model=model,
-                train_dataloader=train_loader,
-                val_dataloader=val_loader,
+        if is_main_process:
+            val_loss_metrics = validate_loss(
+                model=evaluation_model,
+                dataloader=val_loader,
                 device=device,
-                **evaluation_kwargs,
+                box_loss_weight=1.0,
+                cls_loss_weight=1.0,
+                heatmap_radius=args.heatmap_radius,
+                centerpoint_gwd_loss_weight=args.centerpoint_gwd_loss_weight,
+                quality_loss_weight=args.quality_loss_weight,
+                ignore_mask_margin=args.ignore_mask_margin,
+                ignore_mask_expand_ratio=args.ignore_mask_expand_ratio,
+                loss_mode=loss_mode,
+                num_classes=args.num_classes,
+                box_coordinate_mode=args.box_coordinate_mode,
             )
 
-        val_metrics, f1 = build_epoch_eval_metrics(
-            eval_metrics=eval_metrics,
-            val_loss_metrics=val_loss_metrics,
-            training_eval_enabled=args.training_eval_enabled,
-            best_metric_key=args.training_eval_best_metric_key,
-            official_eval_enabled=args.training_eval_official_enabled,
-            official_eval_iou_mode=args.training_eval_iou_mode,
-        )
-        print_epoch_evaluation_summary(
-            epoch=epoch_number,
-            val_metrics=val_metrics,
-            f1=f1,
-        )
+            eval_metrics = None
+            if args.training_eval_enabled:
+                evaluation_kwargs = _training_evaluation_kwargs(
+                    args,
+                    include_detection_metrics_setting,
+                )
+                eval_metrics = evaluate_train_val_iou(
+                    model=evaluation_model,
+                    train_dataloader=train_eval_loader,
+                    val_dataloader=val_loader,
+                    device=device,
+                    **evaluation_kwargs,
+                )
 
-        learning_rate = optimizer.param_groups[0]["lr"]
-        write_tensorboard_metrics(
-            writer=writer,
-            epoch=epoch_number,
-            train_metrics=train_metrics,
-            val_metrics=val_metrics,
-            f1=f1,
-            learning_rate=learning_rate,
-        )
-        checkpoint_path = save_epoch_and_update_best_checkpoint(
-            best_state=best_state,
-            checkpoint_dir=checkpoint_dir,
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            args=args,
-            epoch=epoch_number,
-            train_metrics=train_metrics,
-            val_metrics=val_metrics,
-            f1=f1,
-            learning_rate=learning_rate,
-            total_epochs=end_epoch,
-            checkpoint_epoch_step=args.checkpoint_epoch_step,
-            best_selection_enabled=args.training_eval_enabled,
-        )
-        if print_saved_checkpoints and checkpoint_path is not None:
-            print(f"Saved checkpoint: {checkpoint_path}")
+            val_metrics, f1 = build_epoch_eval_metrics(
+                eval_metrics=eval_metrics,
+                val_loss_metrics=val_loss_metrics,
+                training_eval_enabled=args.training_eval_enabled,
+                best_metric_key=args.training_eval_best_metric_key,
+                official_eval_enabled=args.training_eval_official_enabled,
+                official_eval_iou_mode=args.training_eval_iou_mode,
+            )
+            print_epoch_evaluation_summary(
+                epoch=epoch_number,
+                val_metrics=val_metrics,
+                f1=f1,
+            )
+
+            learning_rate = optimizer.param_groups[0]["lr"]
+            write_tensorboard_metrics(
+                writer=writer,
+                epoch=epoch_number,
+                train_metrics=train_metrics,
+                val_metrics=val_metrics,
+                f1=f1,
+                learning_rate=learning_rate,
+            )
+            checkpoint_path = save_epoch_and_update_best_checkpoint(
+                best_state=best_state,
+                checkpoint_dir=checkpoint_dir,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                args=args,
+                epoch=epoch_number,
+                train_metrics=train_metrics,
+                val_metrics=val_metrics,
+                f1=f1,
+                learning_rate=learning_rate,
+                total_epochs=end_epoch,
+                checkpoint_epoch_step=args.checkpoint_epoch_step,
+                best_selection_enabled=args.training_eval_enabled,
+            )
+            if print_saved_checkpoints and checkpoint_path is not None:
+                print(f"Saved checkpoint: {checkpoint_path}")
+        if distributed_context is not None:
+            distributed_barrier(distributed_context)
 
 
 def run_training(
@@ -501,116 +543,168 @@ def run_training(
     state are resume policies. The reporting flag affects messages only.
     """
     args = prepare_training_configuration(args)
-    set_seed(args.seed)
-    configured_sequences = get_dataset_sequences_for_split(
-        split_mode=args.split_mode,
-        default_sequences=KRADAR_SEQUENCE_IDS,
-        train_sequences=args.train_sequences,
-        val_sequences=args.val_sequences,
-    )
-    args = prepare_training_task_configuration(args)
-    loss_mode = resolve_loss_mode(
-        args.model_type,
-        box_coordinate_mode=args.box_coordinate_mode,
-        loss_mode=args.loss_mode,
-    )
-    print_training_configuration(args, loss_mode)
-
-    device, gpu_ids = select_device_and_gpus(args.gpu_ids)
-    train_dataset, val_dataset, train_loader, val_loader = build_training_data(args)
-    model, optimizer, scheduler = build_training_components(
-        args=args,
-        device=device,
-        gpu_ids=gpu_ids,
-        train_dataset=train_dataset,
-        loss_mode=loss_mode,
-    )
-
-    start_epoch = 1
-    if restore_training_state is not None:
-        start_epoch = restore_training_state(
-            args=args,
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            device=device,
-        )
-    end_epoch = args.epochs
-
-    directory_resolver = (
-        create_training_checkpoint_directories
-        if resolve_checkpoint_directories is None
-        else resolve_checkpoint_directories
-    )
-    checkpoint_dirs, checkpoint_key, checkpoint_dir = directory_resolver(
-        args,
-        configured_sequences,
-    )
-    if report_resume_progress:
-        print(f"Saving checkpoints to: {checkpoint_dir}")
-
-    tensorboard_run_relative_path = None
-    if existing_tensorboard_log_dir in (None, ""):
-        tensorboard_run_relative_path = checkpoint_run_relative_path(
-            checkpoint_dir,
-            args.checkpoint_base_dir,
-        )
-    writer = create_tensorboard_writer(
-        base_dir=args.log_base_dir,
-        run_relative_path=tensorboard_run_relative_path,
-        existing_log_dir=existing_tensorboard_log_dir,
-    )
+    distributed_context = initialize_distributed_training(args.gpu_ids)
+    is_main_process = distributed_context.is_main_process
+    checkpoint_dir = None
+    post_training_evaluation_args = None
     try:
-        write_training_run_config(
-            writer=writer,
-            args=args,
-            train_dataset=train_dataset,
-            val_dataset=val_dataset,
-            loss_mode=loss_mode,
+        set_seed(args.seed)
+        prepared_configuration = None
+        if is_main_process:
+            configured_sequences = get_dataset_sequences_for_split(
+                split_mode=args.split_mode,
+                default_sequences=KRADAR_SEQUENCE_IDS,
+                train_sequences=args.train_sequences,
+                val_sequences=args.val_sequences,
+            )
+            args = prepare_training_task_configuration(args)
+            prepared_configuration = (vars(args), configured_sequences)
+        args_values, configured_sequences = broadcast_object(
+            prepared_configuration,
+            distributed_context,
         )
+        args = SimpleNamespace(**args_values)
+        loss_mode = resolve_loss_mode(
+            args.model_type,
+            box_coordinate_mode=args.box_coordinate_mode,
+            loss_mode=args.loss_mode,
+        )
+        if is_main_process:
+            print_training_configuration(args, loss_mode)
 
-        best_state = BestCheckpointState()
+        device = distributed_context.device
+        gpu_ids = distributed_context.gpu_ids
+        train_dataset, val_dataset, train_loader, val_loader = (
+            build_training_data(args, distributed_context)
+        )
+        train_eval_loader = None
         if (
-            args.training_eval_enabled
-            and initialize_best_state_callback is not None
+            is_main_process
+            and distributed_context.enabled
+            and args.training_eval_enabled
+            and args.training_eval_train_set_enabled
         ):
-            initialize_best_state_callback(best_state, checkpoint_dir)
-
-        run_training_epochs(
+            train_eval_loader = build_full_detection_dataloader(
+                train_dataset,
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+            )
+        model, optimizer, scheduler = build_training_components(
             args=args,
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            train_loader=train_loader,
-            val_loader=val_loader,
             device=device,
-            writer=writer,
-            best_state=best_state,
-            checkpoint_dir=checkpoint_dir,
-            start_epoch=start_epoch,
-            end_epoch=end_epoch,
+            gpu_ids=gpu_ids,
+            train_dataset=train_dataset,
             loss_mode=loss_mode,
-            include_detection_metrics_setting=include_detection_metrics_setting,
-            print_saved_checkpoints=report_resume_progress,
+            distributed_context=distributed_context,
         )
-    finally:
-        writer.close()
 
-    if args.training_eval_enabled:
-        global_best_path, _ = save_global_best_checkpoint(
-            best_state=best_state,
-            checkpoint_dirs=checkpoint_dirs,
-            checkpoint_key=checkpoint_key,
+        start_epoch = 1
+        if restore_training_state is not None:
+            start_epoch = restore_training_state(
+                args=args,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                device=device,
+            )
+        end_epoch = args.epochs
+
+        checkpoint_information = None
+        if is_main_process:
+            directory_resolver = (
+                create_training_checkpoint_directories
+                if resolve_checkpoint_directories is None
+                else resolve_checkpoint_directories
+            )
+            checkpoint_information = directory_resolver(
+                args,
+                configured_sequences,
+            )
+        checkpoint_dirs, checkpoint_key, checkpoint_dir = broadcast_object(
+            checkpoint_information,
+            distributed_context,
         )
-        if report_resume_progress and global_best_path is not None:
-            print(f"Current global best checkpoint: {global_best_path}")
-    del model, optimizer, scheduler, train_loader, val_loader
-    run_post_training_evaluation(
-        checkpoint_root=checkpoint_dir,
-        gpu_ids_text=args.gpu_ids,
-        enabled=args.post_training_eval_enabled,
-        min_free_memory_mb=args.post_training_eval_min_free_memory_mb,
-    )
+        if report_resume_progress and is_main_process:
+            print(f"Saving checkpoints to: {checkpoint_dir}")
+
+        writer = None
+        if is_main_process:
+            tensorboard_run_relative_path = None
+            if existing_tensorboard_log_dir in (None, ""):
+                tensorboard_run_relative_path = checkpoint_run_relative_path(
+                    checkpoint_dir,
+                    args.checkpoint_base_dir,
+                )
+            writer = create_tensorboard_writer(
+                base_dir=args.log_base_dir,
+                run_relative_path=tensorboard_run_relative_path,
+                existing_log_dir=existing_tensorboard_log_dir,
+            )
+        try:
+            if is_main_process:
+                write_training_run_config(
+                    writer=writer,
+                    args=args,
+                    train_dataset=train_dataset,
+                    val_dataset=val_dataset,
+                    loss_mode=loss_mode,
+                )
+
+            best_state = BestCheckpointState()
+            if (
+                is_main_process
+                and args.training_eval_enabled
+                and initialize_best_state_callback is not None
+            ):
+                initialize_best_state_callback(best_state, checkpoint_dir)
+
+            run_training_epochs(
+                args=args,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                train_loader=train_loader,
+                train_eval_loader=train_eval_loader,
+                val_loader=val_loader,
+                device=device,
+                writer=writer,
+                best_state=best_state,
+                checkpoint_dir=checkpoint_dir,
+                start_epoch=start_epoch,
+                end_epoch=end_epoch,
+                loss_mode=loss_mode,
+                distributed_context=distributed_context,
+                include_detection_metrics_setting=(
+                    include_detection_metrics_setting
+                ),
+                print_saved_checkpoints=report_resume_progress,
+            )
+        finally:
+            if writer is not None:
+                writer.close()
+
+        if is_main_process and args.training_eval_enabled:
+            global_best_path, _ = save_global_best_checkpoint(
+                best_state=best_state,
+                checkpoint_dirs=checkpoint_dirs,
+                checkpoint_key=checkpoint_key,
+            )
+            if report_resume_progress and global_best_path is not None:
+                print(f"Current global best checkpoint: {global_best_path}")
+        distributed_barrier(distributed_context)
+
+        del model, optimizer, scheduler, train_loader, val_loader
+        post_training_evaluation_args = {
+            "checkpoint_root": checkpoint_dir,
+            "gpu_ids_text": args.gpu_ids,
+            "enabled": args.post_training_eval_enabled,
+            "min_free_memory_mb": args.post_training_eval_min_free_memory_mb,
+        }
+    finally:
+        cleanup_distributed_training(distributed_context)
+
+    if is_main_process:
+        run_post_training_evaluation(**post_training_evaluation_args)
     return checkpoint_dir
 
 
@@ -626,6 +720,11 @@ def main(train_config=None, _experiment_queue_child=False):
         not _experiment_queue_child
         and bool(config.get("experiment_queue_enabled", False))
     ):
+        if distributed_launch_requested():
+            raise RuntimeError(
+                "The experiment queue manages isolated single-GPU workers and "
+                "must be launched with python train.py, not torchrun."
+            )
         return run_domain_shift_experiment_queue(base_config=config)
 
     args = build_train_args(train_config=train_config)

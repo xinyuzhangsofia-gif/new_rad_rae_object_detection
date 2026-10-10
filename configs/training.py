@@ -26,6 +26,7 @@ TRAIN_CONFIG = {
 
     # Model and optimization.
     "epochs": 30,
+    # Global batch size; for DDP it must be divisible by the process count.
     "batch_size": 8,
     "lr": 5e-5,
     "max_detections": 64,

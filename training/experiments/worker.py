@@ -37,6 +37,7 @@ def run_training_job(config_path, result_path):
     result_path = Path(result_path).expanduser().resolve()
     with config_path.open("rb") as input_file:
         train_config = pickle.load(input_file)
+    from training.runtime import is_main_process
 
     try:
         from training.runner import main as train_main
@@ -45,6 +46,8 @@ def run_training_job(config_path, result_path):
             train_config=train_config,
             _experiment_queue_child=True,
         )
+        if not is_main_process():
+            return 0
         if checkpoint_root in (None, ""):
             raise RuntimeError(
                 "The training subprocess completed without returning its "
@@ -62,7 +65,8 @@ def run_training_job(config_path, result_path):
             "error": f"{type(error).__name__}: {error}",
             "traceback": traceback.format_exc(),
         }
-        _atomic_write_json(result_path, payload)
+        if is_main_process():
+            _atomic_write_json(result_path, payload)
         raise
 
     _atomic_write_json(result_path, payload)

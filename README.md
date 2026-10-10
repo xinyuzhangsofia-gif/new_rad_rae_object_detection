@@ -339,6 +339,36 @@ TRAIN_RUNTIME_CONFIG = {
 
 and a smaller training `batch_size`. The full experiment queue intentionally requires parallel workers, so it has no universally safe serial single-GPU preset. On a one-GPU machine, use the single-pair workflow below. Standalone evaluation should also change `EVALUATION_RUNTIME_CONFIG["gpu_ids"]` and `cuda` from the checked-in multi-GPU values.
 
+Ordinary multi-GPU training uses PyTorch DistributedDataParallel (DDP). Set
+`TRAIN_RUNTIME_CONFIG["gpu_ids"]` to one entry per process, keep the global
+`batch_size` divisible by that process count, and launch with `torchrun`:
+
+```python
+TRAIN_RUNTIME_CONFIG = {
+    "num_workers": 0,
+    "gpu_ids": "0,1,2",
+    "post_training_eval_min_free_memory_mb": 4096,
+}
+```
+
+In `configs/training.py`, use a divisible global batch size, for example:
+
+```python
+# 12 / 3 processes = 4 samples per GPU
+"batch_size": 12,
+```
+
+```bash
+torchrun --standalone --nproc_per_node=3 train.py
+```
+
+Resume the same three-GPU run with
+`torchrun --standalone --nproc_per_node=3 train_resume.py`. Validation,
+TensorBoard logging, checkpoint saving, and post-training evaluation run only
+on rank zero. The experiment queue still assigns isolated GPU slots itself;
+when a queue slot contains multiple GPUs, its worker is launched through DDP
+automatically.
+
 ### Debug one Source/Target pair
 
 To validate a new domain definition before launching the queue, disable the queue and configure one source run:

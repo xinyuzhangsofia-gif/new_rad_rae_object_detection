@@ -3,6 +3,7 @@
 
 TRAIN_RUNTIME_CONFIG = {
     "num_workers": 0,
+    # One ID for `python train.py`; multiple IDs require matching torchrun workers.
     "gpu_ids": "0,",
     "post_training_eval_min_free_memory_mb": 4096,
 }
